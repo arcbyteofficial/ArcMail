@@ -8,6 +8,7 @@ import logo from '../../assets/arcbyte.co Logo_white_transparent.png';
 const MailLogin = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
@@ -19,7 +20,7 @@ const MailLogin = () => {
     setIsLoading(true);
 
     try {
-      const success = await login(password, email);
+      const success = await login(password, email, rememberMe);
       if (success) {
         navigate('/mail');
       } else {
@@ -56,7 +57,7 @@ const MailLogin = () => {
           <div className="flex flex-col">
             <span className="font-display font-bold text-lg tracking-tight">ArcByte</span>
             <span className="text-[10px] font-mono uppercase tracking-[0.22em] text-white/40">
-              Internal Mail
+              ArcMail for Operators
             </span>
           </div>
         </motion.div>
@@ -87,14 +88,14 @@ const MailLogin = () => {
             </div>
 
             <h1 className="text-5xl md:text-7xl lg:text-8xl font-display font-bold leading-[0.9] tracking-tighter text-white mb-8">
-              Mail
+              ArcMail
               <br />
-              <span className="text-white/15">for operators.</span>
+              <span className="text-white/15">For Operators.</span>
             </h1>
 
             <p className="text-lg text-white/45 max-w-xl font-light leading-relaxed">
-              Sign in with your ArcByte mailbox to enter a focused, low-latency workspace for
-              conversations that move work forward.
+              Sign in with your ArcMail Login Credentials to enter a focused, low-latency workspace
+              for conversations that move work forward.
             </p>
           </motion.div>
         </div>
@@ -109,11 +110,11 @@ const MailLogin = () => {
             <div className="mb-8">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/[0.03] text-[10px] font-mono uppercase tracking-[0.22em] text-white/45 mb-4">
                 <Mail size={12} className="text-accent" />
-                <span>ArcByte Mail</span>
+                <span>ArcMail</span>
               </div>
-              <h2 className="text-2xl font-display font-bold mb-2">Authenticate mailbox</h2>
+              <h2 className="text-2xl font-display font-bold mb-2">ArcMail Login</h2>
               <p className="text-sm text-white/40">
-                Use your Hostinger mailbox credentials. Access is audited and encrypted at rest.
+                Use your ArcMail Login Credentials. Access is audited and encrypted at rest.
               </p>
             </div>
 
@@ -128,7 +129,7 @@ const MailLogin = () => {
               <div className="space-y-6">
                 <div className="group">
                   <label className="block text-xs font-mono uppercase tracking-widest text-white/40 mb-2 group-focus-within:text-accent transition-colors">
-                    Mailbox
+                    Email
                   </label>
                   <input
                     type="email"
@@ -157,7 +158,16 @@ const MailLogin = () => {
                 </div>
               </div>
 
-              <div className="flex items-center justify-end text-xs text-white/40">
+              <div className="flex items-center justify-between text-xs text-white/40">
+                <label className="flex items-center gap-2 cursor-pointer hover:text-white transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="appearance-none w-4 h-4 rounded border border-white/15 bg-[#141414] checked:bg-accent checked:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 transition-all"
+                  />
+                  Remember me
+                </label>
                 <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-white/35">
                   Internal use only
                 </span>
@@ -166,7 +176,7 @@ const MailLogin = () => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-accent hover:bg-accent/90 text-white h-12 font-semibold tracking-[0.18em] text-xs flex items-center justify-center gap-2 transition-all duration-300 shadow-[0_0_18px_rgba(99,102,241,0.45)] hover:shadow-[0_0_26px_rgba(99,102,241,0.75)] disabled:opacity-50 disabled:cursor-not-allowed group"
+                className="w-full bg-accent hover:bg-accent/90 text-black h-12 font-semibold tracking-[0.18em] text-xs flex items-center justify-center gap-2 transition-all duration-300 shadow-[0_0_18px_rgba(99,102,241,0.45)] hover:shadow-[0_0_26px_rgba(99,102,241,0.75)] disabled:opacity-50 disabled:cursor-not-allowed group"
               >
                 {isLoading ? (
                   <Loader2 className="animate-spin" size={18} />
@@ -182,7 +192,7 @@ const MailLogin = () => {
         </div>
       </main>
 
-      <footer className="relative z-20 p-8 md:p-12 flex justify-between items-end text-[10px] uppercase tracking-widest text-white/25 font-mono">
+      <footer className="relative z-20 hidden md:flex p-8 md:p-12 justify-between items-end text-[10px] uppercase tracking-widest text-white/25 font-mono">
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
             <Lock size={10} />

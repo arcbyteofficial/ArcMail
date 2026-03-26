@@ -12,15 +12,15 @@ export const api = axios.create({
 
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token') || localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    const mailCsrf = localStorage.getItem('mailCsrf');
+    const mailCsrf = sessionStorage.getItem('mailCsrf') || localStorage.getItem('mailCsrf');
     if (mailCsrf) {
       config.headers['x-csrf-token'] = mailCsrf;
     }
-    const mailSessionId = localStorage.getItem('mailSessionId');
+    const mailSessionId = sessionStorage.getItem('mailSessionId') || localStorage.getItem('mailSessionId');
     if (mailSessionId) {
       config.headers['x-mail-session'] = mailSessionId;
     }
@@ -37,14 +37,22 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       // Clear storage and redirect to login if unauthorized
-      localStorage.removeItem('token');
-      localStorage.removeItem('isAuthenticated');
-      localStorage.removeItem('userRole');
-      localStorage.removeItem('userName');
-      localStorage.removeItem('userEmail');
-      localStorage.removeItem('userId');
-      localStorage.removeItem('mailCsrf');
-      localStorage.removeItem('mailSessionId');
+      const keys = [
+        'token',
+        'isAuthenticated',
+        'userRole',
+        'userName',
+        'userEmail',
+        'userId',
+        'userStatus',
+        'clientId',
+        'mailCsrf',
+        'mailSessionId',
+      ];
+      keys.forEach((k) => {
+        localStorage.removeItem(k);
+        sessionStorage.removeItem(k);
+      });
       
       // Only redirect if not already on a login page
       if (!window.location.pathname.includes('login')) {

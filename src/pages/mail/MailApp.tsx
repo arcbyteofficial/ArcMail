@@ -1264,7 +1264,7 @@ const MailAppContent = () => {
       });
       setThreadsCursor(data.nextCursor);
       
-      if (reset && mapped.length > 0 && !isMobile) {
+      if (reset && mapped.length > 0 && !isMobile && !selectedId) {
         setSelectedId(mapped[0].id);
       }
     } catch {
@@ -1272,7 +1272,7 @@ const MailAppContent = () => {
     } finally {
       setThreadsLoading(false);
     }
-  }, [activeFolder, isAuthenticated, threadsCursor, user, isMobile]);
+  }, [activeFolder, isAuthenticated, threadsCursor, user, isMobile, selectedId]);
 
   // Initial load
   useEffect(() => {
@@ -1284,6 +1284,15 @@ const MailAppContent = () => {
       loadThreads({ reset: true });
     }
   }, [activeFolder, isAuthenticated, isLoading, user, loadThreads]);
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && user?.role === 'MAIL_USER') {
+      const intervalId = window.setInterval(() => {
+        loadThreads({ reset: true });
+      }, 15000);
+      return () => window.clearInterval(intervalId);
+    }
+  }, [isAuthenticated, isLoading, user, loadThreads]);
 
   // Load detail
   useEffect(() => {

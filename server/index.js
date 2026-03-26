@@ -79,14 +79,18 @@ const decryptString = ({ iv, tag, ciphertext }) => {
 
 const nowMs = () => Date.now();
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 8 * 60 * 60 * 1000);
+const REMEMBER_ME_TTL_MS = Number(
+  process.env.REMEMBER_ME_TTL_MS || 30 * 24 * 60 * 60 * 1000
+);
 
 const sessions = new Map();
 
-const createSession = ({ email, password }) => {
+const createSession = ({ email, password, ttlMs }) => {
   const sessionId = crypto.randomUUID();
   const csrfToken = crypto.randomBytes(32).toString('hex');
   const encPassword = encryptString(password);
   const createdAt = nowMs();
+  const ttl = typeof ttlMs === 'number' && Number.isFinite(ttlMs) ? ttlMs : SESSION_TTL_MS;
   const session = {
     id: sessionId,
     email,
@@ -94,6 +98,7 @@ const createSession = ({ email, password }) => {
     csrfToken,
     createdAt,
     lastUsedAt: createdAt,
+    ttlMs: ttl,
   };
   sessions.set(sessionId, session);
   return session;
@@ -102,7 +107,7 @@ const createSession = ({ email, password }) => {
 const getSession = (sessionId) => {
   const session = sessions.get(sessionId);
   if (!session) return null;
-  const expired = nowMs() - session.lastUsedAt > SESSION_TTL_MS;
+  const expired = nowMs() - session.lastUsedAt > session.ttlMs;
   if (expired) {
     sessions.delete(sessionId);
     return null;
@@ -112,17 +117,18 @@ const getSession = (sessionId) => {
 };
 
 setInterval(() => {
-  const cutoff = nowMs() - SESSION_TTL_MS;
+  const now = nowMs();
   for (const [id, s] of sessions.entries()) {
-    if (s.lastUsedAt < cutoff) sessions.delete(id);
+    if (now - s.lastUsedAt > s.ttlMs) sessions.delete(id);
   }
-}, Math.min(60_000, Math.max(5_000, Math.floor(SESSION_TTL_MS / 20)))).unref();
+}, Math.min(60_000, Math.max(5_000, Math.floor(SESSION_TTL_MS / 20))));
 
-const signToken = ({ sessionId, email }) => {
+const signToken = ({ sessionId, email, ttlMs }) => {
+  const ttl = typeof ttlMs === 'number' && Number.isFinite(ttlMs) ? ttlMs : SESSION_TTL_MS;
   return jwt.sign(
     { role: 'MAIL_USER', email },
     JWT_SECRET,
-    { subject: sessionId, expiresIn: Math.floor(SESSION_TTL_MS / 1000) }
+    { subject: sessionId, expiresIn: Math.floor(ttl / 1000) }
   );
 };
 
@@ -167,6 +173,24 @@ const requireCsrf = (req, res, next) => {
   next();
 };
 
+const resolveMailboxPath = async (client, requested) => {
+  const req = String(requested || 'INBOX');
+  const reqLower = req.toLowerCase();
+  let suffixMatch = null;
+
+  for await (const box of client.list()) {
+    const path = typeof box.path === 'string' ? box.path : typeof box.name === 'string' ? box.name : '';
+    if (!path) continue;
+    const lower = path.toLowerCase();
+    if (lower === reqLower) return path;
+    if (lower.endsWith(`.${reqLower}`) || lower.endsWith(`/${reqLower}`)) {
+      suffixMatch = path;
+    }
+  }
+
+  return suffixMatch || req;
+};
+
 const withImap = async ({ email, password, folder }, fn) => {
   const client = new ImapFlow({
     host: IMAP_HOST,
@@ -177,7 +201,13 @@ const withImap = async ({ email, password, folder }, fn) => {
   });
   await client.connect();
   try {
-    await client.mailboxOpen(folder);
+    let openPath = String(folder || 'INBOX');
+    try {
+      await client.mailboxOpen(openPath);
+    } catch {
+      openPath = await resolveMailboxPath(client, openPath);
+      await client.mailboxOpen(openPath);
+    }
     return await fn(client);
   } finally {
     try {
@@ -206,6 +236,7 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }));
 app.post('/api/auth/mail-login', async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  const rememberMe = Boolean(req.body?.rememberMe);
 
   if (!email || !password) return res.status(400).json({ error: 'missing_credentials' });
   if (!email.includes('@')) return res.status(400).json({ error: 'invalid_email' });
@@ -217,8 +248,9 @@ app.post('/api/auth/mail-login', async (req, res) => {
     return res.status(401).json({ error: 'invalid_credentials' });
   }
 
-  const session = createSession({ email, password });
-  const token = signToken({ sessionId: session.id, email: session.email });
+  const ttlMs = rememberMe ? REMEMBER_ME_TTL_MS : SESSION_TTL_MS;
+  const session = createSession({ email, password, ttlMs });
+  const token = signToken({ sessionId: session.id, email: session.email, ttlMs });
   const name = email.split('@')[0] || email;
 
   return res.json({
@@ -383,13 +415,19 @@ app.post('/api/auth/logout', requireAuth, (req, res) => {
   return res.json({ ok: true });
 });
 
+app.use((_req, res) => {
+  return res.status(404).json({ error: 'not_found' });
+});
+
 app.use((err, _req, res, _next) => {
   const status = err?.message === 'Not allowed by CORS' ? 403 : 500;
   return res.status(status).json({ error: 'server_error' });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   const origin = allowedOrigins.length ? allowedOrigins[0] : 'unknown';
   const apiUrl = new URL(`http://localhost:${PORT}/api/health`);
   console.log(`API listening on ${apiUrl.toString()} (CORS: ${origin})`);
 });
+
+server.ref?.();
