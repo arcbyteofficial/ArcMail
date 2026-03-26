@@ -1,12 +1,14 @@
 import 'dotenv/config';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import express from 'express';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import nodemailer from 'nodemailer';
-import { URL } from 'node:url';
+import { URL, fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.PORT || 5000);
 
@@ -15,7 +17,7 @@ const IMAP_PORT = Number(process.env.IMAP_PORT || 993);
 const SMTP_HOST = process.env.SMTP_HOST || 'smtp.hostinger.com';
 const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
 
-const rawCorsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5174';
+const rawCorsOrigin = process.env.CORS_ORIGIN || 'https://mail.arcbyte.co';
 const allowedOrigins = rawCorsOrigin
   .split(',')
   .map((s) => s.trim())
@@ -123,10 +125,10 @@ setInterval(() => {
   }
 }, Math.min(60_000, Math.max(5_000, Math.floor(SESSION_TTL_MS / 20))));
 
-const signToken = ({ sessionId, email, ttlMs }) => {
+const signToken = ({ sessionId, email, ttlMs, encPassword, csrfToken }) => {
   const ttl = typeof ttlMs === 'number' && Number.isFinite(ttlMs) ? ttlMs : SESSION_TTL_MS;
   return jwt.sign(
-    { role: 'MAIL_USER', email },
+    { role: 'MAIL_USER', email, ep: encPassword, csrf: csrfToken },
     JWT_SECRET,
     { subject: sessionId, expiresIn: Math.floor(ttl / 1000) }
   );
@@ -143,8 +145,18 @@ const parseAuth = (req) => {
     const sessionId = typeof decoded.sub === 'string' ? decoded.sub : null;
     const email = typeof decoded.email === 'string' ? decoded.email : null;
     const role = typeof decoded.role === 'string' ? decoded.role : null;
-    if (!sessionId || !email || role !== 'MAIL_USER') return null;
-    return { sessionId, email };
+    const encPassword =
+      decoded.ep &&
+      typeof decoded.ep === 'object' &&
+      typeof decoded.ep.iv === 'string' &&
+      typeof decoded.ep.tag === 'string' &&
+      typeof decoded.ep.ciphertext === 'string'
+        ? decoded.ep
+        : null;
+    const csrfToken = typeof decoded.csrf === 'string' ? decoded.csrf : null;
+    if (!email || role !== 'MAIL_USER') return null;
+    if (!sessionId && !(encPassword && csrfToken)) return null;
+    return { sessionId, email, encPassword, csrfToken };
   } catch {
     return null;
   }
@@ -153,21 +165,39 @@ const parseAuth = (req) => {
 const requireAuth = (req, res, next) => {
   const auth = parseAuth(req);
   if (!auth) return res.status(401).json({ error: 'unauthorized' });
-  const session = getSession(auth.sessionId);
-  if (!session) return res.status(401).json({ error: 'session_expired' });
-  if (session.email !== auth.email) return res.status(401).json({ error: 'unauthorized' });
+  const session = auth.sessionId ? getSession(auth.sessionId) : null;
+  if (session) {
+    if (session.email !== auth.email) return res.status(401).json({ error: 'unauthorized' });
+    req.auth = auth;
+    req.session = session;
+    return next();
+  }
+
+  if (!auth.encPassword || !auth.csrfToken) return res.status(401).json({ error: 'session_expired' });
   req.auth = auth;
-  req.session = session;
-  next();
+  req.session = {
+    id: auth.sessionId || 'stateless',
+    email: auth.email,
+    encPassword: auth.encPassword,
+    csrfToken: auth.csrfToken,
+    createdAt: nowMs(),
+    lastUsedAt: nowMs(),
+    ttlMs: SESSION_TTL_MS,
+  };
+  req.auth = auth;
+  return next();
 };
 
 const requireCsrf = (req, res, next) => {
   const sessionId = req.headers['x-mail-session'];
   const csrf = req.headers['x-csrf-token'];
-  if (typeof sessionId !== 'string' || typeof csrf !== 'string') {
+  if (typeof csrf !== 'string') {
     return res.status(403).json({ error: 'csrf_required' });
   }
-  if (sessionId !== req.session.id || csrf !== req.session.csrfToken) {
+  if (csrf !== req.session.csrfToken) {
+    return res.status(403).json({ error: 'csrf_invalid' });
+  }
+  if (req.session.id !== 'stateless' && typeof sessionId === 'string' && sessionId !== req.session.id) {
     return res.status(403).json({ error: 'csrf_invalid' });
   }
   next();
@@ -250,7 +280,13 @@ app.post('/api/auth/mail-login', async (req, res) => {
 
   const ttlMs = rememberMe ? REMEMBER_ME_TTL_MS : SESSION_TTL_MS;
   const session = createSession({ email, password, ttlMs });
-  const token = signToken({ sessionId: session.id, email: session.email, ttlMs });
+  const token = signToken({
+    sessionId: session.id,
+    email: session.email,
+    ttlMs,
+    encPassword: session.encPassword,
+    csrfToken: session.csrfToken,
+  });
   const name = email.split('@')[0] || email;
 
   return res.json({
@@ -276,18 +312,16 @@ app.get('/api/mail/threads', requireAuth, async (req, res) => {
 
   try {
     const result = await withImap({ email: req.session.email, password, folder }, async (client) => {
-      const uids = (await client.search({ all: true })).sort((a, b) => a - b);
-      let end = uids.length;
-      if (cursor) {
-        const cursorNum = Number(cursor);
-        const idx = Number.isFinite(cursorNum) ? uids.findIndex((u) => u === cursorNum) : -1;
-        if (idx >= 0) end = idx;
-      }
-      const slice = uids.slice(Math.max(0, end - limit), end);
-      const pageUids = slice.sort((a, b) => b - a);
+      const exists = Number(client.mailbox?.exists || 0);
+      const cursorNum = cursor ? Number(cursor) : NaN;
+      const endSeq = Number.isFinite(cursorNum) ? Math.min(exists, cursorNum) : exists;
+      if (!endSeq || endSeq < 1) return { threads: [], nextCursor: undefined };
+
+      const startSeq = Math.max(1, endSeq - limit + 1);
+      const range = `${startSeq}:${endSeq}`;
 
       const threads = [];
-      for await (const msg of client.fetch(pageUids, { uid: true, envelope: true, flags: true, internalDate: true })) {
+      for await (const msg of client.fetch(range, { envelope: true, flags: true, internalDate: true })) {
         const from = msg.envelope?.from?.[0] || null;
         threads.push({
           id: String(msg.uid),
@@ -299,7 +333,9 @@ app.get('/api/mail/threads', requireAuth, async (req, res) => {
         });
       }
 
-      const nextCursor = pageUids.length ? String(Math.min(...pageUids)) : undefined;
+      threads.sort((a, b) => (a.lastMessageAt > b.lastMessageAt ? -1 : a.lastMessageAt < b.lastMessageAt ? 1 : 0));
+
+      const nextCursor = startSeq > 1 ? String(startSeq - 1) : undefined;
       return { threads, nextCursor };
     });
 
@@ -319,7 +355,12 @@ app.get('/api/mail/threads/:id', requireAuth, async (req, res) => {
 
   try {
     const thread = await withImap({ email: req.session.email, password, folder }, async (client) => {
-      const msg = await client.fetchOne(uid, { uid: true, envelope: true, flags: true, source: true });
+      let msg = null;
+      try {
+        msg = await client.fetchOne(uid, { envelope: true, flags: true, source: true }, { uid: true });
+      } catch {
+        msg = await client.fetchOne(uid, { uid: true, envelope: true, flags: true, source: true });
+      }
       if (!msg) return null;
 
       const parsed = msg.source ? await simpleParser(msg.source) : null;
@@ -380,20 +421,15 @@ app.post('/api/mail/send', requireAuth, requireCsrf, async (req, res) => {
   const cc = Array.isArray(req.body?.cc) ? req.body.cc.map(String) : [];
   const bcc = Array.isArray(req.body?.bcc) ? req.body.bcc.map(String) : [];
   const subject = typeof req.body?.subject === 'string' ? req.body.subject : '';
-  const html = typeof req.body?.html === 'string' ? req.body.html : undefined;
-  const text = typeof req.body?.text === 'string' ? req.body.text : undefined;
+  const htmlRaw = typeof req.body?.html === 'string' ? req.body.html : undefined;
+  const textRaw = typeof req.body?.text === 'string' ? req.body.text : undefined;
+  const html = htmlRaw && htmlRaw.trim() ? htmlRaw : undefined;
+  const text = textRaw && textRaw.trim() ? textRaw : undefined;
 
   if (!to.length || !subject.trim()) return res.status(400).json({ error: 'invalid_payload' });
 
-  try {
-    const transport = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: SMTP_PORT,
-      secure: SMTP_PORT === 465,
-      auth: { user: req.session.email, pass: password },
-    });
-
-    const result = await transport.sendMail({
+  const sendWith = async (transport) => {
+    return await transport.sendMail({
       from: req.session.email,
       to,
       cc: cc.length ? cc : undefined,
@@ -402,11 +438,38 @@ app.post('/api/mail/send', requireAuth, requireCsrf, async (req, res) => {
       html,
       text,
     });
+  };
 
+  try {
+    const primary = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_PORT === 465,
+      auth: { user: req.session.email, pass: password },
+    });
+    const result = await sendWith(primary);
     const messageId = typeof result?.messageId === 'string' ? result.messageId : undefined;
     return res.json({ ok: true, messageId });
-  } catch {
-    return res.status(502).json({ error: 'smtp_error' });
+  } catch (err) {
+    if (SMTP_PORT === 465) {
+      try {
+        const fallback = nodemailer.createTransport({
+          host: SMTP_HOST,
+          port: 587,
+          secure: false,
+          requireTLS: true,
+          auth: { user: req.session.email, pass: password },
+        });
+        const result = await sendWith(fallback);
+        const messageId = typeof result?.messageId === 'string' ? result.messageId : undefined;
+        return res.json({ ok: true, messageId });
+      } catch {
+        const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : undefined;
+        return res.status(502).json({ error: 'smtp_error', code });
+      }
+    }
+    const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : undefined;
+    return res.status(502).json({ error: 'smtp_error', code });
   }
 });
 
@@ -414,6 +477,14 @@ app.post('/api/auth/logout', requireAuth, (req, res) => {
   sessions.delete(req.session.id);
   return res.json({ ok: true });
 });
+
+const distDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
+if (fs.existsSync(distDir)) {
+  app.use(express.static(distDir));
+  app.get(/^(?!\/api\/).*/, (_req, res) => {
+    return res.sendFile(path.join(distDir, 'index.html'));
+  });
+}
 
 app.use((_req, res) => {
   return res.status(404).json({ error: 'not_found' });

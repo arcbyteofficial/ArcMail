@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -678,6 +678,7 @@ const ComposeModal = ({
   onClose: () => void;
 }) => {
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [to, setTo] = useState('');
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
@@ -689,11 +690,15 @@ const ComposeModal = ({
 
   const handleSend = async () => {
     if (sending) return;
+    setSendError(null);
     const toList = to.split(/[,\s]+/).filter(Boolean);
     const ccList = cc.split(/[,\s]+/).filter(Boolean);
     const bccList = bcc.split(/[,\s]+/).filter(Boolean);
 
-    if (!toList.length || !subject.trim()) return;
+    if (!toList.length || !subject.trim()) {
+      setSendError('Add at least one recipient and a subject.');
+      return;
+    }
     
     setSending(true);
     try {
@@ -711,7 +716,7 @@ const ComposeModal = ({
       });
       onClose();
     } catch {
-      return;
+      setSendError('Failed to send. Verify SMTP access and try again.');
     } finally {
       setSending(false);
     }
@@ -753,6 +758,16 @@ const ComposeModal = ({
           
           {/* Body */}
           <div className={cn("flex-1 flex flex-col relative z-10", isDark ? "bg-[#121212]" : "bg-white")}>
+            {sendError && (
+              <div className={cn("px-8 pt-4", isDark ? "bg-[#121212]" : "bg-white")}>
+                <div className={cn(
+                  "w-full px-4 py-3 rounded-xl border text-sm font-medium",
+                  isDark ? "bg-red-500/10 border-red-500/20 text-red-300" : "bg-red-50 border-red-200 text-red-700"
+                )}>
+                  {sendError}
+                </div>
+              </div>
+            )}
             <div className={cn("px-8 pt-4 pb-2", isDark ? "bg-[#121212]" : "bg-white")}>
               <div className={cn("flex items-center border-b relative group transition-colors focus-within:border-[#1DB954]/50", isDark ? "border-[#282828]" : "border-[#E5E5E5]")}>
                 <span className={cn("text-[14px] font-medium w-16 py-4", isDark ? "text-[#787878]" : "text-[#949494]")}>{t('to')}</span>
@@ -1203,12 +1218,14 @@ const MailAppContent = () => {
   const [threads, setThreads] = useState<MailThreadSummary[]>([]);
   const [threadsCursor, setThreadsCursor] = useState<string | undefined>(undefined);
   const [threadsLoading, setThreadsLoading] = useState(false);
+  const [threadsError, setThreadsError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [threadDetail, setThreadDetail] = useState<MailThreadDetail | null>(null);
   const [threadDetailLoading, setThreadDetailLoading] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const threadsAbortRef = useRef<AbortController | null>(null);
 
   // Handle Loading
   useEffect(() => {
@@ -1229,7 +1246,7 @@ const MailAppContent = () => {
   // Auth check
   useEffect(() => {
     if (!isLoading && (!isAuthenticated || !user || user.role !== 'MAIL_USER')) {
-      navigate('/mail/login', { replace: true });
+      navigate('/login', { replace: true });
     }
   }, [isAuthenticated, isLoading, navigate, user]);
 
@@ -1240,10 +1257,17 @@ const MailAppContent = () => {
     const reset = options?.reset ?? false;
     
     setThreadsLoading(true);
+    setThreadsError(null);
     try {
+      threadsAbortRef.current?.abort();
+      const controller = new AbortController();
+      threadsAbortRef.current = controller;
+      const timeoutId = window.setTimeout(() => controller.abort(), 15000);
       const res = await api.get('/mail/threads', {
         params: { folder: imapFolder, limit: 50, cursor: reset ? undefined : threadsCursor },
+        signal: controller.signal,
       });
+      window.clearTimeout(timeoutId);
       const data = res.data as { threads: MailThreadSummary[]; nextCursor?: string };
       const mapped = (data.threads || []).map(t => ({
           ...t,
@@ -1269,6 +1293,7 @@ const MailAppContent = () => {
       }
     } catch {
       setThreadsCursor(undefined);
+      setThreadsError('Failed to load messages. Check connection and try again.');
     } finally {
       setThreadsLoading(false);
     }
@@ -1298,36 +1323,51 @@ const MailAppContent = () => {
   useEffect(() => {
     if (!selectedId) {
       setThreadDetail(null);
+      setThreadDetailLoading(false);
       return;
     }
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 15000);
     const fetchDetail = async () => {
       setThreadDetailLoading(true);
       try {
         const res = await api.get(`/mail/threads/${encodeURIComponent(selectedId)}`, {
-           params: { folder: MAIL_FOLDER_IMAP_PATH[activeFolder] }
+          params: { folder: MAIL_FOLDER_IMAP_PATH[activeFolder] },
+          signal: controller.signal,
         });
+        if (cancelled) return;
         const data = res.data as { thread: MailThreadDetail | null };
         if (data.thread) {
-           const mapped: MailThreadDetail = {
-             ...data.thread,
-             id: String(data.thread.id),
-             folder: activeFolder,
-             messages: data.thread.messages.map(m => ({
-               ...m,
-               id: String(m.id),
-               subject: m.subject || data.thread?.subject || '',
-             }))
-           };
-           setThreadDetail(mapped);
-           setThreads(prev => prev.map(t => t.id === selectedId ? { ...t, unread: false } : t));
+          const mapped: MailThreadDetail = {
+            ...data.thread,
+            id: String(data.thread.id),
+            folder: activeFolder,
+            messages: data.thread.messages.map(m => ({
+              ...m,
+              id: String(m.id),
+              subject: m.subject || data.thread?.subject || '',
+            }))
+          };
+          setThreadDetail(mapped);
+          setThreads(prev => prev.map(t => t.id === selectedId ? { ...t, unread: false } : t));
+        } else {
+          setThreadDetail(null);
         }
       } catch {
-        setThreadDetail(null);
+        if (!cancelled) setThreadDetail(null);
       } finally {
-        setThreadDetailLoading(false);
+        window.clearTimeout(timeoutId);
+        if (!cancelled) setThreadDetailLoading(false);
       }
     };
     fetchDetail();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      controller.abort();
+      setThreadDetailLoading(false);
+    };
   }, [selectedId, activeFolder]);
 
   // Filter threads
@@ -1480,6 +1520,24 @@ const MailAppContent = () => {
                      {[1,2,3,4,5].map(i => (
                        <div key={i} className={cn("h-24 rounded-md animate-pulse", isDark ? "bg-[#181818]" : "bg-[#F0F0F0]")} />
                      ))}
+                  </div>
+                ) : threadsError ? (
+                  <div className="px-4 py-6">
+                    <div className={cn(
+                      "rounded-2xl border p-5 flex items-center justify-between gap-4",
+                      isDark ? "bg-[#181818] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black"
+                    )}>
+                      <div className="text-sm font-medium">{threadsError}</div>
+                      <button
+                        onClick={() => loadThreads({ reset: true })}
+                        className={cn(
+                          "px-4 py-2 rounded-full border text-xs font-bold tracking-wide transition-colors",
+                          isDark ? "bg-[#1A1A1A] border-[#333] hover:border-[#1DB954]/40 hover:text-[#1DB954]" : "bg-white border-[#E5E5E5] hover:border-[#1DB954]/40 hover:text-[#1DB954]"
+                        )}
+                      >
+                        Retry
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex flex-col gap-1 pb-4">

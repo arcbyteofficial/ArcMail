@@ -22,7 +22,7 @@ const MailLogin = () => {
     try {
       const success = await login(password, email, rememberMe);
       if (success) {
-        navigate('/mail');
+        navigate('/');
       } else {
         setError('Invalid mailbox credentials.');
       }

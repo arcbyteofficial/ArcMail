@@ -13,7 +13,7 @@ export default function ProtectedMailRoute() {
   }
 
   if (!isAuthenticated || user?.role !== 'MAIL_USER') {
-    return <Navigate to="/mail/login" replace />;
+    return <Navigate to="/login" replace />;
   }
 
   return <Outlet />;

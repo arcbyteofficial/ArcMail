@@ -10,12 +10,14 @@ export default function App() {
     <AuthProvider>
       <Router>
         <Routes>
-          <Route path="/mail/login" element={<MailLogin />} />
-          <Route path="/mail/*" element={<ProtectedMailRoute />}>
+          <Route path="/login" element={<MailLogin />} />
+          <Route path="/mail/login" element={<Navigate to="/login" replace />} />
+          <Route path="/" element={<ProtectedMailRoute />}>
             <Route index element={<MailApp />} />
             <Route path="security" element={<MailSecurity />} />
           </Route>
-          <Route path="*" element={<Navigate to="/mail/login" replace />} />
+          <Route path="/mail/*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </Router>
     </AuthProvider>

@@ -45,13 +45,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       clearAuthStorage();
       const path = window.location.pathname || '';
       if (path.includes('/login')) return;
-      const target = path.startsWith('/mail') ? '/mail/login' : '/admin/login';
-      window.location.href = target;
+      window.location.href = '/login';
     } catch {
       const path = window.location.pathname || '';
       clearAuthStorage();
-      const target = path.startsWith('/mail') ? '/mail/login' : '/admin/login';
-      window.location.href = target;
+      window.location.href = path.includes('/login') ? '/login' : '/login';
     }
   }, [clearAuthStorage]);
 
@@ -67,6 +65,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       try {
         const storage = sessionStorage.getItem('token') ? sessionStorage : localStorage;
+        const storedName = storage.getItem('userName');
+        const storedEmail = storage.getItem('userEmail');
+        const storedRole = storage.getItem('userRole');
+        if (storedRole) {
+          setIsAuthenticated(true);
+          setUser({
+            name: storedName || '',
+            email: storedEmail || undefined,
+            role: storedRole || undefined,
+            status: storage.getItem('userStatus') || undefined,
+            id: storage.getItem('userId') || undefined,
+            clientId: storage.getItem('clientId') || undefined,
+          });
+        }
         const res = await api.get('/auth/me');
         if (res.data) {
           setIsAuthenticated(true);
@@ -78,8 +90,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           if (res.data.id) storage.setItem('userId', res.data.id);
           if (res.data.clientId) storage.setItem('clientId', res.data.clientId);
         }
-      } catch {
-        logout();
+      } catch (err) {
+        const status =
+          err && typeof err === 'object' && 'response' in err
+            ? (err as { response?: { status?: unknown } }).response?.status
+            : null;
+        if (status === 401 || status === 403) logout();
       } finally {
         setIsLoading(false);
       }
@@ -90,10 +106,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const login = async (password: string, email?: string, rememberMe?: boolean): Promise<boolean> => {
     try {
-      const path = window.location.pathname || '';
-      const isMailLogin = path.startsWith('/mail');
-      const endpoint = isMailLogin ? '/auth/mail-login' : '/auth/login';
-      const res = await api.post(endpoint, { email, password, rememberMe: Boolean(rememberMe) });
+      const res = await api.post('/auth/mail-login', { email, password, rememberMe: Boolean(rememberMe) });
 
       if (res.data && res.data.token) {
         const { token, user: userData } = res.data;
@@ -113,10 +126,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (userData.role) storage.setItem('userRole', userData.role);
         if (userData.id) storage.setItem('userId', userData.id);
         if (userData.clientId) storage.setItem('clientId', userData.clientId);
-        if (isMailLogin && res.data.csrfToken) {
+        if (res.data.csrfToken) {
           storage.setItem('mailCsrf', res.data.csrfToken);
         }
-        if (isMailLogin && res.data.sessionId) {
+        if (res.data.sessionId) {
           storage.setItem('mailSessionId', res.data.sessionId);
         }
         
