@@ -18,21 +18,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   
   const [user, setUser] = useState<{ name: string; email?: string; role?: string; id?: string; status?: string; clientId?: string } | null>(null);
 
-  const parseToken = (token: string): unknown => {
-    try {
-      const parts = token.split('.');
-      if (parts.length !== 3) {
-        return null;
-      }
-      const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-      const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
-      const json = atob(padded);
-      return JSON.parse(json);
-    } catch {
-      return null;
-    }
-  };
-
   // Initialize auth state from local storage and validate token
   useEffect(() => {
     const initializeAuth = async () => {
@@ -43,27 +28,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
 
-      const payload = parseToken(token);
-      const payloadObj = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
-      if (payloadObj && payloadObj.role === 'MAIL_USER') {
-        const mailUser = {
-          name: String(payloadObj.name ?? ''),
-          email: typeof payloadObj.email === 'string' ? payloadObj.email : undefined,
-          role: String(payloadObj.role ?? ''),
-          status: 'Active' as const
-        };
-        setIsAuthenticated(true);
-        setUser(mailUser);
-        localStorage.setItem('isAuthenticated', 'true');
-        localStorage.setItem('userName', mailUser.name);
-        if (mailUser.email) localStorage.setItem('userEmail', mailUser.email);
-        if (mailUser.role) localStorage.setItem('userRole', mailUser.role);
-        setIsLoading(false);
-        return;
-      }
-
       try {
-        // Verify token with backend for standard users
         const res = await api.get('/auth/me');
         if (res.data) {
           setIsAuthenticated(true);
@@ -76,8 +41,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           if (res.data.id) localStorage.setItem('userId', res.data.id);
           if (res.data.clientId) localStorage.setItem('clientId', res.data.clientId);
         }
-      } catch (error) {
-        console.error('Auth verification failed:', error);
+      } catch {
         logout();
       } finally {
         setIsLoading(false);
@@ -117,8 +81,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return true;
       }
       return false;
-    } catch (error) {
-      console.error('Login error:', error);
+    } catch {
       return false;
     }
   };
@@ -143,8 +106,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       const target = path.startsWith('/mail') ? '/mail/login' : '/admin/login';
       window.location.href = target;
-    } catch (error) {
-      console.error('Error removing from localStorage:', error);
+    } catch {
+      const path = window.location.pathname || '';
+      const target = path.startsWith('/mail') ? '/mail/login' : '/admin/login';
+      window.location.href = target;
     }
   };
 

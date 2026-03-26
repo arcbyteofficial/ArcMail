@@ -4,7 +4,6 @@ import ProtectedMailRoute from './components/layout/ProtectedMailRoute';
 import MailLogin from './pages/mail/MailLogin';
 import MailApp from './pages/mail/MailApp';
 import MailSecurity from './pages/mail/MailSecurity';
-import ArcMailInfo from './pages/mail/ArcMailInfo';
 
 export default function App() {
   return (
@@ -16,7 +15,6 @@ export default function App() {
             <Route index element={<MailApp />} />
             <Route path="security" element={<MailSecurity />} />
           </Route>
-          <Route path="/arcmail/info" element={<ArcMailInfo />} />
           <Route path="*" element={<Navigate to="/mail/login" replace />} />
         </Routes>
       </Router>

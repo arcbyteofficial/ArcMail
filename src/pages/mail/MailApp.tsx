@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -12,9 +12,7 @@ import {
   Star,
   Archive,
   ArrowLeft,
-  Paperclip,
   LogOut,
-  Sparkles,
   Filter,
   Clock,
   X,
@@ -22,8 +20,6 @@ import {
   Mic,
   ChevronRight,
   MoreVertical,
-  Reply,
-  Forward,
   PanelLeftClose,
   Settings,
   Moon,
@@ -36,7 +32,6 @@ import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api/client';
 import { cn } from '../../utils/cn';
 import { RichTextEditor } from '../../components/editor/RichTextEditor';
-import { AskAIOverlay } from '../../components/mail/AskAIOverlay';
 import arcByteLogo from '../../assets/arcbyte.co Logo_white_transparent.png';
 import { LANGUAGES, type Language, translations } from './translations';
 
@@ -637,10 +632,6 @@ const ReadingPane = ({
                           </div>
                        </div>
                        
-                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button className={cn("p-2 rounded-full", isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#282828]" : "text-[#5E5E5E] hover:text-black hover:bg-[#F0F0F0]")} title={t('reply')}><Reply size={16}/></button>
-                          <button className={cn("p-2 rounded-full", isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#282828]" : "text-[#5E5E5E] hover:text-black hover:bg-[#F0F0F0]")} title={t('forward')}><Forward size={16}/></button>
-                       </div>
                     </div>
                     
                     <div className="pl-14">
@@ -673,35 +664,6 @@ const ReadingPane = ({
             })}
           </div>
 
-          {/* Quick Reply Box */}
-          <div className="mt-12 pl-14">
-             <div className="relative group">
-                <div className="absolute -inset-0.5 bg-gradient-to-r from-[#1DB954] to-[#1ED760] rounded-2xl opacity-0 group-focus-within:opacity-20 transition-opacity duration-500 blur" />
-                <div className={cn(
-                  "relative rounded-2xl border overflow-hidden focus-within:border-[#1DB954]/50 transition-colors",
-                  isDark ? "bg-[#181818] border-[#282828]" : "bg-white border-[#E5E5E5]"
-                )}>
-                   <textarea 
-                     placeholder={t('type_reply')}
-                     className={cn(
-                       "w-full bg-transparent border-none p-4 text-[15px] focus:ring-0 min-h-[120px] resize-y",
-                       isDark ? "text-white placeholder:text-[#5E5E5E]" : "text-black placeholder:text-[#949494]"
-                     )}
-                   />
-                   <div className={cn("flex items-center justify-between px-4 py-3 border-t", isDark ? "bg-[#1A1A1A] border-[#282828]" : "bg-[#F9F9F9] border-[#E5E5E5]")}>
-                      <div className="flex items-center gap-1">
-                        <button className={cn("p-2 rounded-full transition-colors", isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#282828]" : "text-[#5E5E5E] hover:text-black hover:bg-[#E0E0E0]")}><Paperclip size={18}/></button>
-                        <button className={cn("p-2 rounded-full transition-colors", isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#282828]" : "text-[#5E5E5E] hover:text-black hover:bg-[#E0E0E0]")}><Sparkles size={18}/></button>
-                      </div>
-                      <button className="px-6 py-2 bg-[#1DB954] hover:bg-[#1ED760] text-black text-sm font-bold rounded-full transition-all hover:scale-105 active:scale-95 flex items-center gap-2">
-                        <span>{t('send')}</span>
-                        <Send size={14} strokeWidth={2.5} />
-                      </button>
-                   </div>
-                </div>
-             </div>
-          </div>
-
         </div>
       </div>
     </div>
@@ -722,8 +684,6 @@ const ComposeModal = ({
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [showCcBcc, setShowCcBcc] = useState(false);
-  const [attachments, setAttachments] = useState<File[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const { isDark } = useTheme();
   const { t } = useLanguage();
 
@@ -750,21 +710,11 @@ const ComposeModal = ({
         text: plainText,
       });
       onClose();
-    } catch (error) {
-      console.error('Failed to send mail', error);
+    } catch {
+      return;
     } finally {
       setSending(false);
     }
-  };
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setAttachments(prev => [...prev, ...Array.from(e.target.files!)]);
-    }
-  };
-
-  const removeAttachment = (index: number) => {
-    setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
   return (
@@ -868,53 +818,17 @@ const ComposeModal = ({
                  isDark={isDark}
                  className="flex-1"
                />
-               
-               {/* Attachments List */}
-               {attachments.length > 0 && (
-                 <div className="px-8 mt-2 mb-4 flex flex-wrap gap-3">
-                   {attachments.map((file, i) => (
-                     <div key={i} className={cn("flex items-center gap-3 px-4 py-2 rounded-xl border group hover:border-[#1DB954]/30 transition-colors", isDark ? "bg-[#1A1A1A] border-[#282828]" : "bg-[#F9F9F9] border-[#E5E5E5]")}>
-                        <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center", isDark ? "bg-[#222]" : "bg-[#F0F0F0]")}>
-                           <FileText size={16} className="text-[#1DB954]" />
-                        </div>
-                        <div className="flex flex-col">
-                           <span className={cn("text-sm font-medium max-w-[180px] truncate", isDark ? "text-white" : "text-black")}>{file.name}</span>
-                           <span className={cn("text-[10px]", isDark ? "text-[#787878]" : "text-[#949494]")}>{(file.size / 1024).toFixed(0)} KB</span>
-                        </div>
-                        <button onClick={() => removeAttachment(i)} className={cn("ml-2 hover:text-[#FF5555] transition-colors", isDark ? "text-[#5E5E5E]" : "text-[#949494]")}>
-                          <X size={16} />
-                        </button>
-                     </div>
-                   ))}
-                 </div>
-               )}
             </div>
           </div>
 
           {/* Footer */}
           <div className={cn("px-8 py-5 border-t flex items-center justify-between relative z-10", isDark ? "border-[#282828] bg-[#121212]" : "border-[#E5E5E5] bg-white")}>
-             <div className="flex items-center gap-1">
-                <input 
-                  type="file" 
-                  multiple 
-                  className="hidden" 
-                  ref={fileInputRef} 
-                  onChange={handleFileSelect}
-                />
-                <button 
-                  onClick={() => fileInputRef.current?.click()}
-                  className={cn("p-2.5 rounded-full transition-colors", isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A]" : "text-[#5E5E5E] hover:text-black hover:bg-[#F0F0F0]")} title={t('attach_files')}
-                >
-                  <Paperclip size={20} />
-                </button>
-                <div className={cn("w-[1px] h-6 mx-2", isDark ? "bg-[#282828]" : "bg-[#E5E5E5]")} />
-                <button 
-                  onClick={onClose}
-                  className={cn("p-2.5 rounded-full transition-colors", isDark ? "text-[#B3B3B3] hover:text-[#FF5555] hover:bg-[#1A1A1A]" : "text-[#5E5E5E] hover:text-[#FF5555] hover:bg-[#F0F0F0]")} title={t('delete_draft')}
-                >
-                  <Trash2 size={20} />
-                </button>
-             </div>
+             <button 
+               onClick={onClose}
+               className={cn("p-2.5 rounded-full transition-colors", isDark ? "text-[#B3B3B3] hover:text-[#FF5555] hover:bg-[#1A1A1A]" : "text-[#5E5E5E] hover:text-[#FF5555] hover:bg-[#F0F0F0]")} title={t('delete_draft')}
+             >
+               <Trash2 size={20} />
+             </button>
              
              <button
                onClick={handleSend}
@@ -1295,7 +1209,6 @@ const MailAppContent = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [askAIOpen, setAskAIOpen] = useState(false);
 
   // Handle Loading
   useEffect(() => {
@@ -1354,8 +1267,8 @@ const MailAppContent = () => {
       if (reset && mapped.length > 0 && !isMobile) {
         setSelectedId(mapped[0].id);
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      setThreadsCursor(undefined);
     } finally {
       setThreadsLoading(false);
     }
@@ -1399,8 +1312,8 @@ const MailAppContent = () => {
            setThreadDetail(mapped);
            setThreads(prev => prev.map(t => t.id === selectedId ? { ...t, unread: false } : t));
         }
-      } catch (e) {
-        console.error(e);
+      } catch {
+        setThreadDetail(null);
       } finally {
         setThreadDetailLoading(false);
       }
@@ -1512,18 +1425,6 @@ const MailAppContent = () => {
 
           {/* Right Actions */}
           <div className="flex items-center justify-end gap-3 w-auto lg:w-20 min-w-max ml-4">
-             <button 
-               onClick={() => setAskAIOpen(true)}
-               className={cn(
-               "hidden sm:flex items-center gap-2 px-5 py-2.5 rounded-full border transition-all group shadow-lg",
-               isDark ? "bg-[#1A1A1A] hover:bg-[#222] border-[#282828] hover:border-[#1DB954]/30" : "bg-white hover:bg-[#F9F9F9] border-[#E5E5E5] hover:border-[#1DB954]/30"
-             )}>
-                <Sparkles size={16} className="text-[#1DB954] group-hover:scale-110 transition-transform duration-300" />
-                <span className={cn("text-[13px] font-bold group-hover:text-[#1DB954] transition-colors", isDark ? "text-white" : "text-black")}>{t('ask_ai')}</span>
-             </button>
-             
-             <div className={cn("w-[1px] h-8 mx-2 hidden sm:block", isDark ? "bg-[#282828]" : "bg-[#E5E5E5]")} />
-
              <SettingsDropdown />
 
              <button className={cn(
@@ -1701,12 +1602,6 @@ const MailAppContent = () => {
           onClose={() => setComposeOpen(false)}
         />
       )}
-
-      <AskAIOverlay 
-        isOpen={askAIOpen}
-        onClose={() => setAskAIOpen(false)}
-        isDark={isDark}
-      />
     </div>
   );
 };

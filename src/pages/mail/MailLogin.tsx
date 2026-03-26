@@ -12,8 +12,6 @@ const MailLogin = () => {
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
-  const devBypassEnabled =
-    import.meta.env.DEV || import.meta.env.VITE_DEV_AUTH_BYPASS === 'true';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,32 +23,10 @@ const MailLogin = () => {
       if (success) {
         navigate('/mail');
       } else {
-        setError('Invalid mailbox credentials. Access restricted to ArcByte accounts.');
+        setError('Invalid mailbox credentials.');
       }
     } catch {
       setError('Connection error. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleDevBypass = async () => {
-    if (!devBypassEnabled) return;
-    const devEmail = email || 'dev@arcbyte.co';
-    const devPassword = password || 'dev';
-    setEmail(devEmail);
-    setPassword(devPassword);
-    setError('');
-    setIsLoading(true);
-    try {
-      const success = await login(devPassword, devEmail);
-      if (success) {
-        navigate('/mail');
-      } else {
-        setError('Dev bypass failed. Check mail dev auth configuration.');
-      }
-    } catch {
-      setError('Dev bypass error. See console for details.');
     } finally {
       setIsLoading(false);
     }
@@ -181,14 +157,7 @@ const MailLogin = () => {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between text-xs text-white/40">
-                <label className="flex items-center gap-2 cursor-pointer hover:text-white transition-colors">
-                  <input
-                    type="checkbox"
-                    className="w-3 h-3 bg-transparent border-white/20 rounded-sm checked:bg-accent checked:border-accent focus:ring-0"
-                  />
-                  Remember session
-                </label>
+              <div className="flex items-center justify-end text-xs text-white/40">
                 <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-white/35">
                   Internal use only
                 </span>
@@ -208,16 +177,6 @@ const MailLogin = () => {
                   </>
                 )}
               </button>
-              {devBypassEnabled && (
-                <button
-                  type="button"
-                  disabled={isLoading}
-                  onClick={handleDevBypass}
-                  className="w-full h-9 mt-3 border border-white/15 text-[10px] font-mono uppercase tracking-[0.22em] text-white/40 hover:text-white hover:border-white/40 transition-colors"
-                >
-                  Dev auth bypass
-                </button>
-              )}
             </form>
           </motion.div>
         </div>
