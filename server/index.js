@@ -102,27 +102,41 @@ if (IS_PROD && (!JWT_SECRET || !SESSION_SECRET)) {
 }
 
 const app = express();
-app.use(express.json({ limit: '2mb' }));
-const corsOptions = {
-  origin(origin, cb) {
-    if (!origin) return cb(null, true);
-    if (allowedOrigins.includes(origin)) return cb(null, true);
-    try {
-      const u = new URL(origin);
-      if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return cb(null, true);
-      if (u.hostname === 'arcbyte.co' || u.hostname.endsWith('.arcbyte.co')) return cb(null, true);
-    } catch {
-      return cb(new Error('Not allowed by CORS'));
-    }
-    return cb(new Error('Not allowed by CORS'));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token', 'x-mail-session'],
-  optionsSuccessStatus: 204,
+const corsHeaders = {
+  allowMethods: 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+  allowHeaders: 'Content-Type, Authorization, x-csrf-token, x-mail-session',
 };
-app.use(cors(corsOptions));
-app.options(/.*/, cors(corsOptions));
+
+const isAllowedCorsOrigin = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  try {
+    const u = new URL(origin);
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return true;
+    if (u.hostname === 'arcbyte.co' || u.hostname.endsWith('.arcbyte.co')) return true;
+  } catch {
+    return false;
+  }
+  return false;
+};
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && isAllowedCorsOrigin(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', corsHeaders.allowMethods);
+    res.setHeader('Access-Control-Allow-Headers', corsHeaders.allowHeaders);
+  }
+  if (req.method === 'OPTIONS') {
+    if (!origin || isAllowedCorsOrigin(origin)) return res.sendStatus(204);
+    return res.sendStatus(403);
+  }
+  return next();
+});
+
+app.use(express.json({ limit: '2mb' }));
 
 // Prevent process exit on certain transient IMAP errors
 const shouldIgnoreProcessError = (err) => {
