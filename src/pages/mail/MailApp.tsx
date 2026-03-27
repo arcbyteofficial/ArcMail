@@ -18,6 +18,7 @@ import {
   Filter,
   Clock,
   X,
+  Check,
   Menu,
   Mic,
   ChevronRight,
@@ -569,6 +570,78 @@ const ReadingPane = ({
 }) => {
   const { isDark } = useTheme();
   const { t } = useLanguage();
+  const [attachmentBusyId, setAttachmentBusyId] = useState<string | null>(null);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+
+  const openAttachment = useCallback(
+    async (messageId: string, attachment: MailThreadMessage['attachments'][number], folder: MailFolder) => {
+      setAttachmentError(null);
+      setAttachmentBusyId(`${messageId}:${attachment.id}`);
+      try {
+        const res = await api.get(`/mail/threads/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachment.id)}`, {
+          params: { folder: MAIL_FOLDER_IMAP_PATH[folder], filename: attachment.filename, size: String(attachment.size) },
+          responseType: 'blob',
+        });
+        const blob = res.data as Blob;
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = attachment.filename || `attachment-${attachment.id}`;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 10000);
+      } catch (err) {
+        const parseErrorBlob = async (b: Blob) => {
+          try {
+            const txt = await b.text();
+            return JSON.parse(txt) as { code?: string; error?: string };
+          } catch {
+            return null;
+          }
+        };
+        const response =
+          err && typeof err === 'object' && 'response' in err
+            ? (err as { response?: { status?: unknown; data?: unknown } }).response
+            : undefined;
+        const status = response && typeof response.status === 'number' ? response.status : null;
+        const data = response?.data;
+
+        if (status === 401) {
+          setAttachmentError('Session expired. Please sign in again.');
+          return;
+        }
+        if (status === 404) {
+          setAttachmentError('Attachment not found.');
+          return;
+        }
+        if (status === 502) {
+          if (data instanceof Blob) {
+            const parsed = await parseErrorBlob(data);
+            if (parsed) {
+              setAttachmentError(`Failed to open attachment.${parsed.code ? ` (${parsed.code})` : ''}`);
+              return;
+            }
+          }
+          setAttachmentError('Failed to open attachment. Mail server error.');
+          return;
+        }
+        if (data instanceof Blob) {
+          const parsed = await parseErrorBlob(data);
+          if (parsed) {
+            setAttachmentError(`Failed to open attachment.${parsed.error ? ` (${parsed.error})` : ''}${parsed.code ? ` (${parsed.code})` : ''}`);
+            return;
+          }
+        }
+        setAttachmentError('Failed to open attachment.');
+      } finally {
+        setAttachmentBusyId(null);
+      }
+    },
+    []
+  );
 
   if (loading) {
     return (
@@ -736,13 +809,23 @@ const ReadingPane = ({
                          </div>
                        )}
                        
+                       {attachmentError && (
+                         <div className={cn("mt-4 px-4 py-3 rounded-xl border text-sm font-medium", isDark ? "bg-red-500/10 border-red-500/20 text-red-300" : "bg-red-50 border-red-200 text-red-700")}>
+                           {attachmentError}
+                         </div>
+                       )}
+
                        {msg.attachments.length > 0 && (
                          <div className="mt-6 flex flex-wrap gap-3">
                            {msg.attachments.map(att => (
-                             <div key={att.id} className={cn(
+                             <div
+                               key={att.id}
+                               onClick={() => openAttachment(msg.id, att, thread.folder)}
+                               className={cn(
                                "flex items-center gap-3 p-3 pr-4 rounded-xl border transition-all cursor-pointer group/att",
                                isDark ? "bg-[#181818] border-[#282828] hover:bg-[#222] hover:border-[#333]" : "bg-white border-[#E5E5E5] hover:bg-[#F9F9F9] hover:border-[#D4D4D4]"
-                             )}>
+                             )}
+                             >
                                <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center", isDark ? "bg-[#282828]" : "bg-[#F0F0F0]")}>
                                   <FileText size={20} className={cn("group-hover/att:text-[#1DB954]", isDark ? "text-[#B3B3B3]" : "text-[#5E5E5E]")} />
                                </div>
@@ -750,6 +833,9 @@ const ReadingPane = ({
                                  <span className={cn("text-[13px] font-medium truncate max-w-[150px]", isDark ? "text-white" : "text-black")}>{att.filename}</span>
                                  <span className={cn("text-[11px]", isDark ? "text-[#787878]" : "text-[#949494]")}>{(att.size / 1024).toFixed(1)} KB</span>
                                </div>
+                               {attachmentBusyId === `${msg.id}:${att.id}` && (
+                                 <span className="ml-2 w-4 h-4 border-2 border-[#1DB954]/30 border-t-[#1DB954] rounded-full animate-spin" />
+                               )}
                              </div>
                            ))}
                          </div>
@@ -895,7 +981,48 @@ const ComposeModal = ({
       // const savedTo = (resp?.data && typeof resp.data === 'object' && 'savedTo' in resp.data) ? (resp.data.savedTo as string | null) : null;
       onSent?.('sent', { to: toList, subject: subject.trim(), html: body, text: plainText, date: new Date().toISOString() });
       onClose();
-    } catch {
+      } catch (err) {
+      const response =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { status?: unknown; data?: unknown } }).response
+          : undefined;
+      const status = response && typeof response.status === 'number' ? response.status : null;
+      const data = response?.data ?? null;
+      const errorCode =
+        data && typeof data === 'object' && 'error' in data && typeof data.error === 'string' ? data.error : null;
+      const detailCode =
+        data && typeof data === 'object' && 'code' in data && typeof data.code === 'string' ? data.code : null;
+        const detailText =
+          data &&
+          typeof data === 'object' &&
+          'details' in data &&
+          data.details &&
+          typeof data.details === 'object' &&
+          'message' in data.details &&
+          typeof (data.details as { message?: unknown }).message === 'string'
+            ? String((data.details as { message?: string }).message)
+            : null;
+
+      if (status === 401) {
+        setSendError('Invalid mailbox credentials.');
+        return;
+      }
+      if (status === 403 && (errorCode === 'csrf_required' || errorCode === 'csrf_invalid')) {
+        setSendError('Session expired. Please sign in again.');
+        return;
+      }
+      if (status === 400 && errorCode === 'invalid_payload') {
+        setSendError('Add at least one recipient and a subject.');
+        return;
+      }
+      if (status === 502 && errorCode === 'smtp_error') {
+        setSendError(`Failed to send.${detailCode ? ` (${detailCode})` : ''}${detailText ? ` — ${detailText}` : ''}`);
+        return;
+      }
+      if (status === 502) {
+        setSendError('Failed to send. Mail server error.');
+        return;
+      }
       setSendError('Failed to send. Verify SMTP access and try again.');
     } finally {
       setSending(false);
@@ -1413,6 +1540,8 @@ const MailAppContent = () => {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [searchFilters, setSearchFilters] = useState<{ unread?: boolean; flagged?: boolean; answered?: boolean; attachment?: boolean; from?: string; to?: string; since?: string; before?: string }>({});
   const [voiceActive, setVoiceActive] = useState(false);
+  const [toast, setToast] = useState<{ open: boolean; title: string; subtitle?: string } | null>(null);
+  const toastTimeoutRef = useRef<number | null>(null);
   const threadsAbortRef = useRef<AbortController | null>(null);
   const threadsCursorRef = useRef<string | undefined>(undefined);
   const selectedIdRef = useRef<string | null>(null);
@@ -1641,6 +1770,12 @@ const MailAppContent = () => {
       setVoiceActive(false);
     }
   }, [voiceActive]);
+
+  const showToast = useCallback((next: { title: string; subtitle?: string }) => {
+    if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current);
+    setToast({ open: true, title: next.title, subtitle: next.subtitle });
+    toastTimeoutRef.current = window.setTimeout(() => setToast((t) => (t ? { ...t, open: false } : t)), 3200);
+  }, []);
 
   // Load threads
   const loadThreads = useCallback(async (options?: { reset?: boolean }) => {
@@ -2275,6 +2410,7 @@ const MailAppContent = () => {
           onClose={closeCompose}
           initialDraft={composeState.draft}
           onSent={(folder, payload) => {
+            showToast({ title: 'Sent successfully', subtitle: payload.subject ? payload.subject : undefined });
             if (folder === 'sent') {
               setFolderCounts((c) => ({ ...c, sent: (c.sent || 0) + 0 })); // keep unread 0
               setActiveFolder('sent');
@@ -2324,6 +2460,48 @@ const MailAppContent = () => {
           }}
         />
       )}
+      <AnimatePresence>
+        {toast?.open && (
+          <motion.div
+            initial={{ opacity: 0, y: 12, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.98 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+            className={cn(
+              "fixed z-[60] px-4",
+              isMobile ? "left-0 right-0 bottom-20" : "right-6 bottom-6"
+            )}
+          >
+            <div
+              className={cn(
+                "w-full max-w-[520px] rounded-full border backdrop-blur-md shadow-[0_18px_60px_rgba(0,0,0,0.45)] px-4 py-3 flex items-center gap-3",
+                isDark ? "bg-[#121212]/95 border-[#1F1F1F] text-white" : "bg-white/95 border-[#E5E5E5] text-black"
+              )}
+            >
+              <div className="w-9 h-9 rounded-full bg-[#1DB954]/15 border border-[#1DB954]/30 flex items-center justify-center shrink-0">
+                <Check size={18} className="text-[#1DB954]" strokeWidth={2.5} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold tracking-tight">{toast.title}</div>
+                {toast.subtitle && (
+                  <div className={cn("text-xs truncate max-w-[420px]", isDark ? "text-white/50" : "text-black/50")}>
+                    {toast.subtitle}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => setToast((t) => (t ? { ...t, open: false } : t))}
+                className={cn(
+                  "p-2 rounded-full transition-colors",
+                  isDark ? "text-white/60 hover:text-white hover:bg-[#1A1A1A]" : "text-black/50 hover:text-black hover:bg-[#F2F2F2]"
+                )}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

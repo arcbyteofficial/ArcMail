@@ -337,6 +337,19 @@ const imapErrorDetails = (err) => {
   return Object.keys(details).length ? details : undefined;
 };
 
+const smtpErrorDetails = (err) => {
+  const debug = typeof process.env.DEBUG_ERRORS === 'string' ? process.env.DEBUG_ERRORS === 'true' : false;
+  if ((!debug && IS_PROD) || !err || typeof err !== 'object') return undefined;
+  const e = err;
+  const details = {};
+  if (typeof e.code === 'string') details.code = e.code;
+  if (typeof e.command === 'string') details.command = e.command;
+  if (typeof e.responseCode === 'number') details.responseCode = e.responseCode;
+  if (typeof e.response === 'string') details.response = e.response.slice(0, 500);
+  if (typeof e.message === 'string') details.message = e.message.slice(0, 500);
+  return Object.keys(details).length ? details : undefined;
+};
+
 const isSmtpAuthFailure = (err) => {
   if (!err || typeof err !== 'object') return false;
   if (err.code === 'EAUTH') return true;
@@ -811,6 +824,72 @@ app.get('/api/mail/threads/:id', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/mail/threads/:id/attachments/:attachmentId', requireAuth, async (req, res) => {
+  const id = String(req.params.id || '');
+  const uid = Number(id);
+  const attachmentId = String(req.params.attachmentId || '');
+  const attachmentIndex = Number(attachmentId) - 1;
+  const requestedFilename = typeof req.query?.filename === 'string' ? req.query.filename : '';
+  const requestedSize = typeof req.query?.size === 'string' ? Number(req.query.size) : NaN;
+  const folder = typeof req.query?.folder === 'string' ? req.query.folder : 'INBOX';
+  if (!Number.isFinite(uid)) return res.status(400).json({ error: 'invalid_id' });
+
+  let password = '';
+  try {
+    password = decryptString(req.session.encPassword);
+  } catch {
+    return res.status(401).json({ error: 'session_expired' });
+  }
+
+  try {
+    const result = await withImap({ email: req.session.email, password, folder }, async (client) => {
+      let msg = null;
+      try {
+        msg = await client.fetchOne(uid, { source: true }, { uid: true });
+      } catch {
+        msg = await client.fetchOne(String(uid), { source: true }, { uid: true });
+      }
+      if (!msg || !msg.source) return null;
+      const parsed = await simpleParser(msg.source);
+      const atts = Array.isArray(parsed.attachments) ? parsed.attachments : [];
+      const displayFilenameFor = (a, i) => String(a?.filename || `attachment-${i + 1}`);
+      let att =
+        Number.isFinite(attachmentIndex) && attachmentIndex >= 0 ? atts[attachmentIndex] : null;
+      if (!att && requestedFilename) {
+        att = atts.find((a, i) => displayFilenameFor(a, i) === requestedFilename) || null;
+        if (att && Number.isFinite(requestedSize) && typeof att.size === 'number' && att.size !== requestedSize) {
+          const byNameAndSize = atts.find(
+            (a, i) =>
+              displayFilenameFor(a, i) === requestedFilename &&
+              typeof a.size === 'number' &&
+              a.size === requestedSize
+          );
+          if (byNameAndSize) att = byNameAndSize;
+        }
+      }
+      if (!att && !Number.isFinite(attachmentIndex)) {
+        att = atts.find((a, i) => displayFilenameFor(a, i) === attachmentId) || null;
+      }
+      if (!att) return null;
+      const filename = String(att.filename || `attachment-${attachmentId}`);
+      const mimeType = String(att.contentType || 'application/octet-stream');
+      const content = att.content;
+      return { filename, mimeType, content };
+    });
+
+    if (!result) return res.status(404).json({ error: 'not_found' });
+
+    const safeName = result.filename.replace(/[\r\n"]/g, '_');
+    res.setHeader('Content-Type', result.mimeType);
+    res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+    return res.status(200).send(result.content);
+  } catch (err) {
+    if (isImapAuthFailure(err)) return res.status(401).json({ error: 'invalid_credentials' });
+    const code = getErrorCode(err);
+    return res.status(502).json({ error: 'imap_error', code, details: imapErrorDetails(err) });
+  }
+});
+
 app.post('/api/mail/threads/:id/read', requireAuth, async (req, res) => {
   const id = String(req.params.id || '');
   const uid = Number(id);
@@ -1088,13 +1167,13 @@ app.post('/api/mail/send', requireAuth, requireCsrf, async (req, res) => {
           }
         }
         return res.json({ ok: true, messageId, savedTo });
-      } catch {
-        const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : undefined;
-        return res.status(502).json({ error: 'smtp_error', code });
+      } catch (e) {
+        const code = e && typeof e === 'object' && 'code' in e ? String(e.code) : undefined;
+        return res.status(502).json({ error: 'smtp_error', code, details: smtpErrorDetails(e) });
       }
     }
     const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : undefined;
-    return res.status(502).json({ error: 'smtp_error', code });
+    return res.status(502).json({ error: 'smtp_error', code, details: smtpErrorDetails(err) });
   }
 });
 
