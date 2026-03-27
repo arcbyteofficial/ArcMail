@@ -532,7 +532,12 @@ const MailListItem = ({
          </div>
          
          <div className={cn("text-[13px] truncate flex items-center gap-2", isDark ? "text-[#787878]" : "text-[#949494]")}>
-           <span>{thread.snippet}</span>
+           <span className="truncate">{thread.snippet}</span>
+           {thread.folder === 'inbox' && thread.unread && (
+             <span className={cn("text-[11px] font-semibold shrink-0", isDark ? "text-[#1DB954]" : "text-[#0B6B2B]")}>
+               {t('reply_badge')}
+             </span>
+           )}
          </div>
       </div>
 
@@ -572,6 +577,8 @@ const ReadingPane = ({
   const { t } = useLanguage();
   const [attachmentBusyId, setAttachmentBusyId] = useState<string | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [replySnoozeUntil, setReplySnoozeUntil] = useState<number>(0);
+  const [expandedMsgId, setExpandedMsgId] = useState<string | null>(null);
 
   const openAttachment = useCallback(
     async (messageId: string, attachment: MailThreadMessage['attachments'][number], folder: MailFolder) => {
@@ -614,7 +621,8 @@ const ReadingPane = ({
           return;
         }
         if (status === 404) {
-          setAttachmentError('Attachment not found.');
+          const base = typeof api.defaults.baseURL === 'string' ? api.defaults.baseURL : '';
+          setAttachmentError(`Attachment not found.${base ? ` (baseURL: ${base})` : ''}`);
           return;
         }
         if (status === 502) {
@@ -642,6 +650,14 @@ const ReadingPane = ({
     },
     []
   );
+
+  const threadId = thread?.id;
+  useEffect(() => {
+    if (!threadId) return;
+    const key = `replyReminderSnoozeUntil:${threadId}`;
+    const v = Number(localStorage.getItem(key) || 0);
+    setReplySnoozeUntil(Number.isFinite(v) ? v : 0);
+  }, [threadId]);
 
   if (loading) {
     return (
@@ -770,11 +786,49 @@ const ReadingPane = ({
              </button>
           </div>
 
+          {thread.folder === 'inbox' && thread.messages.some(m => !m.flags.seen) && Date.now() > replySnoozeUntil && (
+            <div
+              className={cn(
+                "mb-6 rounded-full px-5 py-3 flex items-center justify-between gap-4 border",
+                isDark ? "bg-[#121212] border-[#1F1F1F] text-white" : "bg-white border-[#E5E5E5] text-black"
+              )}
+            >
+              <div className="min-w-0">
+                <div className="text-sm font-semibold">{t('reply_reminder')}</div>
+                <div className={cn("text-xs truncate max-w-[480px]", isDark ? "text-white/50" : "text-black/50")}>
+                  {t('reply_reminder_desc', { count: '1' })}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-nowrap whitespace-nowrap">
+                <button
+                  onClick={() => {
+                    const until = Date.now() + 30 * 60 * 1000;
+                    localStorage.setItem(`replyReminderSnoozeUntil:${thread.id}`, String(until));
+                    setReplySnoozeUntil(until);
+                  }}
+                  className={cn(
+                    "px-4 h-9 rounded-full text-xs font-semibold transition-colors whitespace-nowrap",
+                    isDark ? "bg-transparent text-white/80 border border-[#2A2A2A] hover:bg-[#1A1A1A]" : "bg-transparent text-black/70 border border-[#E5E5E5] hover:bg-[#F7F7F7]"
+                  )}
+                >
+                  {t('remind_later')}
+                </button>
+                <button
+                  onClick={onReply}
+                  className="px-4 h-9 rounded-full text-xs font-semibold bg-[#1DB954] hover:bg-[#1ED760] text-black whitespace-nowrap"
+                >
+                  {t('reply_now')}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Messages */}
           <div className="space-y-8">
             {thread.messages.map((msg, idx) => {
                const isLast = idx === thread.messages.length - 1;
                const senderInitial = (msg.fromName || msg.fromAddress || '?')[0].toUpperCase();
+               const isExpanded = expandedMsgId === msg.id;
                
                return (
                  <div key={msg.id} className={cn("group transition-all duration-300", !isLast && "opacity-60 hover:opacity-100")}>
@@ -784,17 +838,62 @@ const ReadingPane = ({
                             {senderInitial}
                           </div>
                           <div>
-                             <div className="flex items-baseline gap-2">
-                               <span className={cn("text-[15px] font-bold", isDark ? "text-white" : "text-black")}>
-                                 {msg.fromName || msg.fromAddress}
-                               </span>
-                               <span className={cn("text-[12px]", isDark ? "text-[#787878]" : "text-[#949494]")}>
+                             <div className="flex items-baseline justify-between gap-3">
+                               <div className="min-w-0 flex items-center gap-2">
+                                 <span className={cn("text-[15px] font-bold truncate", isDark ? "text-white" : "text-black")}>
+                                   {msg.fromName || msg.fromAddress}
+                                 </span>
+                                 <button
+                                   onClick={() => setExpandedMsgId((prev) => (prev === msg.id ? null : msg.id))}
+                                   className={cn(
+                                     "p-1.5 rounded-full transition-colors shrink-0",
+                                     isDark ? "text-[#787878] hover:text-white hover:bg-[#282828]" : "text-[#949494] hover:text-black hover:bg-[#F0F0F0]"
+                                   )}
+                                   aria-expanded={isExpanded}
+                                 >
+                                   <ChevronRight size={16} className={cn("transition-transform", isExpanded && "rotate-90")} />
+                                 </button>
+                               </div>
+                               <span className={cn("text-[12px] shrink-0", isDark ? "text-[#787878]" : "text-[#949494]")}>
                                  {new Date(msg.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
                                </span>
                              </div>
-                             <div className={cn("text-[12px]", isDark ? "text-[#B3B3B3]" : "text-[#5E5E5E]")}>
-                               to {msg.to.map(t => t.name || t.address).join(', ')}
-                             </div>
+                             <AnimatePresence initial={false}>
+                               {isExpanded && (
+                                 <motion.div
+                                   initial={{ opacity: 0, y: -4 }}
+                                   animate={{ opacity: 1, y: 0 }}
+                                   exit={{ opacity: 0, y: -4 }}
+                                   className={cn(
+                                     "mt-2 rounded-xl border px-4 py-3 text-[12px] leading-relaxed",
+                                     isDark ? "bg-[#181818] border-[#282828] text-[#EAEAEA]" : "bg-white border-[#E5E5E5] text-[#121212]"
+                                   )}
+                                 >
+                                   <div className={cn("flex gap-2", isDark ? "text-white/70" : "text-black/70")}>
+                                     <span className="shrink-0 font-semibold">From:</span>
+                                     <span className="truncate">
+                                       {msg.fromName ? `${msg.fromName} <${msg.fromAddress || ''}>` : (msg.fromAddress || '')}
+                                     </span>
+                                   </div>
+                                   <div className={cn("flex gap-2 mt-1", isDark ? "text-white/70" : "text-black/70")}>
+                                     <span className="shrink-0 font-semibold">To:</span>
+                                     <span className="truncate">{msg.to.map(t => t.name || t.address).join(', ')}</span>
+                                   </div>
+                                   {msg.cc.length > 0 && (
+                                     <div className={cn("flex gap-2 mt-1", isDark ? "text-white/70" : "text-black/70")}>
+                                       <span className="shrink-0 font-semibold">Cc:</span>
+                                       <span className="truncate">{msg.cc.map(t => t.name || t.address).join(', ')}</span>
+                                     </div>
+                                   )}
+                                   {msg.bcc.length > 0 && (
+                                     <div className={cn("flex gap-2 mt-1", isDark ? "text-white/70" : "text-black/70")}>
+                                       <span className="shrink-0 font-semibold">Bcc:</span>
+                                       <span className="truncate">{msg.bcc.map(t => t.name || t.address).join(', ')}</span>
+                                     </div>
+                                   )}
+                                 </motion.div>
+                               )}
+                             </AnimatePresence>
                           </div>
                        </div>
                        
@@ -1540,8 +1639,13 @@ const MailAppContent = () => {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [searchFilters, setSearchFilters] = useState<{ unread?: boolean; flagged?: boolean; answered?: boolean; attachment?: boolean; from?: string; to?: string; since?: string; before?: string }>({});
   const [voiceActive, setVoiceActive] = useState(false);
-  const [toast, setToast] = useState<{ open: boolean; title: string; subtitle?: string } | null>(null);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const mobileSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const [toast, setToast] = useState<{ open: boolean; variant: 'success' | 'info' | 'error'; title: string; subtitle?: string; actionLabel?: string; onAction?: () => void } | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
+  const audioUnlockedRef = useRef(false);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const audioMasterGainRef = useRef<GainNode | null>(null);
   const threadsAbortRef = useRef<AbortController | null>(null);
   const threadsCursorRef = useRef<string | undefined>(undefined);
   const selectedIdRef = useRef<string | null>(null);
@@ -1717,13 +1821,34 @@ const MailAppContent = () => {
         setSelectedId(mapped[0].id);
       }
     } catch (err) {
+      if (err && typeof err === 'object' && 'code' in err && (err as { code?: unknown }).code === 'ERR_CANCELED') return;
+      if (err && typeof err === 'object' && 'name' in err && (err as { name?: unknown }).name === 'CanceledError') return;
       const response = err && typeof err === 'object' && 'response' in err ? (err as { response?: { data?: unknown; status?: unknown } }).response : undefined;
       threadsCursorRef.current = undefined;
       setThreadsCursor(undefined);
       if (!response) {
         setThreadsError('API unreachable. Start dev servers with `npm run dev`.');
       } else {
-        setThreadsError('Search failed. Try again.');
+        const status = typeof response.status === 'number' ? response.status : null;
+        const data = response.data as unknown;
+        const errorCode =
+          data && typeof data === 'object' && 'error' in data && typeof (data as { error?: unknown }).error === 'string'
+            ? String((data as { error: string }).error)
+            : null;
+        const detailCode =
+          data && typeof data === 'object' && 'code' in data && typeof (data as { code?: unknown }).code === 'string'
+            ? String((data as { code: string }).code)
+            : null;
+
+        if (status === 401) {
+          setThreadsError('Session expired. Please sign in again.');
+        } else if (status === 404) {
+          setThreadsError('Search endpoint not found. Restart the backend.');
+        } else if (status === 502) {
+          setThreadsError(`Mail server error.${detailCode ? ` (${detailCode})` : ''}`);
+        } else {
+          setThreadsError(`Search failed.${errorCode ? ` (${errorCode})` : ''}`);
+        }
       }
     } finally {
       if (timeoutId) window.clearTimeout(timeoutId);
@@ -1771,11 +1896,100 @@ const MailAppContent = () => {
     }
   }, [voiceActive]);
 
-  const showToast = useCallback((next: { title: string; subtitle?: string }) => {
-    if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current);
-    setToast({ open: true, title: next.title, subtitle: next.subtitle });
-    toastTimeoutRef.current = window.setTimeout(() => setToast((t) => (t ? { ...t, open: false } : t)), 3200);
+  useEffect(() => {
+    const unlock = () => {
+      audioUnlockedRef.current = true;
+      try {
+        if (audioCtxRef.current) {
+          void audioCtxRef.current.resume();
+          return;
+        }
+        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const master = ctx.createGain();
+        master.gain.setValueAtTime(1, ctx.currentTime);
+        master.connect(ctx.destination);
+        audioCtxRef.current = ctx;
+        audioMasterGainRef.current = master;
+        void ctx.resume();
+      } catch {
+        return;
+      }
+    };
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+      try {
+        if (audioCtxRef.current) void audioCtxRef.current.close();
+      } catch {
+        return;
+      }
+    };
   }, []);
+
+  const playToastSound = useCallback((variant: 'success' | 'info' | 'error', count?: number) => {
+    if (!audioUnlockedRef.current) return;
+    try {
+      const ctx = audioCtxRef.current;
+      const master = audioMasterGainRef.current;
+      if (!ctx || !master) return;
+      if (ctx.state === 'suspended') void ctx.resume();
+      const now = ctx.currentTime;
+      const n = Math.max(1, Math.min(5, Number.isFinite(count) ? Number(count) : 1));
+      const base = variant === 'error' ? 220 : variant === 'info' ? 440 : 520;
+      const gap = 0.28;
+
+      for (let i = 0; i < n; i += 1) {
+        const t0 = now + i * gap;
+        const t1 = t0 + 0.22;
+
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.exponentialRampToValueAtTime(0.08, t0 + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t1);
+        gain.connect(master);
+
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        osc1.type = 'sine';
+        osc2.type = 'triangle';
+        osc1.frequency.setValueAtTime(base, t0);
+        osc2.frequency.setValueAtTime(base * 1.5, t0 + 0.02);
+        osc1.connect(gain);
+        osc2.connect(gain);
+        osc1.start(t0);
+        osc2.start(t0 + 0.02);
+        osc1.stop(t1);
+        osc2.stop(t1);
+      }
+    } catch {
+      return;
+    }
+  }, []);
+
+  const showToast = useCallback((next: { variant?: 'success' | 'info' | 'error'; title: string; subtitle?: string; actionLabel?: string; onAction?: () => void; soundCount?: number }) => {
+    if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current);
+    const variant = next.variant || 'success';
+    playToastSound(variant, next.soundCount);
+    setToast({ open: true, variant, title: next.title, subtitle: next.subtitle, actionLabel: next.actionLabel, onAction: next.onAction });
+    toastTimeoutRef.current = window.setTimeout(() => setToast((t) => (t ? { ...t, open: false } : t)), 3200);
+  }, [playToastSound]);
+
+  useEffect(() => {
+    if (!mobileSearchOpen) return;
+    const id = window.setTimeout(() => mobileSearchInputRef.current?.focus(), 0);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileSearchOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.clearTimeout(id);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [mobileSearchOpen]);
 
   // Load threads
   const loadThreads = useCallback(async (options?: { reset?: boolean }) => {
@@ -1930,6 +2144,15 @@ const MailAppContent = () => {
           updateTitle(inboxUnseen);
 
           if (inboxUnseen > prevInboxUnseenRef.current) {
+            const diff = inboxUnseen - prevInboxUnseenRef.current;
+            showToast({
+              variant: 'info',
+              title: 'New mail',
+              subtitle: diff > 1 ? `+${diff} new in Inbox` : '+1 new in Inbox',
+              actionLabel: 'View',
+              onAction: () => setActiveFolder('inbox'),
+              soundCount: diff,
+            });
             if (typeof Notification !== 'undefined' && document.hidden && Notification.permission === 'granted') {
               new Notification('New unread mail', { body: `Inbox: ${inboxUnseen} unread` });
             }
@@ -1948,7 +2171,7 @@ const MailAppContent = () => {
         window.clearInterval(intervalId);
       };
     }
-  }, [isAuthenticated, isLoading, user]);
+  }, [isAuthenticated, isLoading, user, showToast]);
 
   // Load detail
   useEffect(() => {
@@ -2014,6 +2237,18 @@ const MailAppContent = () => {
   const visibleThreads = useMemo(() => {
     return threads.filter(t => t.folder === activeFolder);
   }, [threads, activeFolder]);
+
+  const hasActiveSearchFilters = Boolean(
+    searchFilters.unread ||
+    searchFilters.flagged ||
+    searchFilters.answered ||
+    searchFilters.attachment ||
+    searchFilters.from ||
+    searchFilters.to ||
+    searchFilters.since ||
+    searchFilters.before
+  );
+  const isSearching = Boolean(searchQuery.trim() || hasActiveSearchFilters);
 
   if (isLoading || !isAuthenticated) return null;
 
@@ -2162,6 +2397,18 @@ const MailAppContent = () => {
 
           {/* Right Actions */}
           <div className="flex items-center justify-end gap-3 w-auto lg:w-20 min-w-max ml-4">
+             {isMobile && (
+               <button
+                 onClick={() => setMobileSearchOpen(true)}
+                 className={cn(
+                   "p-3 rounded-full transition-colors border border-transparent",
+                   isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A] hover:border-[#282828]" : "text-[#5E5E5E] hover:text-black hover:bg-[#F0F0F0] hover:border-[#E5E5E5]"
+                 )}
+                 title={t('search_placeholder')}
+               >
+                 <Search size={20} />
+               </button>
+             )}
              <SettingsDropdown />
 
              <button className={cn(
@@ -2173,6 +2420,65 @@ const MailAppContent = () => {
              </button>
           </div>
         </header>
+
+        <AnimatePresence>
+          {isMobile && mobileSearchOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.18 }}
+              className={cn(
+                "fixed inset-x-0 top-16 z-[70] px-4 py-3 border-b",
+                isDark ? "bg-[#0B0B0B] border-[#1A1A1A]" : "bg-[#F6F6F6] border-[#E5E5E5]"
+              )}
+            >
+              <div className="relative group w-full">
+                <div className="absolute -inset-0.5 bg-gradient-to-r from-[#1DB954]/20 to-[#1ED760]/20 rounded-full opacity-0 group-focus-within:opacity-100 transition-opacity duration-500 blur-xl" />
+                <div
+                  className={cn(
+                    "relative flex items-center h-12 px-4 border rounded-full shadow-sm group-focus-within:border-[#1DB954]/40 transition-all duration-300",
+                    isDark ? "bg-[#121212] border-[#282828] group-focus-within:bg-[#181818]" : "bg-white border-[#E5E5E5] group-focus-within:bg-white"
+                  )}
+                >
+                  <Search size={18} className={cn("transition-colors mr-3", isDark ? "text-[#5E5E5E] group-focus-within:text-[#1DB954]" : "text-[#949494] group-focus-within:text-[#1DB954]")} />
+                  <input
+                    ref={mobileSearchInputRef}
+                    placeholder={t('search_placeholder')}
+                    className={cn(
+                      "flex-1 bg-transparent border-none text-[15px] focus:outline-none h-full font-medium",
+                      isDark ? "text-white placeholder:text-[#5E5E5E]" : "text-black placeholder:text-[#949494]"
+                    )}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                  <div className={cn("flex items-center gap-2 pl-2 border-l ml-2", isDark ? "border-[#282828]" : "border-[#E5E5E5]")}>
+                    <button
+                      onClick={() => setFiltersOpen(v => !v)}
+                      className={cn("transition-colors p-1.5 rounded-full", isDark ? "text-[#787878] hover:text-white hover:bg-[#282828]" : "text-[#949494] hover:text-black hover:bg-[#F0F0F0]")}
+                    >
+                      <Filter size={16} />
+                    </button>
+                    <button
+                      onClick={onVoiceToggle}
+                      aria-pressed={voiceActive}
+                      className={cn("transition-colors p-1.5 rounded-full", isDark ? "text-[#787878] hover:text-white hover:bg-[#282828]" : "text-[#949494] hover:text-black hover:bg-[#F0F0F0]")}
+                    >
+                      <Mic size={16} />
+                    </button>
+                    <button
+                      onClick={() => setMobileSearchOpen(false)}
+                      className={cn("transition-colors p-1.5 rounded-full", isDark ? "text-[#787878] hover:text-white hover:bg-[#282828]" : "text-[#949494] hover:text-black hover:bg-[#F0F0F0]")}
+                      title="Close"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className={cn("flex-1 flex min-h-0", isMobile && "pb-16")}>
           
@@ -2205,7 +2511,7 @@ const MailAppContent = () => {
 
               {/* List */}
               <div className="flex-1 overflow-y-auto custom-scrollbar relative px-2 z-10">
-                {activeFolder === 'inbox' && unreadLocalCount > 0 && Date.now() > replySnoozeUntil && (
+                {activeFolder === 'inbox' && !isSearching && unreadLocalCount > 0 && Date.now() > replySnoozeUntil && (
                   <div
                     className={cn(
                       "mx-2 my-3 rounded-full px-5 py-3 flex items-center justify-between gap-4 border",
@@ -2220,7 +2526,7 @@ const MailAppContent = () => {
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-nowrap whitespace-nowrap">
                       <button
                         onClick={() => {
                           const until = Date.now() + 30 * 60 * 1000;
@@ -2228,7 +2534,7 @@ const MailAppContent = () => {
                           setReplySnoozeUntil(until);
                         }}
                         className={cn(
-                          "px-4 h-9 rounded-full text-xs font-semibold transition-colors",
+                          "px-4 h-9 rounded-full text-xs font-semibold transition-colors whitespace-nowrap",
                           isDark ? "bg-transparent text-white/80 border border-[#2A2A2A] hover:bg-[#1A1A1A]" : "bg-transparent text-black/70 border border-[#E5E5E5] hover:bg-[#F7F7F7]"
                         )}
                       >
@@ -2240,7 +2546,7 @@ const MailAppContent = () => {
                           if (first) setSelectedId(first.id);
                           else loadThreads({ reset: true });
                         }}
-                        className="px-4 h-9 rounded-full text-xs font-semibold bg-[#1DB954] hover:bg-[#1ED760] text-black"
+                        className="px-4 h-9 rounded-full text-xs font-semibold bg-[#1DB954] hover:bg-[#1ED760] text-black whitespace-nowrap"
                       >
                         {t('reply_now')}
                       </button>
@@ -2261,7 +2567,15 @@ const MailAppContent = () => {
                     )}>
                       <div className="text-sm font-medium">{threadsError}</div>
                       <button
-                        onClick={() => loadThreads({ reset: true })}
+                        onClick={() => {
+                          threadsCursorRef.current = undefined;
+                          setThreadsCursor(undefined);
+                          if (isSearching) {
+                            searchThreads({ reset: true });
+                          } else {
+                            loadThreads({ reset: true });
+                          }
+                        }}
                         className={cn(
                           "px-4 py-2 rounded-full border text-xs font-bold tracking-wide transition-colors",
                           isDark ? "bg-[#1A1A1A] border-[#333] hover:border-[#1DB954]/40 hover:text-[#1DB954]" : "bg-white border-[#E5E5E5] hover:border-[#1DB954]/40 hover:text-[#1DB954]"
@@ -2469,7 +2783,7 @@ const MailAppContent = () => {
             transition={{ type: 'spring', stiffness: 420, damping: 32 }}
             className={cn(
               "fixed z-[60] px-4",
-              isMobile ? "left-0 right-0 bottom-20" : "right-6 bottom-6"
+              isMobile ? "left-0 right-0 bottom-[calc(6.25rem+env(safe-area-inset-bottom))]" : "right-6 bottom-6"
             )}
           >
             <div
@@ -2478,8 +2792,21 @@ const MailAppContent = () => {
                 isDark ? "bg-[#121212]/95 border-[#1F1F1F] text-white" : "bg-white/95 border-[#E5E5E5] text-black"
               )}
             >
-              <div className="w-9 h-9 rounded-full bg-[#1DB954]/15 border border-[#1DB954]/30 flex items-center justify-center shrink-0">
-                <Check size={18} className="text-[#1DB954]" strokeWidth={2.5} />
+              <div
+                className={cn(
+                  "w-9 h-9 rounded-full flex items-center justify-center shrink-0 border",
+                  toast.variant === 'error'
+                    ? "bg-red-500/10 border-red-500/25"
+                    : "bg-[#1DB954]/15 border-[#1DB954]/30"
+                )}
+              >
+                {toast.variant === 'success' ? (
+                  <Check size={18} className="text-[#1DB954]" strokeWidth={2.5} />
+                ) : toast.variant === 'info' ? (
+                  <Inbox size={18} className="text-[#1DB954]" strokeWidth={2.5} />
+                ) : (
+                  <AlertTriangle size={18} className="text-red-400" strokeWidth={2.5} />
+                )}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold tracking-tight">{toast.title}</div>
@@ -2489,6 +2816,22 @@ const MailAppContent = () => {
                   </div>
                 )}
               </div>
+              {toast.actionLabel && toast.onAction && (
+                <button
+                  onClick={() => {
+                    toast.onAction?.();
+                    setToast((t) => (t ? { ...t, open: false } : t));
+                  }}
+                  className={cn(
+                    "px-4 h-9 rounded-full text-xs font-semibold border transition-colors whitespace-nowrap",
+                    toast.variant === 'error'
+                      ? (isDark ? "bg-transparent border-red-500/30 text-red-300 hover:bg-red-500/10" : "bg-transparent border-red-200 text-red-700 hover:bg-red-50")
+                      : (isDark ? "bg-transparent border-[#2A2A2A] text-white/80 hover:bg-[#1A1A1A]" : "bg-transparent border-[#E5E5E5] text-black/70 hover:bg-[#F7F7F7]")
+                  )}
+                >
+                  {toast.actionLabel}
+                </button>
+              )}
               <button
                 onClick={() => setToast((t) => (t ? { ...t, open: false } : t))}
                 className={cn(

@@ -16,6 +16,10 @@ const normalizeBase = (base: string) => {
 const inferApiBase = () => {
   try {
     const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') {
+      const backendHost = host;
+      return `http://${backendHost}:5050/api`;
+    }
     if (host === 'mail.arcbyte.co') return 'https://api.arcbyte.co/api';
     if (host.endsWith('.arcbyte.co') && host.startsWith('mail.')) {
       return `https://api.${host.slice('mail.'.length)}/api`;

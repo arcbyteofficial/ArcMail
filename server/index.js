@@ -119,6 +119,31 @@ const REMEMBER_ME_TTL_MS = Number(
 );
 
 const sessions = new Map();
+const attachmentCache = new Map();
+const ATTACHMENT_CACHE_TTL_MS = Number(process.env.ATTACHMENT_CACHE_TTL_MS || 10 * 60 * 1000);
+const ATTACHMENT_CACHE_MAX = Number(process.env.ATTACHMENT_CACHE_MAX || 50);
+const ATTACHMENT_CACHE_MAX_BYTES = Number(process.env.ATTACHMENT_CACHE_MAX_BYTES || 15 * 1024 * 1024);
+
+const attachmentCacheKey = ({ sessionId, folder, uid }) => `${sessionId}:${folder}:${uid}`;
+const cleanupAttachmentCache = () => {
+  const now = nowMs();
+  for (const [key, entry] of attachmentCache.entries()) {
+    if (!entry || typeof entry !== 'object') {
+      attachmentCache.delete(key);
+      continue;
+    }
+    if (now - (entry.createdAt || 0) > ATTACHMENT_CACHE_TTL_MS) attachmentCache.delete(key);
+  }
+  if (attachmentCache.size <= ATTACHMENT_CACHE_MAX) return;
+  const items = Array.from(attachmentCache.entries())
+    .map(([k, v]) => ({ k, t: v && typeof v === 'object' && typeof v.createdAt === 'number' ? v.createdAt : 0 }))
+    .sort((a, b) => a.t - b.t);
+  for (const it of items.slice(0, Math.max(0, attachmentCache.size - ATTACHMENT_CACHE_MAX))) {
+    attachmentCache.delete(it.k);
+  }
+};
+
+setInterval(cleanupAttachmentCache, 30_000);
 
 const createSession = ({ email, password, ttlMs }) => {
   const sessionId = crypto.randomUUID();
@@ -447,7 +472,7 @@ const ensureSeen = async (client, uid) => {
   }
   if (await verify()) return true;
   try {
-    const info = await client.fetchOne(uid, { uid: true }, { uid: true });
+    const info = await client.fetchOne(uid, {}, { uid: true });
     if (info && typeof info.seq === 'number') {
       try {
         await client.messageFlagsAdd(info.seq, ['\\Seen'], { uid: false });
@@ -768,7 +793,7 @@ app.get('/api/mail/threads/:id', requireAuth, async (req, res) => {
       try {
         msg = await client.fetchOne(uid, { envelope: true, flags: true, source: true }, { uid: true });
       } catch {
-        msg = await client.fetchOne(uid, { uid: true, envelope: true, flags: true, source: true });
+        msg = await client.fetchOne(String(uid), { envelope: true, flags: true, source: true }, { uid: true });
       }
       if (!msg) return null;
 
@@ -794,6 +819,34 @@ app.get('/api/mail/threads/:id', requireAuth, async (req, res) => {
         size: a.size || 0,
         part: `attachment-${i + 1}`,
       }));
+      try {
+        const atts = Array.isArray(parsed?.attachments) ? parsed.attachments : [];
+        let total = 0;
+        const cached = [];
+        for (let i = 0; i < atts.length; i += 1) {
+          const a = atts[i];
+          const content = a && a.content ? a.content : null;
+          if (!content || !(content instanceof Buffer)) {
+            total = ATTACHMENT_CACHE_MAX_BYTES + 1;
+            break;
+          }
+          total += content.length;
+          if (total > ATTACHMENT_CACHE_MAX_BYTES) break;
+          cached.push({
+            id: String(i + 1),
+            filename: a.filename || `attachment-${i + 1}`,
+            mimeType: a.contentType || 'application/octet-stream',
+            size: typeof a.size === 'number' ? a.size : content.length,
+            content,
+          });
+        }
+        if (cached.length > 0 && total <= ATTACHMENT_CACHE_MAX_BYTES) {
+          attachmentCache.set(
+            attachmentCacheKey({ sessionId: req.session.id, folder, uid }),
+            { createdAt: nowMs(), attachments: cached }
+          );
+        }
+      } catch {}
 
       const date = (msg.envelope?.date || parsed?.date || new Date()).toISOString();
       const subject = msg.envelope?.subject || parsed?.subject || '(no subject)';
@@ -850,6 +903,39 @@ app.get('/api/mail/threads/:id/attachments/:attachmentId', requireAuth, async (r
     return res.status(401).json({ error: 'session_expired' });
   }
 
+  const debugErrors = typeof process.env.DEBUG_ERRORS === 'string' ? process.env.DEBUG_ERRORS === 'true' : false;
+
+  try {
+    const key = attachmentCacheKey({ sessionId: req.session.id, folder, uid });
+    const cached = attachmentCache.get(key);
+    if (cached && typeof cached === 'object' && Array.isArray(cached.attachments) && cached.attachments.length > 0) {
+      const atts = cached.attachments;
+      const displayFilenameFor = (a, i) => String(a?.filename || `attachment-${i + 1}`);
+      let att = Number.isFinite(attachmentIndex) && attachmentIndex >= 0 ? atts[attachmentIndex] : null;
+      if (!att && requestedFilename) {
+        att = atts.find((a, i) => displayFilenameFor(a, i) === requestedFilename) || null;
+        if (att && Number.isFinite(requestedSize) && typeof att.size === 'number' && att.size !== requestedSize) {
+          const byNameAndSize = atts.find(
+            (a, i) =>
+              displayFilenameFor(a, i) === requestedFilename &&
+              typeof a.size === 'number' &&
+              a.size === requestedSize
+          );
+          if (byNameAndSize) att = byNameAndSize;
+        }
+      }
+      if (!att && !Number.isFinite(attachmentIndex)) {
+        att = atts.find((a, i) => displayFilenameFor(a, i) === attachmentId) || null;
+      }
+      if (att && att.content) {
+        const safeName = String(att.filename || `attachment-${attachmentId}`).replace(/[\r\n"]/g, '_');
+        res.setHeader('Content-Type', String(att.mimeType || 'application/octet-stream'));
+        res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+        return res.status(200).send(att.content);
+      }
+    }
+  } catch {}
+
   try {
     const result = await withImap({ email: req.session.email, password, folder }, async (client) => {
       let msg = null;
@@ -879,7 +965,26 @@ app.get('/api/mail/threads/:id/attachments/:attachmentId', requireAuth, async (r
       if (!att && !Number.isFinite(attachmentIndex)) {
         att = atts.find((a, i) => displayFilenameFor(a, i) === attachmentId) || null;
       }
-      if (!att) return null;
+      if (!att) {
+        if (debugErrors) {
+          return {
+            notFound: true,
+            info: {
+              attachmentId,
+              attachmentIndex: Number.isFinite(attachmentIndex) ? attachmentIndex : null,
+              requestedFilename: requestedFilename || null,
+              requestedSize: Number.isFinite(requestedSize) ? requestedSize : null,
+              attachmentsCount: atts.length,
+              attachments: atts.slice(0, 20).map((a, i) => ({
+                filename: displayFilenameFor(a, i),
+                size: typeof a.size === 'number' ? a.size : null,
+                contentType: typeof a.contentType === 'string' ? a.contentType : null,
+              })),
+            },
+          };
+        }
+        return null;
+      }
       const filename = String(att.filename || `attachment-${attachmentId}`);
       const mimeType = String(att.contentType || 'application/octet-stream');
       const content = att.content;
@@ -887,6 +992,9 @@ app.get('/api/mail/threads/:id/attachments/:attachmentId', requireAuth, async (r
     });
 
     if (!result) return res.status(404).json({ error: 'not_found' });
+    if (result && typeof result === 'object' && 'notFound' in result) {
+      return res.status(404).json({ error: 'not_found', details: result.info });
+    }
 
     const safeName = result.filename.replace(/[\r\n"]/g, '_');
     res.setHeader('Content-Type', result.mimeType);
