@@ -5,7 +5,6 @@ import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api/client';
 import { Lock, ArrowRight, Loader2, ShieldCheck, X, User, Phone, BadgeCheck, Mail } from 'lucide-react';
 import logo from '../../assets/arcbyte.co Logo_white_transparent.png';
-import arcmailLogo from '../../assets/arcmail.png';
 
 const MailLogin = () => {
   const [email, setEmail] = useState('');
@@ -184,7 +183,7 @@ const MailLogin = () => {
           >
             <div className="mb-8">
               <div className="mb-5 flex justify-center">
-                <img src={arcmailLogo} alt="ArcMail" className="h-14 w-auto object-contain" />
+                <img src={logo} alt="ArcByte" className="h-14 w-auto object-contain" />
               </div>
               <h2 className="text-2xl font-display font-bold mb-2">ArcMail Login</h2>
               <p className="text-sm text-white/40">

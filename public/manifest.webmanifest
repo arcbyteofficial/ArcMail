@@ -1,0 +1,16 @@
+{
+  "name": "ArcMail",
+  "short_name": "ArcMail",
+  "description": "ArcMail for Operators — operator-grade messaging for internal communications.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0A0A0A",
+  "theme_color": "#0A0A0A",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48 64x64 128x128 256x256",
+      "type": "image/x-icon"
+    }
+  ]
+}

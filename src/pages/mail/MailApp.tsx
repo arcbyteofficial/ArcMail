@@ -43,6 +43,7 @@ import { api } from '../../api/client';
 import { cn } from '../../utils/cn';
 import { RichTextEditor } from '../../components/editor/RichTextEditor';
 import arcByteLogo from '../../assets/arcbyte.co Logo_white_transparent.png';
+import arcByteLogoPng from '../../assets/arcbyte.co_logo.png';
 import { LANGUAGES, type Language, translations } from './translations';
 
 // --- Theme Context ---
@@ -2784,6 +2785,7 @@ const MailAppContent = () => {
   const selectedIdRef = useRef<string | null>(null);
   const composeOpen = composeState.open;
   const prevInboxUnseenRef = useRef<number>(0);
+  const notifPromptedRef = useRef(false);
   const replySnoozeKey = 'replyReminderSnoozeUntil';
   const [replySnoozeUntil, setReplySnoozeUntil] = useState<number>(() => {
     const raw = localStorage.getItem(replySnoozeKey);
@@ -3399,8 +3401,41 @@ const MailAppContent = () => {
               onAction: () => setActiveFolder('inbox'),
               soundCount: diff,
             });
-            if (typeof Notification !== 'undefined' && document.hidden && Notification.permission === 'granted') {
-              new Notification('New unread mail', { body: `Inbox: ${inboxUnseen} unread` });
+            if (typeof Notification !== 'undefined') {
+              if (Notification.permission === 'default' && !notifPromptedRef.current) {
+                notifPromptedRef.current = true;
+                showToast({
+                  variant: 'info',
+                  title: 'Enable notifications',
+                  subtitle: 'Get alerts for new email while you’re away.',
+                  actionLabel: 'Enable',
+                  onAction: async () => {
+                    try {
+                      const perm = await Notification.requestPermission();
+                      if (perm === 'granted') {
+                        new Notification('Notifications enabled', {
+                          body: 'ArcMail will notify you about new email.',
+                          icon: arcByteLogoPng,
+                          badge: arcByteLogoPng,
+                        });
+                      }
+                    } catch {
+                      return;
+                    }
+                  },
+                });
+              } else if (document.hidden && Notification.permission === 'granted') {
+                try {
+                  new Notification('New mail', {
+                    body: diff > 1 ? `+${diff} new in Inbox` : '1 new in Inbox',
+                    icon: arcByteLogoPng,
+                    badge: arcByteLogoPng,
+                    tag: 'arcmail-inbox',
+                  });
+                } catch {
+                  return;
+                }
+              }
             }
           }
           prevInboxUnseenRef.current = inboxUnseen;

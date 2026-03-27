@@ -128,7 +128,38 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options(/.*/, cors(corsOptions));
+app.options('*', cors(corsOptions));
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && typeof origin === 'string') {
+    const ok =
+      origin === 'https://mail.arcbyte.co' ||
+      allowedOrigins.includes(origin) ||
+      (() => {
+        try {
+          const u = new URL(origin);
+          return u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === 'arcbyte.co' || u.hostname.endsWith('.arcbyte.co');
+        } catch {
+          return false;
+        }
+      })();
+    if (ok) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-csrf-token, x-mail-session');
+      res.setHeader('Access-Control-Max-Age', '600');
+    }
+  }
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+
+  return next();
+});
 app.use(express.json({ limit: '2mb' }));
 
 // Prevent process exit on certain transient IMAP errors
