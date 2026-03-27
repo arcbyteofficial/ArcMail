@@ -3359,7 +3359,7 @@ const MailAppContent = () => {
 
       const updateTitle = (inboxUnseen: number) => {
         const base = 'ArcMail';
-        const folderLabel = t(activeFolder);
+        const folderLabel = isMobile && mobileProfileOpen ? 'Profile' : t(activeFolder);
         const withFolder = folderLabel ? `${folderLabel} · ${base}` : base;
         document.title = inboxUnseen > 0 ? `(${inboxUnseen}) ${withFolder}` : withFolder;
       };
@@ -3417,7 +3417,7 @@ const MailAppContent = () => {
         window.clearInterval(intervalId);
       };
     }
-  }, [activeFolder, isAuthenticated, isLoading, showToast, t, user]);
+  }, [activeFolder, isAuthenticated, isLoading, isMobile, mobileProfileOpen, showToast, t, user]);
 
   // Load detail
   useEffect(() => {

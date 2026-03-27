@@ -103,23 +103,26 @@ if (IS_PROD && (!JWT_SECRET || !SESSION_SECRET)) {
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
-app.use(
-  cors({
-    origin(origin, cb) {
-      if (!origin) return cb(null, true);
-      if (allowedOrigins.includes(origin)) return cb(null, true);
-      try {
-        const u = new URL(origin);
-        if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return cb(null, true);
-        if (u.hostname === 'arcbyte.co' || u.hostname.endsWith('.arcbyte.co')) return cb(null, true);
-      } catch {
-        return cb(new Error('Not allowed by CORS'));
-      }
+const corsOptions = {
+  origin(origin, cb) {
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.includes(origin)) return cb(null, true);
+    try {
+      const u = new URL(origin);
+      if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return cb(null, true);
+      if (u.hostname === 'arcbyte.co' || u.hostname.endsWith('.arcbyte.co')) return cb(null, true);
+    } catch {
       return cb(new Error('Not allowed by CORS'));
-    },
-    credentials: true,
-  })
-);
+    }
+    return cb(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token', 'x-mail-session'],
+  optionsSuccessStatus: 204,
+};
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 // Prevent process exit on certain transient IMAP errors
 const shouldIgnoreProcessError = (err) => {
