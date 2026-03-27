@@ -54,6 +54,23 @@ app.use(
   })
 );
 
+// Prevent process exit on certain transient IMAP errors
+const shouldIgnoreProcessError = (err) => {
+  if (!err) return false;
+  const code = typeof err.code === 'string' ? err.code : '';
+  const msg = String(err.message || '').toLowerCase();
+  return code === 'NoConnection' || msg.includes('connection not available');
+};
+process.on('uncaughtException', (err) => {
+  if (shouldIgnoreProcessError(err)) {
+    return;
+  }
+});
+process.on('unhandledRejection', (reason) => {
+  if (reason && shouldIgnoreProcessError(reason)) {
+    return;
+  }
+});
 const deriveKey = (secret) =>
   crypto.createHash('sha256').update(String(secret), 'utf8').digest();
 
@@ -361,10 +378,10 @@ const withImap = async ({ email, password, folder }, fn) => {
       await client.connect();
       let openPath = String(folder || 'INBOX');
       try {
-        await client.mailboxOpen(openPath);
+        await client.mailboxOpen(openPath, { readOnly: false });
       } catch {
         openPath = await resolveMailboxPath(client, openPath);
-        await client.mailboxOpen(openPath);
+        await client.mailboxOpen(openPath, { readOnly: false });
       }
       return await fn(client);
     } catch (err) {
@@ -384,6 +401,48 @@ const withImap = async ({ email, password, folder }, fn) => {
   }
 
   throw lastError;
+};
+
+const ensureSeen = async (client, uid) => {
+  const verify = async () => {
+    try {
+      const info = await client.fetchOne(uid, { flags: true }, { uid: true });
+      if (info && info.flags instanceof Set && info.flags.has('\\Seen')) return true;
+    } catch {}
+    try {
+      const info = await client.fetchOne(String(uid), { flags: true }, { uid: true });
+      if (info && info.flags instanceof Set && info.flags.has('\\Seen')) return true;
+    } catch {}
+    return false;
+  };
+  try {
+    await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true });
+  } catch {
+    try {
+      await client.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true });
+    } catch {}
+  }
+  if (await verify()) return true;
+  try {
+    const info = await client.fetchOne(uid, { uid: true }, { uid: true });
+    if (info && typeof info.seq === 'number') {
+      try {
+        await client.messageFlagsAdd(info.seq, ['\\Seen'], { uid: false });
+      } catch {}
+      if (await verify()) return true;
+      try {
+        await client.messageFlagsSet(info.seq, ['\\Seen'], { uid: false });
+      } catch {}
+    }
+  } catch {}
+  try {
+    await client.messageFlagsSet(uid, ['\\Seen'], { uid: true });
+  } catch {
+    try {
+      await client.messageFlagsSet(String(uid), ['\\Seen'], { uid: true });
+    } catch {}
+  }
+  return await verify();
 };
 
 const normalizeAddressList = (value) => {
@@ -571,6 +630,14 @@ app.get('/api/mail/threads/:id', requireAuth, async (req, res) => {
       }
       if (!msg) return null;
 
+      // Ensure it's marked as Seen when opened
+      try {
+        const seen = msg.flags instanceof Set ? msg.flags.has('\\Seen') : false;
+        if (!seen) {
+          await ensureSeen(client, uid);
+        }
+      } catch {}
+
       const parsed = msg.source ? await simpleParser(msg.source) : null;
       const to = normalizeAddressList(parsed?.to);
       const cc = normalizeAddressList(parsed?.cc);
@@ -638,18 +705,14 @@ app.post('/api/mail/threads/:id/read', requireAuth, async (req, res) => {
   }
 
   try {
-    await withImap({ email: req.session.email, password, folder }, async (client) => {
-      try {
-        await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true });
-      } catch {
-        await client.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true });
-      }
-      return true;
+    const updated = await withImap({ email: req.session.email, password, folder }, async (client) => {
+      return await ensureSeen(client, uid);
     });
-    return res.json({ ok: true });
+    if (updated) return res.json({ ok: true });
+    return res.status(502).json({ error: 'imap_error', code: 'UNABLE_TO_SET_SEEN' });
   } catch (err) {
     const code = getErrorCode(err);
-    return res.status(502).json({ error: 'imap_error', code });
+    return res.status(502).json({ error: 'imap_error', code, details: imapErrorDetails(err) });
   }
 });
 

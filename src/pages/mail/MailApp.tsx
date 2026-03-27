@@ -1402,7 +1402,6 @@ const MailAppContent = () => {
   const selectedIdRef = useRef<string | null>(null);
   const composeOpen = composeState.open;
   const prevInboxUnseenRef = useRef<number>(0);
-  const [unreadBanner, setUnreadBanner] = useState<{ visible: boolean; count: number }>({ visible: false, count: 0 });
   const replySnoozeKey = 'replyReminderSnoozeUntil';
   const [replySnoozeUntil, setReplySnoozeUntil] = useState<number>(() => {
     const raw = localStorage.getItem(replySnoozeKey);
@@ -1516,6 +1515,14 @@ const MailAppContent = () => {
     });
   }, [threadDetail, openCompose, normalizeSubjectPrefix, buildForwardBodyHtml]);
 
+  const markThreadRead = useCallback(async (id: string) => {
+    try {
+      await api.post(`/mail/threads/${encodeURIComponent(id)}/read`, null, {
+        params: { folder: MAIL_FOLDER_IMAP_PATH[activeFolder] },
+      });
+    } catch {/* ignore */}
+  }, [activeFolder]);
+
   // Load threads
   const loadThreads = useCallback(async (options?: { reset?: boolean }) => {
     if (!user || !isAuthenticated) return;
@@ -1611,8 +1618,7 @@ const MailAppContent = () => {
   useEffect(() => {
     if (!isLoading && isAuthenticated && user?.role === 'MAIL_USER') {
       const hasLocalSent =
-        activeFolder === 'sent' &&
-        threads.some((t) => t.folder === 'sent' && String(t.id).startsWith('local-sent-'));
+        activeFolder === 'sent' && readPendingSent().length > 0;
       if (!hasLocalSent) {
         setThreads([]);
         setThreadsCursor(undefined);
@@ -1661,9 +1667,6 @@ const MailAppContent = () => {
           updateTitle(inboxUnseen);
 
           if (inboxUnseen > prevInboxUnseenRef.current) {
-            const diff = inboxUnseen - prevInboxUnseenRef.current;
-            setUnreadBanner({ visible: true, count: diff });
-            window.setTimeout(() => setUnreadBanner((b) => ({ ...b, visible: false })), 8000);
             if (typeof Notification !== 'undefined' && document.hidden && Notification.permission === 'granted') {
               new Notification('New unread mail', { body: `Inbox: ${inboxUnseen} unread` });
             }
@@ -1880,23 +1883,6 @@ const MailAppContent = () => {
                      <span className={cn("text-sm font-medium", isDark ? "text-[#5E5E5E]" : "text-[#949494]")}>{threads.length} {t('messages')}</span>
                   </div>
                  <div className="flex items-center gap-2">
-                   {unreadBanner.visible && activeFolder === 'inbox' && (
-                     <button
-                       onClick={() => {
-                         setUnreadBanner({ visible: false, count: 0 });
-                         loadThreads({ reset: true });
-                       }}
-                       className={cn(
-                         "flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all shadow-sm hover:shadow",
-                         isDark ? "bg-[#0F1A12] text-[#9FE3B0] border-[#163322] hover:bg-[#112016]" : "bg-[#E9F7EE] text-[#0B6B2B] border-[#BFEBCB] hover:bg-[#DFF3E6]"
-                       )}
-                       title="Load new mail"
-                     >
-                       <div className="w-1.5 h-1.5 rounded-full bg-[#1DB954] shadow-[0_0_8px_#1DB954]" />
-                       <span className="text-xs font-bold">{unreadBanner.count > 0 ? `+${unreadBanner.count} new` : 'New mail'}</span>
-                       <span className="text-[10px] font-bold opacity-80">{t('refresh_inbox')}</span>
-                     </button>
-                   )}
                    <button className={cn(
                      "flex items-center gap-2 px-3 py-1.5 rounded-full border hover:border-[#1DB954]/30 transition-all group",
                      isDark ? "bg-[#1A1A1A] hover:bg-[#222] border-[#282828]" : "bg-white hover:bg-[#F9F9F9] border-[#E5E5E5]"
@@ -1910,15 +1896,18 @@ const MailAppContent = () => {
               {/* List */}
               <div className="flex-1 overflow-y-auto custom-scrollbar relative px-2 z-10">
                 {activeFolder === 'inbox' && unreadLocalCount > 0 && Date.now() > replySnoozeUntil && (
-                  <div className={cn(
-                    "mx-2 my-3 rounded-2xl border p-4 flex items-center justify-between gap-3",
-                    isDark ? "bg-[#0F1A12] border-[#163322] text-[#C1F0CE]" : "bg-[#E9F7EE] border-[#BFEBCB] text-[#0B6B2B]"
-                  )}>
-                    <div className="flex items-center gap-3">
-                      <div className="w-2.5 h-2.5 rounded-full bg-[#1DB954] shadow-[0_0_8px_#1DB954]" />
-                      <div>
-                        <div className="text-sm font-extrabold">{t('reply_reminder')}</div>
-                        <div className="text-xs opacity-90">{t('reply_reminder_desc', { count: String(unreadLocalCount) })}</div>
+                  <div
+                    className={cn(
+                      "mx-2 my-3 rounded-full px-5 py-3 flex items-center justify-between gap-4 border",
+                      isDark ? "bg-[#121212] border-[#1F1F1F] text-white" : "bg-white border-[#E5E5E5] text-black"
+                    )}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex flex-col min-w-0">
+                        <div className="text-sm font-semibold">{t('reply_reminder')}</div>
+                        <div className={cn("text-xs truncate max-w-[220px]", isDark ? "text-white/50" : "text-black/50")}>
+                          {t('reply_reminder_desc', { count: String(unreadLocalCount) })}
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1929,8 +1918,8 @@ const MailAppContent = () => {
                           setReplySnoozeUntil(until);
                         }}
                         className={cn(
-                          "px-3 py-1.5 rounded-full border text-xs font-bold",
-                          isDark ? "bg-[#112016] border-[#1A3A26] text-[#9FE3B0] hover:bg-[#13271B]" : "bg-white border-[#BFEBCB] text-[#0B6B2B] hover:bg-[#F9FFFB]"
+                          "px-4 h-9 rounded-full text-xs font-semibold transition-colors",
+                          isDark ? "bg-transparent text-white/80 border border-[#2A2A2A] hover:bg-[#1A1A1A]" : "bg-transparent text-black/70 border border-[#E5E5E5] hover:bg-[#F7F7F7]"
                         )}
                       >
                         {t('remind_later')}
@@ -1941,7 +1930,7 @@ const MailAppContent = () => {
                           if (first) setSelectedId(first.id);
                           else loadThreads({ reset: true });
                         }}
-                        className="px-3 py-1.5 rounded-full text-xs font-bold bg-[#1DB954] hover:bg-[#1ED760] text-black shadow-[0_6px_16px_rgba(29,185,84,0.3)]"
+                        className="px-4 h-9 rounded-full text-xs font-semibold bg-[#1DB954] hover:bg-[#1ED760] text-black"
                       >
                         {t('reply_now')}
                       </button>
@@ -1979,7 +1968,11 @@ const MailAppContent = () => {
                         key={t.id} 
                         thread={t} 
                         selected={selectedId === t.id}
-                        onClick={() => setSelectedId(t.id)}
+                        onClick={() => {
+                          setSelectedId(t.id);
+                          setThreads(prev => prev.map(p => p.id === t.id ? { ...p, unread: false } : p));
+                          markThreadRead(t.id);
+                        }}
                       />
                     ))}
                     {visibleThreads.length === 0 && (
