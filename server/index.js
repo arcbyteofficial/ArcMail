@@ -218,6 +218,25 @@ const resolveMailboxPath = async (client, requested) => {
     const path = typeof box.path === 'string' ? box.path : typeof box.name === 'string' ? box.name : '';
     if (!path) continue;
     const lower = path.toLowerCase();
+    const specialUse = typeof box.specialUse === 'string' ? box.specialUse.toLowerCase() : '';
+    const flags = box.flags instanceof Set ? box.flags : new Set();
+
+    const desiredSpecialUse = (() => {
+      if (reqLower === 'inbox') return '\\inbox';
+      if (reqLower === 'sent' || reqLower === 'sent mail' || reqLower === 'sent items') return '\\sent';
+      if (reqLower === 'drafts' || reqLower === 'draft') return '\\drafts';
+      if (reqLower === 'trash' || reqLower === 'bin' || reqLower === 'deleted items') return '\\trash';
+      if (reqLower === 'spam' || reqLower === 'junk') return '\\junk';
+      return null;
+    })();
+
+    if (desiredSpecialUse) {
+      const desired = desiredSpecialUse.toLowerCase();
+      if (specialUse === desired) return path;
+      for (const f of flags) {
+        if (String(f).toLowerCase() === desired) return path;
+      }
+    }
     if (lower === reqLower) return path;
     if (lower.endsWith(`.${reqLower}`) || lower.endsWith(`/${reqLower}`)) {
       suffixMatch = path;
@@ -374,6 +393,60 @@ const normalizeAddressList = (value) => {
     name: typeof a.name === 'string' ? a.name : undefined,
     address: String(a.address || ''),
   }));
+};
+
+const buildRfc822 = ({ from, to, cc, subject, html, text }) => {
+  const date = new Date().toUTCString();
+  const id = `${Date.now()}.${Math.random().toString(16).slice(2)}@arcmail`;
+  const boundary = `=_ArcMail_${Math.random().toString(36).slice(2)}`;
+  const toHeader = Array.isArray(to) && to.length ? `To: ${to.join(', ')}\r\n` : '';
+  const ccHeader = Array.isArray(cc) && cc.length ? `Cc: ${cc.join(', ')}\r\n` : '';
+  const plain = (text && text.trim()) || '';
+  const htmlBody = (html && html.trim()) || '';
+  const hasHtml = Boolean(htmlBody);
+  if (!hasHtml) {
+    const lines = [
+      `From: ${from}`,
+      toHeader.trimEnd(),
+      ccHeader.trimEnd(),
+      `Date: ${date}`,
+      `Message-ID: <${id}>`,
+      'MIME-Version: 1.0',
+      `Subject: ${subject}`,
+      'Content-Type: text/plain; charset=UTF-8',
+      'Content-Transfer-Encoding: 8bit',
+      '',
+      plain,
+      ''
+    ].filter(Boolean);
+    return lines.join('\r\n').replace(/\r?\n/g, '\r\n');
+  }
+  const parts = [
+    `From: ${from}`,
+    toHeader.trimEnd(),
+    ccHeader.trimEnd(),
+    `Date: ${date}`,
+    `Message-ID: <${id}>`,
+    'MIME-Version: 1.0',
+    `Subject: ${subject}`,
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: 8bit',
+    '',
+    plain,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/html; charset=UTF-8',
+    'Content-Transfer-Encoding: 8bit',
+    '',
+    htmlBody,
+    '',
+    `--${boundary}--`,
+    ''
+  ];
+  return parts.join('\r\n').replace(/\r?\n/g, '\r\n');
 };
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
@@ -551,6 +624,103 @@ app.get('/api/mail/threads/:id', requireAuth, async (req, res) => {
   }
 });
 
+app.post('/api/mail/threads/:id/read', requireAuth, async (req, res) => {
+  const id = String(req.params.id || '');
+  const uid = Number(id);
+  const folder = typeof req.query?.folder === 'string' ? req.query.folder : 'INBOX';
+  if (!Number.isFinite(uid)) return res.status(400).json({ error: 'invalid_id' });
+
+  let password = '';
+  try {
+    password = decryptString(req.session.encPassword);
+  } catch {
+    return res.status(401).json({ error: 'session_expired' });
+  }
+
+  try {
+    await withImap({ email: req.session.email, password, folder }, async (client) => {
+      try {
+        await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true });
+      } catch {
+        await client.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true });
+      }
+      return true;
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    const code = getErrorCode(err);
+    return res.status(502).json({ error: 'imap_error', code });
+  }
+});
+
+app.get('/api/mail/folders/stats', requireAuth, async (req, res) => {
+  let password = '';
+  try {
+    password = decryptString(req.session.encPassword);
+  } catch {
+    return res.status(401).json({ error: 'session_expired' });
+  }
+
+  const folders = {
+    inbox: 'INBOX',
+    sent: 'Sent',
+    drafts: 'Drafts',
+    spam: 'Spam',
+    trash: 'Trash',
+  };
+
+  try {
+    const result = await withImap({ email: req.session.email, password, folder: 'INBOX' }, async (client) => {
+      const stats = {};
+      for (const [key, requestedPath] of Object.entries(folders)) {
+        let path = requestedPath;
+        try {
+          path = await resolveMailboxPath(client, requestedPath);
+        } catch {
+        }
+        try {
+          const s = await client.status(path, { messages: true, unseen: true });
+          stats[key] = { messages: Number(s.messages || 0), unseen: Number(s.unseen || 0) };
+        } catch {
+          stats[key] = { messages: 0, unseen: 0 };
+        }
+      }
+      return stats;
+    });
+    return res.json({ folders: result });
+  } catch (err) {
+    const code = getErrorCode(err);
+    return res.status(502).json({ error: 'imap_error', code, details: imapErrorDetails(err) });
+  }
+});
+
+app.get('/api/mail/diagnostics/folders', requireAuth, async (req, res) => {
+  let password = '';
+  try {
+    password = decryptString(req.session.encPassword);
+  } catch {
+    return res.status(401).json({ error: 'session_expired' });
+  }
+  try {
+    const result = await withImap({ email: req.session.email, password, folder: 'INBOX' }, async (client) => {
+      const folders = [];
+      for await (const box of client.list()) {
+        folders.push({
+          path: String(box.path || box.name || ''),
+          name: String(box.name || ''),
+          specialUse: typeof box.specialUse === 'string' ? box.specialUse : null,
+          flags: box.flags instanceof Set ? Array.from(box.flags) : [],
+        });
+      }
+      return folders;
+    });
+    return res.json({ folders: result });
+  } catch (err) {
+    const code = getErrorCode(err);
+    return res.status(502).json({ error: 'imap_error', code, details: imapErrorDetails(err) });
+  }
+});
+
 app.post('/api/mail/send', requireAuth, requireCsrf, async (req, res) => {
   let password = '';
   try {
@@ -570,16 +740,113 @@ app.post('/api/mail/send', requireAuth, requireCsrf, async (req, res) => {
 
   if (!to.length || !subject.trim()) return res.status(400).json({ error: 'invalid_payload' });
 
-  const sendWith = async (transport) => {
-    return await transport.sendMail({
-      from: req.session.email,
-      to,
-      cc: cc.length ? cc : undefined,
-      bcc: bcc.length ? bcc : undefined,
-      subject: subject.trim(),
-      html,
-      text,
+  const sendMailOptions = {
+    from: req.session.email,
+    to,
+    cc: cc.length ? cc : undefined,
+    bcc: bcc.length ? bcc : undefined,
+    subject: subject.trim(),
+    html,
+    text,
+  };
+
+  const storeMailOptions = {
+    from: req.session.email,
+    to,
+    cc: cc.length ? cc : undefined,
+    subject: subject.trim(),
+    html,
+    text,
+  };
+
+  let rawMessage = null;
+  try {
+    // Build an RFC822 message with CRLF line endings for IMAP APPEND compatibility
+    const rawTransport = nodemailer.createTransport({
+      streamTransport: true,
+      buffer: true,
+      newline: 'windows',
     });
+    const info = await rawTransport.sendMail(storeMailOptions);
+    const msg = info && typeof info === 'object' && 'message' in info ? info.message : null;
+    if (Buffer.isBuffer(msg)) {
+      rawMessage = msg;
+    } else if (typeof msg === 'string') {
+      rawMessage = msg;
+    } else {
+      rawMessage = null;
+    }
+  } catch {
+    rawMessage = null;
+  }
+  if (!rawMessage) {
+    const fromAddr = req.session.email;
+    const toHeader = to.join(', ');
+    const ccHeader = cc.length ? cc.join(', ') : undefined;
+    const rfc822 = buildRfc822({
+      from: fromAddr,
+      to: [toHeader].filter(Boolean),
+      cc: ccHeader ? [ccHeader] : [],
+      subject: subject.trim(),
+      html: html || '',
+      text: text || '',
+    });
+    rawMessage = rfc822;
+  }
+
+  const sendWith = async (transport) => {
+    return await transport.sendMail(sendMailOptions);
+  };
+
+  const tryAppendToSent = async (client, raw) => {
+    const candidates = [
+      'Sent',
+      'Sent Mail',
+      'Sent Items',
+      'INBOX.Sent',
+      'INBOX/Sent',
+      'INBOX.Sent Mail',
+      'INBOX.Sent Items',
+      '[Gmail]/Sent Mail',
+    ];
+    // Prefer resolveMailboxPath result
+    const resolved = await resolveMailboxPath(client, 'Sent').catch(() => null);
+    const list = [];
+    if (resolved && !candidates.includes(resolved)) list.push(resolved);
+    list.push(...candidates);
+
+    for (const name of list) {
+      try {
+        await client.append(name, raw, ['\\Seen'], new Date());
+        return { ok: true, path: name };
+      } catch {
+        try {
+          // Try resolve variations again
+          const alt = await resolveMailboxPath(client, name);
+          if (alt && alt !== name) {
+            await client.append(alt, raw, ['\\Seen'], new Date());
+            return { ok: true, path: alt };
+          }
+        } catch {
+          // ignore and continue
+        }
+      }
+    }
+    // Try to create a Sent mailbox and append
+    try {
+      const created = await client.mailboxCreate('Sent').catch(() => null);
+      if (created) {
+        try {
+          await client.append('Sent', raw, ['\\Seen'], new Date());
+          return { ok: true, path: 'Sent' };
+        } catch {
+          // ignore
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return { ok: false };
   };
 
   try {
@@ -596,7 +863,18 @@ app.post('/api/mail/send', requireAuth, requireCsrf, async (req, res) => {
     });
     const result = await sendWith(primary);
     const messageId = typeof result?.messageId === 'string' ? result.messageId : undefined;
-    return res.json({ ok: true, messageId });
+    let savedTo = null;
+    if (rawMessage) {
+      try {
+        await withImap({ email: req.session.email, password, folder: 'INBOX' }, async (client) => {
+          const r = await tryAppendToSent(client, rawMessage);
+          if (r.ok) savedTo = r.path;
+          return true;
+        });
+      } catch {
+      }
+    }
+    return res.json({ ok: true, messageId, savedTo });
   } catch (err) {
     if (isSmtpAuthFailure(err)) return res.status(401).json({ error: 'invalid_credentials' });
     if (SMTP_PORT === 465) {
@@ -615,7 +893,18 @@ app.post('/api/mail/send', requireAuth, requireCsrf, async (req, res) => {
         });
         const result = await sendWith(fallback);
         const messageId = typeof result?.messageId === 'string' ? result.messageId : undefined;
-        return res.json({ ok: true, messageId });
+        let savedTo = null;
+        if (rawMessage) {
+          try {
+            await withImap({ email: req.session.email, password, folder: 'INBOX' }, async (client) => {
+              const r = await tryAppendToSent(client, rawMessage);
+              if (r.ok) savedTo = r.path;
+              return true;
+            });
+          } catch {
+          }
+        }
+        return res.json({ ok: true, messageId, savedTo });
       } catch {
         const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : undefined;
         return res.status(502).json({ error: 'smtp_error', code });

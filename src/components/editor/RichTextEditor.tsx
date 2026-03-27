@@ -210,8 +210,8 @@ export const RichTextEditor = ({ value, onChange, placeholder, isDark, className
     editorProps: {
       attributes: {
         class: cn(
-          'prose focus:outline-none min-h-[200px] max-w-none px-8 py-6',
-          isDark ? 'text-[#EAEAEA]' : 'text-[#121212]',
+          'ProseMirror prose focus:outline-none min-h-[200px] max-w-none px-8 py-6',
+          isDark ? 'prose-invert text-[#EAEAEA]' : 'text-[#121212]',
           className
         ),
       },

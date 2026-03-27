@@ -12,6 +12,8 @@ import {
   Star,
   Archive,
   ArrowLeft,
+  Reply,
+  Forward,
   LogOut,
   Filter,
   Clock,
@@ -110,12 +112,58 @@ type MailThreadDetail = {
   messages: MailThreadMessage[];
 };
 
+type ComposeDraft = {
+  to?: string;
+  cc?: string;
+  bcc?: string;
+  subject?: string;
+  body?: string;
+  showCcBcc?: boolean;
+};
+
 type ViewportState = {
   isMobile: boolean;
   isTablet: boolean;
   isDesktop: boolean;
 };
 
+const SENT_LOCAL_KEY = 'arcmail.pendingSent';
+const readPendingSent = (): MailThreadSummary[] => {
+  try {
+    const raw = localStorage.getItem(SENT_LOCAL_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr.map((t) => ({
+      id: String(t.id || `local-sent-${Date.now()}`),
+      folder: 'sent',
+      sender: String(t.sender || 'Me'),
+      senderEmail: String(t.senderEmail || ''),
+      subject: String(t.subject || '(no subject)'),
+      snippet: String(t.snippet || ''),
+      timestamp: String(t.timestamp || new Date().toISOString()),
+      unread: false,
+      from: t.from && t.from.address ? { name: t.from.name, address: t.from.address } : undefined,
+      lastMessageAt: String(t.lastMessageAt || new Date().toISOString()),
+    }));
+  } catch {
+    return [];
+  }
+};
+const writePendingSent = (items: MailThreadSummary[]) => {
+  try {
+    localStorage.setItem(SENT_LOCAL_KEY, JSON.stringify(items));
+  } catch {
+    /* ignore */
+  }
+};
+const clearPendingSent = () => {
+  try {
+    localStorage.removeItem(SENT_LOCAL_KEY);
+  } catch {
+    /* ignore */
+  }
+};
 // --- Hooks ---
 
 const useViewport = (): ViewportState => {
@@ -221,6 +269,7 @@ const MailSidebar = ({
   setCollapsed,
   onLogout,
   isMobile,
+  folderCounts,
 }: {
   email: string;
   activeFolder: MailFolder;
@@ -230,6 +279,7 @@ const MailSidebar = ({
   setCollapsed: (v: boolean) => void;
   onLogout: () => void;
   isMobile: boolean;
+  folderCounts?: Partial<Record<MailFolder, number>>;
 }) => {
   const { isDark } = useTheme();
   const { t } = useLanguage();
@@ -297,6 +347,7 @@ const MailSidebar = ({
             active={activeFolder === 'inbox'}
             onClick={() => onFolderChange('inbox')}
             collapsed={collapsed}
+            count={folderCounts?.inbox}
           />
           <SidebarItem
             icon={Star}
@@ -311,6 +362,7 @@ const MailSidebar = ({
             active={activeFolder === 'sent'}
             onClick={() => onFolderChange('sent')}
             collapsed={collapsed}
+            count={folderCounts?.sent}
           />
           <SidebarItem
             icon={FileText}
@@ -318,6 +370,7 @@ const MailSidebar = ({
             active={activeFolder === 'drafts'}
             onClick={() => onFolderChange('drafts')}
             collapsed={collapsed}
+            count={folderCounts?.drafts}
           />
         </div>
         
@@ -336,6 +389,7 @@ const MailSidebar = ({
             active={activeFolder === 'spam'}
             onClick={() => onFolderChange('spam')}
             collapsed={collapsed}
+            count={folderCounts?.spam}
           />
           <SidebarItem
             icon={Trash2}
@@ -343,6 +397,7 @@ const MailSidebar = ({
             active={activeFolder === 'trash'}
             onClick={() => onFolderChange('trash')}
             collapsed={collapsed}
+            count={folderCounts?.trash}
           />
         </div>
       </nav>
@@ -485,11 +540,19 @@ const ReadingPane = ({
   loading,
   onBack,
   showBack,
+  onReply,
+  onForward,
+  isMobile,
+  onCompose,
 }: {
   thread: MailThreadDetail | null;
   loading: boolean;
   onBack?: () => void;
   showBack: boolean;
+  onReply?: () => void;
+  onForward?: () => void;
+  isMobile: boolean;
+  onCompose?: () => void;
 }) => {
   const { isDark } = useTheme();
   const { t } = useLanguage();
@@ -540,7 +603,10 @@ const ReadingPane = ({
 
            {/* Quick Actions */}
            <div className="flex items-center gap-4">
-              <button className="flex items-center gap-3 px-6 py-3 bg-[#1DB954] hover:bg-[#1ED760] text-black rounded-full font-bold transition-transform hover:scale-105 active:scale-95 shadow-[0_8px_20px_rgba(29,185,84,0.3)]">
+              <button
+                onClick={onCompose}
+                className="flex items-center gap-3 px-6 py-3 bg-[#1DB954] hover:bg-[#1ED760] text-black rounded-full font-bold transition-transform hover:scale-105 active:scale-95 shadow-[0_8px_20px_rgba(29,185,84,0.3)]"
+              >
                  <Pencil size={18} strokeWidth={2.5} />
                  <span>{t('compose_new')}</span>
               </button>
@@ -561,7 +627,7 @@ const ReadingPane = ({
       
       {/* Toolbar */}
       <div className={cn(
-        "h-16 flex items-center justify-between px-8 border-b backdrop-blur-xl sticky top-0 z-10",
+        "h-16 flex items-center justify-between px-4 md:px-8 border-b backdrop-blur-xl sticky top-0 z-10",
         isDark ? "border-[#282828] bg-[#121212]/80" : "border-[#E5E5E5] bg-white/80"
       )}>
         <div className="flex items-center gap-4">
@@ -571,6 +637,20 @@ const ReadingPane = ({
             </button>
           )}
           <div className="flex items-center gap-2">
+            <button
+              onClick={onReply}
+              className={cn("p-2 rounded-full transition-colors", isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#282828]" : "text-[#5E5E5E] hover:text-black hover:bg-[#F0F0F0]")}
+              title={t('reply')}
+            >
+              <Reply size={18} />
+            </button>
+            <button
+              onClick={onForward}
+              className={cn("p-2 rounded-full transition-colors", isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#282828]" : "text-[#5E5E5E] hover:text-black hover:bg-[#F0F0F0]")}
+              title={t('forward')}
+            >
+              <Forward size={18} />
+            </button>
             <button className={cn("p-2 rounded-full transition-colors", isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#282828]" : "text-[#5E5E5E] hover:text-black hover:bg-[#F0F0F0]")} title={t('archive')}>
               <Archive size={18} />
             </button>
@@ -592,11 +672,11 @@ const ReadingPane = ({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-8 relative z-10">
-        <div className="max-w-3xl mx-auto pb-20">
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 relative z-10">
+        <div className={cn("pb-20", isMobile ? "max-w-none mx-0" : "max-w-3xl mx-auto")}>
           {/* Subject */}
-          <div className="flex items-start justify-between gap-4 mb-8">
-             <h1 className={cn("text-[28px] font-bold leading-tight", isDark ? "text-white" : "text-black")}>
+          <div className="flex items-start justify-between gap-4 mb-6 md:mb-8">
+             <h1 className={cn(isMobile ? "text-[22px]" : "text-[28px]", "font-bold leading-tight", isDark ? "text-white" : "text-black")}>
                {thread.subject}
              </h1>
              <button className={cn("shrink-0 p-2 rounded-full transition-colors", isDark ? "text-[#B3B3B3] hover:text-[#1DB954] hover:bg-[#282828]" : "text-[#5E5E5E] hover:text-[#1DB954] hover:bg-[#F0F0F0]")}>
@@ -634,11 +714,14 @@ const ReadingPane = ({
                        
                     </div>
                     
-                    <div className="pl-14">
-                       <div 
-                         className={cn("text-[15px] leading-relaxed space-y-4 font-sans whitespace-pre-wrap", isDark ? "text-[#EAEAEA]" : "text-[#121212]")}
-                         dangerouslySetInnerHTML={{ __html: msg.html || msg.text || '' }}
-                       />
+                    <div className={cn(isMobile ? "pl-0" : "pl-14")}>
+                       {msg.html ? (
+                         <EmailHtmlFrame html={msg.html} isDark={isDark} />
+                       ) : (
+                         <div className={cn("text-[15px] leading-relaxed space-y-4 font-sans whitespace-pre-wrap", isDark ? "text-[#EAEAEA]" : "text-[#121212]")}>
+                           {msg.text || ''}
+                         </div>
+                       )}
                        
                        {msg.attachments.length > 0 && (
                          <div className="mt-6 flex flex-wrap gap-3">
@@ -664,8 +747,86 @@ const ReadingPane = ({
             })}
           </div>
 
+          <div className={cn("mt-10 pt-8 border-t flex items-center gap-3", isDark ? "border-[#282828]" : "border-[#E5E5E5]")}>
+            <button
+              onClick={onReply}
+              className={cn(
+                "flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-[14px] transition-all hover:scale-105 active:scale-95",
+                isDark ? "bg-[#1A1A1A] text-white hover:bg-[#222] border border-[#282828]" : "bg-white text-black hover:bg-[#F9F9F9] border border-[#E5E5E5]"
+              )}
+            >
+              <Reply size={16} strokeWidth={2.5} />
+              <span>{t('reply')}</span>
+            </button>
+            <button
+              onClick={onForward}
+              className={cn(
+                "flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-[14px] transition-all hover:scale-105 active:scale-95",
+                isDark ? "bg-[#1A1A1A] text-white hover:bg-[#222] border border-[#282828]" : "bg-white text-black hover:bg-[#F9F9F9] border border-[#E5E5E5]"
+              )}
+            >
+              <Forward size={16} strokeWidth={2.5} />
+              <span>{t('forward')}</span>
+            </button>
+          </div>
+
         </div>
       </div>
+    </div>
+  );
+};
+
+const EmailHtmlFrame = ({ html, isDark }: { html: string; isDark: boolean }) => {
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const [heightPx, setHeightPx] = useState<number>(520);
+
+  const computeHeight = useCallback(() => {
+    const el = frameRef.current;
+    const doc = el?.contentDocument;
+    const body = doc?.body;
+    if (!el || !doc || !body) return;
+    const next = Math.max(240, Math.min(900, body.scrollHeight + 16));
+    setHeightPx(next);
+  }, []);
+
+  const srcDoc = useMemo(() => {
+    const css = `
+      html, body { margin: 0; padding: 0; }
+      body { background: #ffffff; color: #121212; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; font-size: 15px; line-height: 1.65; padding: 16px; }
+      img { max-width: 100%; height: auto; }
+      table { max-width: 100%; }
+      pre { white-space: pre-wrap; word-break: break-word; }
+      blockquote { margin: 12px 0; padding-left: 12px; border-left: 2px solid #e5e5e5; }
+      hr { border: 0; border-top: 1px solid #e5e5e5; margin: 16px 0; }
+      ${isDark ? 'img, video { filter: invert(1) hue-rotate(180deg); }' : ''}
+    `;
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <base target="_blank" />
+    <style>${css}</style>
+  </head>
+  <body>${html}</body>
+</html>`;
+  }, [html, isDark]);
+
+  return (
+    <div className={cn("rounded-2xl border overflow-hidden", isDark ? "border-[#282828] bg-[#181818]" : "border-[#E5E5E5] bg-white")}>
+      <iframe
+        ref={frameRef}
+        title="message"
+        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
+        className={cn("w-full block", isDark ? "bg-[#121212]" : "bg-white")}
+        style={{ height: `${heightPx}px`, maxHeight: '70vh', filter: isDark ? 'invert(1) hue-rotate(180deg)' : undefined }}
+        srcDoc={srcDoc}
+        onLoad={() => {
+          computeHeight();
+          window.setTimeout(computeHeight, 250);
+          window.setTimeout(computeHeight, 1200);
+        }}
+      />
     </div>
   );
 };
@@ -673,18 +834,22 @@ const ReadingPane = ({
 const ComposeModal = ({
   isMobile,
   onClose,
+  initialDraft,
+  onSent,
 }: {
   isMobile: boolean;
   onClose: () => void;
+  initialDraft?: ComposeDraft;
+  onSent?: (folder: MailFolder, payload: { to: string[]; subject: string; html: string; text: string; date: string }) => void;
 }) => {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [to, setTo] = useState('');
-  const [cc, setCc] = useState('');
-  const [bcc, setBcc] = useState('');
-  const [subject, setSubject] = useState('');
-  const [body, setBody] = useState('');
-  const [showCcBcc, setShowCcBcc] = useState(false);
+  const [to, setTo] = useState(() => initialDraft?.to || '');
+  const [cc, setCc] = useState(() => initialDraft?.cc || '');
+  const [bcc, setBcc] = useState(() => initialDraft?.bcc || '');
+  const [subject, setSubject] = useState(() => initialDraft?.subject || '');
+  const [body, setBody] = useState(() => initialDraft?.body || '');
+  const [showCcBcc, setShowCcBcc] = useState(() => Boolean(initialDraft?.showCcBcc));
   const { isDark } = useTheme();
   const { t } = useLanguage();
 
@@ -714,6 +879,8 @@ const ComposeModal = ({
         html: body,
         text: plainText,
       });
+      // const savedTo = (resp?.data && typeof resp.data === 'object' && 'savedTo' in resp.data) ? (resp.data.savedTo as string | null) : null;
+      onSent?.('sent', { to: toList, subject: subject.trim(), html: body, text: plainText, date: new Date().toISOString() });
       onClose();
     } catch {
       setSendError('Failed to send. Verify SMTP access and try again.');
@@ -757,9 +924,9 @@ const ComposeModal = ({
           </div>
           
           {/* Body */}
-          <div className={cn("flex-1 flex flex-col relative z-10", isDark ? "bg-[#121212]" : "bg-white")}>
+          <div className={cn("flex-1 flex flex-col relative z-10 overflow-y-auto min-h-0", isDark ? "bg-[#121212]" : "bg-white")}>
             {sendError && (
-              <div className={cn("px-8 pt-4", isDark ? "bg-[#121212]" : "bg-white")}>
+              <div className={cn("px-8 pt-4 shrink-0", isDark ? "bg-[#121212]" : "bg-white")}>
                 <div className={cn(
                   "w-full px-4 py-3 rounded-xl border text-sm font-medium",
                   isDark ? "bg-red-500/10 border-red-500/20 text-red-300" : "bg-red-50 border-red-200 text-red-700"
@@ -768,7 +935,7 @@ const ComposeModal = ({
                 </div>
               </div>
             )}
-            <div className={cn("px-8 pt-4 pb-2", isDark ? "bg-[#121212]" : "bg-white")}>
+            <div className={cn("px-8 pt-4 pb-2 shrink-0", isDark ? "bg-[#121212]" : "bg-white")}>
               <div className={cn("flex items-center border-b relative group transition-colors focus-within:border-[#1DB954]/50", isDark ? "border-[#282828]" : "border-[#E5E5E5]")}>
                 <span className={cn("text-[14px] font-medium w-16 py-4", isDark ? "text-[#787878]" : "text-[#949494]")}>{t('to')}</span>
                 <input
@@ -1222,12 +1389,26 @@ const MailAppContent = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [threadDetail, setThreadDetail] = useState<MailThreadDetail | null>(null);
   const [threadDetailLoading, setThreadDetailLoading] = useState(false);
+  const [folderCounts, setFolderCounts] = useState<Partial<Record<MailFolder, number>>>({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeState, setComposeState] = useState<{ open: boolean; key: number; draft?: ComposeDraft }>({
+    open: false,
+    key: 0,
+    draft: undefined,
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const threadsAbortRef = useRef<AbortController | null>(null);
   const threadsCursorRef = useRef<string | undefined>(undefined);
   const selectedIdRef = useRef<string | null>(null);
+  const composeOpen = composeState.open;
+  const prevInboxUnseenRef = useRef<number>(0);
+  const [unreadBanner, setUnreadBanner] = useState<{ visible: boolean; count: number }>({ visible: false, count: 0 });
+  const replySnoozeKey = 'replyReminderSnoozeUntil';
+  const [replySnoozeUntil, setReplySnoozeUntil] = useState<number>(() => {
+    const raw = localStorage.getItem(replySnoozeKey);
+    return raw ? Number(raw) || 0 : 0;
+  });
+  const unreadLocalCount = useMemo(() => threads.reduce((n, t) => n + (t.unread ? 1 : 0), 0), [threads]);
 
   // Handle Loading
   useEffect(() => {
@@ -1259,6 +1440,81 @@ const MailAppContent = () => {
   useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
+
+  const openCompose = useCallback((draft?: ComposeDraft) => {
+    setComposeState((s) => ({ open: true, key: s.key + 1, draft }));
+  }, []);
+
+  const closeCompose = useCallback(() => {
+    setComposeState((s) => ({ ...s, open: false, draft: undefined }));
+  }, []);
+
+  const escapeHtml = useCallback((input: string) => {
+    return String(input)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }, []);
+
+  const normalizeSubjectPrefix = useCallback((subject: string, prefix: 'Re' | 'Fwd') => {
+    const s = (subject || '').trim();
+    if (!s) return `${prefix}: (no subject)`;
+    const re = new RegExp(`^${prefix}:`, 'i');
+    return re.test(s) ? s : `${prefix}: ${s}`;
+  }, []);
+
+  const buildQuotedBodyHtml = useCallback(
+    (msg: MailThreadMessage) => {
+      const fromAddress = msg.fromAddress || '';
+      const fromDisplay = msg.fromName ? `${msg.fromName} <${fromAddress}>` : fromAddress;
+      const dateText = new Date(msg.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+      const original =
+        msg.html && msg.html.trim()
+          ? msg.html
+          : `<pre style="white-space:pre-wrap;word-break:break-word;">${escapeHtml(msg.text || '')}</pre>`;
+      return `<p></p><p></p><p>On ${escapeHtml(dateText)}, ${escapeHtml(fromDisplay)} wrote:</p><blockquote style="margin:0 0 0 0.8em;padding-left:0.8em;border-left:2px solid #2d2d2d;">${original}</blockquote>`;
+    },
+    [escapeHtml]
+  );
+
+  const buildForwardBodyHtml = useCallback(
+    (msg: MailThreadMessage, subject: string) => {
+      const fromAddress = msg.fromAddress || '';
+      const fromDisplay = msg.fromName ? `${msg.fromName} <${fromAddress}>` : fromAddress;
+      const toDisplay = msg.to.map((a) => a.name || a.address).join(', ');
+      const dateText = new Date(msg.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+      const original =
+        msg.html && msg.html.trim()
+          ? msg.html
+          : `<pre style="white-space:pre-wrap;word-break:break-word;">${escapeHtml(msg.text || '')}</pre>`;
+      return `<p></p><p>---------- Forwarded message ---------</p><p><strong>From:</strong> ${escapeHtml(fromDisplay)}<br/><strong>Date:</strong> ${escapeHtml(dateText)}<br/><strong>Subject:</strong> ${escapeHtml(subject || '(no subject)')}<br/><strong>To:</strong> ${escapeHtml(toDisplay)}</p><blockquote style="margin:0 0 0 0.8em;padding-left:0.8em;border-left:2px solid #2d2d2d;">${original}</blockquote>`;
+    },
+    [escapeHtml]
+  );
+
+  const handleReply = useCallback(() => {
+    if (!threadDetail?.messages?.length) return;
+    const msg = threadDetail.messages[threadDetail.messages.length - 1];
+    openCompose({
+      to: msg.fromAddress || '',
+      subject: normalizeSubjectPrefix(threadDetail.subject, 'Re'),
+      body: buildQuotedBodyHtml(msg),
+      showCcBcc: false,
+    });
+  }, [threadDetail, openCompose, normalizeSubjectPrefix, buildQuotedBodyHtml]);
+
+  const handleForward = useCallback(() => {
+    if (!threadDetail?.messages?.length) return;
+    const msg = threadDetail.messages[threadDetail.messages.length - 1];
+    openCompose({
+      to: '',
+      subject: normalizeSubjectPrefix(threadDetail.subject, 'Fwd'),
+      body: buildForwardBodyHtml(msg, threadDetail.subject),
+      showCcBcc: false,
+    });
+  }, [threadDetail, openCompose, normalizeSubjectPrefix, buildForwardBodyHtml]);
 
   // Load threads
   const loadThreads = useCallback(async (options?: { reset?: boolean }) => {
@@ -1298,7 +1554,16 @@ const MailAppContent = () => {
       }));
 
       setThreads(prev => {
-        if (reset) return mapped;
+        if (reset) {
+          if (activeFolder === 'sent' && mapped.length === 0) {
+            const hasLocal = prev.some(p => p.folder === 'sent' && String(p.id).startsWith('local-sent-'));
+            if (hasLocal) return prev;
+            const pending = readPendingSent();
+            if (pending.length) return pending;
+          }
+          if (activeFolder === 'sent' && mapped.length > 0) clearPendingSent();
+          return mapped;
+        }
         const existingIds = new Set(prev.map(p => p.id));
         return [...prev, ...mapped.filter(i => !existingIds.has(i.id))];
       });
@@ -1345,11 +1610,16 @@ const MailAppContent = () => {
   // Initial load
   useEffect(() => {
     if (!isLoading && isAuthenticated && user?.role === 'MAIL_USER') {
-      setThreads([]);
-      setThreadsCursor(undefined);
-      threadsCursorRef.current = undefined;
-      setSelectedId(null);
-      setThreadDetail(null);
+      const hasLocalSent =
+        activeFolder === 'sent' &&
+        threads.some((t) => t.folder === 'sent' && String(t.id).startsWith('local-sent-'));
+      if (!hasLocalSent) {
+        setThreads([]);
+        setThreadsCursor(undefined);
+        threadsCursorRef.current = undefined;
+        setSelectedId(null);
+        setThreadDetail(null);
+      }
       loadThreads({ reset: true });
     }
   }, [activeFolder, isAuthenticated, isLoading, user, loadThreads]);
@@ -1362,6 +1632,57 @@ const MailAppContent = () => {
       return () => window.clearInterval(intervalId);
     }
   }, [isAuthenticated, isLoading, user, loadThreads]);
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && user?.role === 'MAIL_USER') {
+      let stopped = false;
+      const controller = new AbortController();
+
+      const updateTitle = (inboxUnseen: number) => {
+        const base = 'ArcMail';
+        document.title = inboxUnseen > 0 ? `(${inboxUnseen}) ${base}` : base;
+      };
+
+      const fetchStats = async () => {
+        try {
+          const res = await api.get('/mail/folders/stats', { signal: controller.signal });
+          if (stopped) return;
+          const folders = (res.data as { folders?: Record<string, { unseen?: number }> }).folders || {};
+          const nextCounts: Partial<Record<MailFolder, number>> = {
+            inbox: Number(folders.inbox?.unseen || 0),
+            sent: Number(folders.sent?.unseen || 0),
+            drafts: Number(folders.drafts?.unseen || 0),
+            spam: Number(folders.spam?.unseen || 0),
+            trash: Number(folders.trash?.unseen || 0),
+          };
+          setFolderCounts(nextCounts);
+
+          const inboxUnseen = nextCounts.inbox || 0;
+          updateTitle(inboxUnseen);
+
+          if (inboxUnseen > prevInboxUnseenRef.current) {
+            const diff = inboxUnseen - prevInboxUnseenRef.current;
+            setUnreadBanner({ visible: true, count: diff });
+            window.setTimeout(() => setUnreadBanner((b) => ({ ...b, visible: false })), 8000);
+            if (typeof Notification !== 'undefined' && document.hidden && Notification.permission === 'granted') {
+              new Notification('New unread mail', { body: `Inbox: ${inboxUnseen} unread` });
+            }
+          }
+          prevInboxUnseenRef.current = inboxUnseen;
+        } catch {
+          return;
+        }
+      };
+
+      fetchStats();
+      const intervalId = window.setInterval(fetchStats, 20000);
+      return () => {
+        stopped = true;
+        controller.abort();
+        window.clearInterval(intervalId);
+      };
+    }
+  }, [isAuthenticated, isLoading, user]);
 
   // Load detail
   useEffect(() => {
@@ -1395,6 +1716,12 @@ const MailAppContent = () => {
           };
           setThreadDetail(mapped);
           setThreads(prev => prev.map(t => t.id === selectedId ? { ...t, unread: false } : t));
+          // Mark as read on server
+          try {
+            await api.post(`/mail/threads/${encodeURIComponent(selectedId)}/read`, null, { params: { folder: MAIL_FOLDER_IMAP_PATH[activeFolder] } });
+          } catch {
+            // ignore
+          }
         } else {
           setThreadDetail(null);
         }
@@ -1445,11 +1772,12 @@ const MailAppContent = () => {
                 setActiveFolder(f);
                 if (isMobile) setSidebarCollapsed(true);
               }}
-              onCompose={() => setComposeOpen(true)}
+              onCompose={() => openCompose()}
               collapsed={!isMobile && sidebarCollapsed}
               setCollapsed={setSidebarCollapsed}
               onLogout={logout}
               isMobile={isMobile}
+              folderCounts={folderCounts}
             />
          </div>
       )}
@@ -1551,17 +1879,75 @@ const MailAppContent = () => {
                     <h2 className={cn("text-2xl font-bold capitalize tracking-tight", isDark ? "text-white" : "text-black")}>{t(activeFolder)}</h2>
                      <span className={cn("text-sm font-medium", isDark ? "text-[#5E5E5E]" : "text-[#949494]")}>{threads.length} {t('messages')}</span>
                   </div>
-                 <button className={cn(
-                   "flex items-center gap-2 px-3 py-1.5 rounded-full border hover:border-[#1DB954]/30 transition-all group",
-                   isDark ? "bg-[#1A1A1A] hover:bg-[#222] border-[#282828]" : "bg-white hover:bg-[#F9F9F9] border-[#E5E5E5]"
-                 )}>
-                    <span className={cn("text-xs font-bold group-hover:text-black transition-colors", isDark ? "text-[#B3B3B3] group-hover:text-white" : "text-[#5E5E5E]")}>{t('mark_all_read')}</span>
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#1DB954] shadow-[0_0_8px_#1DB954]" />
-                 </button>
+                 <div className="flex items-center gap-2">
+                   {unreadBanner.visible && activeFolder === 'inbox' && (
+                     <button
+                       onClick={() => {
+                         setUnreadBanner({ visible: false, count: 0 });
+                         loadThreads({ reset: true });
+                       }}
+                       className={cn(
+                         "flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all shadow-sm hover:shadow",
+                         isDark ? "bg-[#0F1A12] text-[#9FE3B0] border-[#163322] hover:bg-[#112016]" : "bg-[#E9F7EE] text-[#0B6B2B] border-[#BFEBCB] hover:bg-[#DFF3E6]"
+                       )}
+                       title="Load new mail"
+                     >
+                       <div className="w-1.5 h-1.5 rounded-full bg-[#1DB954] shadow-[0_0_8px_#1DB954]" />
+                       <span className="text-xs font-bold">{unreadBanner.count > 0 ? `+${unreadBanner.count} new` : 'New mail'}</span>
+                       <span className="text-[10px] font-bold opacity-80">{t('refresh_inbox')}</span>
+                     </button>
+                   )}
+                   <button className={cn(
+                     "flex items-center gap-2 px-3 py-1.5 rounded-full border hover:border-[#1DB954]/30 transition-all group",
+                     isDark ? "bg-[#1A1A1A] hover:bg-[#222] border-[#282828]" : "bg-white hover:bg-[#F9F9F9] border-[#E5E5E5]"
+                   )}>
+                      <span className={cn("text-xs font-bold group-hover:text-black transition-colors", isDark ? "text-[#B3B3B3] group-hover:text-white" : "text-[#5E5E5E]")}>{t('mark_all_read')}</span>
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#1DB954] shadow-[0_0_8px_#1DB954]" />
+                   </button>
+                 </div>
               </div>
 
               {/* List */}
               <div className="flex-1 overflow-y-auto custom-scrollbar relative px-2 z-10">
+                {activeFolder === 'inbox' && unreadLocalCount > 0 && Date.now() > replySnoozeUntil && (
+                  <div className={cn(
+                    "mx-2 my-3 rounded-2xl border p-4 flex items-center justify-between gap-3",
+                    isDark ? "bg-[#0F1A12] border-[#163322] text-[#C1F0CE]" : "bg-[#E9F7EE] border-[#BFEBCB] text-[#0B6B2B]"
+                  )}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-2.5 h-2.5 rounded-full bg-[#1DB954] shadow-[0_0_8px_#1DB954]" />
+                      <div>
+                        <div className="text-sm font-extrabold">{t('reply_reminder')}</div>
+                        <div className="text-xs opacity-90">{t('reply_reminder_desc', { count: String(unreadLocalCount) })}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          const until = Date.now() + 30 * 60 * 1000;
+                          localStorage.setItem(replySnoozeKey, String(until));
+                          setReplySnoozeUntil(until);
+                        }}
+                        className={cn(
+                          "px-3 py-1.5 rounded-full border text-xs font-bold",
+                          isDark ? "bg-[#112016] border-[#1A3A26] text-[#9FE3B0] hover:bg-[#13271B]" : "bg-white border-[#BFEBCB] text-[#0B6B2B] hover:bg-[#F9FFFB]"
+                        )}
+                      >
+                        {t('remind_later')}
+                      </button>
+                      <button
+                        onClick={() => {
+                          const first = threads.find(t => t.unread);
+                          if (first) setSelectedId(first.id);
+                          else loadThreads({ reset: true });
+                        }}
+                        className="px-3 py-1.5 rounded-full text-xs font-bold bg-[#1DB954] hover:bg-[#1ED760] text-black shadow-[0_6px_16px_rgba(29,185,84,0.3)]"
+                      >
+                        {t('reply_now')}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {threadsLoading && visibleThreads.length === 0 ? (
                   <div className="space-y-2 mt-2">
                      {[1,2,3,4,5].map(i => (
@@ -1624,7 +2010,7 @@ const MailAppContent = () => {
                          >
                              <h3 className={cn("text-2xl font-bold mb-3 tracking-tight", isDark ? "text-white" : "text-black")}>{t('all_caught_up')}</h3>
                              <p className={cn("max-w-[240px] mx-auto leading-relaxed", isDark ? "text-[#787878]" : "text-[#5E5E5E]")}>
-                                {t('folder_empty', { folder: t(activeFolder) })} <br/>{t('relax_message')}
+                               {t('empty_folder', { folder: t(activeFolder) })} <br/>{t('relax_message')}
                              </p>
                              
                              <button className={cn(
@@ -1649,6 +2035,10 @@ const MailAppContent = () => {
               loading={threadDetailLoading} 
               showBack={isMobile}
               onBack={() => setSelectedId(null)}
+              onReply={handleReply}
+              onForward={handleForward}
+              isMobile={isMobile}
+              onCompose={() => openCompose()}
             />
           )}
 
@@ -1703,7 +2093,7 @@ const MailAppContent = () => {
             setActiveFolder(f);
             window.scrollTo(0, 0);
           }}
-          onCompose={() => setComposeOpen(true)}
+          onCompose={() => openCompose()}
           onMenu={() => setSidebarCollapsed(false)}
         />
       )}
@@ -1711,9 +2101,59 @@ const MailAppContent = () => {
       </div>
 
       {composeOpen && (
-        <ComposeModal 
+        <ComposeModal
+          key={composeState.key}
           isMobile={isMobile}
-          onClose={() => setComposeOpen(false)}
+          onClose={closeCompose}
+          initialDraft={composeState.draft}
+          onSent={(folder, payload) => {
+            if (folder === 'sent') {
+              setFolderCounts((c) => ({ ...c, sent: (c.sent || 0) + 0 })); // keep unread 0
+              setActiveFolder('sent');
+              setSelectedId(null);
+              const tempId = `local-sent-${Date.now()}`;
+              const optimistic: MailThreadSummary = {
+                id: tempId,
+                folder: 'sent',
+                sender: (user?.name || user?.email || 'Me'),
+                senderEmail: user?.email || '',
+                subject: payload.subject || '(no subject)',
+                snippet: '',
+                timestamp: new Date().toISOString(),
+                unread: false,
+                from: { name: user?.name || undefined, address: user?.email || '' },
+                lastMessageAt: new Date().toISOString(),
+              };
+              const next = [optimistic, ...threads.filter(t => t.folder === 'sent')];
+              setThreads(next);
+              writePendingSent(next);
+              // fetch real server state shortly after (allow server append to finish)
+              setTimeout(() => loadThreads({ reset: true }), 3500);
+            }
+            if (threadDetail && selectedId && activeFolder === 'inbox') {
+              const newMsg: MailThreadMessage = {
+                id: `local-${Date.now()}`,
+                subject: payload.subject || threadDetail.subject,
+                fromName: user?.name || undefined,
+                fromAddress: user?.email || undefined,
+                to: (payload.to || []).map(a => ({ address: a })),
+                cc: [],
+                bcc: [],
+                date: payload.date,
+                text: payload.text,
+                html: payload.html,
+                attachments: [],
+                flags: { seen: true, flagged: false, answered: true },
+              };
+              setThreadDetail(prev => prev ? { ...prev, messages: [...prev.messages, newMsg] } : prev);
+              setThreads(prev => prev.map(t => t.id === selectedId ? { ...t, unread: false } : t));
+              window.setTimeout(() => {
+                if (selectedIdRef.current) {
+                  loadThreads({ reset: true });
+                }
+              }, 3000);
+            }
+          }}
         />
       )}
     </div>
@@ -1724,6 +2164,10 @@ const MailApp = () => {
   const [isDark, setIsDark] = useState(true);
   const toggleTheme = () => setIsDark(!isDark);
   const [language, setLanguage] = useState<Language>('en');
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', isDark);
+  }, [isDark]);
 
   const t = useCallback((key: string, params?: Record<string, string>) => {
     let text = translations[language][key] || translations['en'][key] || key;

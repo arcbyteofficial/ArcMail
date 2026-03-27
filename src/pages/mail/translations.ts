@@ -42,6 +42,10 @@ export const translations: Record<Language, Record<string, string>> = {
     'empty_folder': 'Your {folder} is empty.',
     'relax_message': 'Time to relax or play some music.',
     'refresh_inbox': 'Refresh Inbox',
+    'reply_reminder': 'Reply reminder',
+    'reply_reminder_desc': 'You have {count} unread emails',
+    'remind_later': 'Remind later',
+    'reply_now': 'Reply now',
     
     // Reading Pane
     'inbox_ready': 'Your inbox is ready',
@@ -62,6 +66,7 @@ export const translations: Record<Language, Record<string, string>> = {
     'new_message': 'New Message',
     'to': 'To',
     'recipients': 'Recipients',
+    'recipients_placeholder': 'name@example.com, …',
     'cc': 'Cc',
     'bcc': 'Bcc',
     'subject': 'Subject',
