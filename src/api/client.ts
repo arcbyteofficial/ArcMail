@@ -28,14 +28,10 @@ const inferApiBase = () => {
       const backendHost = host;
       return `http://${backendHost}:5050/api`;
     }
-    if (host === 'mail.arcbyte.co') return 'https://api.arcbyte.co/api';
-    if (host.endsWith('.arcbyte.co') && host.startsWith('mail.')) {
-      return `https://api.${host.slice('mail.'.length)}/api`;
-    }
+    return 'https://api.arcbyte.co/api';
   } catch {
     return null;
   }
-  return null;
 };
 
 const isLocalHost = () => {

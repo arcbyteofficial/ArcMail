@@ -2786,6 +2786,7 @@ const MailAppContent = () => {
   const composeOpen = composeState.open;
   const prevInboxUnseenRef = useRef<number>(0);
   const notifPromptedRef = useRef(false);
+  const notificationsEnabledRef = useRef(false);
   const replySnoozeKey = 'replyReminderSnoozeUntil';
   const [replySnoozeUntil, setReplySnoozeUntil] = useState<number>(() => {
     const raw = localStorage.getItem(replySnoozeKey);
@@ -2800,6 +2801,14 @@ const MailAppContent = () => {
   const [switchConfirm, setSwitchConfirm] = useState<{ id: string; email: string; name: string } | null>(null);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const pendingWelcomeEmailRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    try {
+      notificationsEnabledRef.current = localStorage.getItem('arcMailNotificationsEnabled') === '1';
+    } catch {
+      return;
+    }
+  }, []);
 
   const requestLogoutCurrent = useCallback(() => setLogoutConfirmOpen(true), []);
 
@@ -3402,7 +3411,40 @@ const MailAppContent = () => {
               soundCount: diff,
             });
             if (typeof Notification !== 'undefined') {
-              if (Notification.permission === 'default' && !notifPromptedRef.current) {
+              const notify = async (title: string, body: string) => {
+                const data = { url: '/' };
+                try {
+                  if ('serviceWorker' in navigator) {
+                    const reg = await navigator.serviceWorker.ready;
+                    await reg.showNotification(title, {
+                      body,
+                      icon: arcByteLogoPng,
+                      badge: arcByteLogoPng,
+                      tag: 'arcmail-inbox',
+                      data,
+                    });
+                    return;
+                  }
+                } catch {
+                  void 0;
+                }
+                try {
+                  const n = new Notification(title, { body, icon: arcByteLogoPng, badge: arcByteLogoPng, tag: 'arcmail-inbox' });
+                  n.onclick = () => {
+                    try {
+                      window.focus();
+                      setActiveFolder('inbox');
+                      setSelectedId(null);
+                    } catch {
+                      return;
+                    }
+                  };
+                } catch {
+                  return;
+                }
+              };
+
+              if (Notification.permission === 'default' && !notifPromptedRef.current && !notificationsEnabledRef.current) {
                 notifPromptedRef.current = true;
                 showToast({
                   variant: 'info',
@@ -3413,25 +3455,22 @@ const MailAppContent = () => {
                     try {
                       const perm = await Notification.requestPermission();
                       if (perm === 'granted') {
-                        new Notification('Notifications enabled', {
-                          body: 'ArcMail will notify you about new email.',
-                          icon: arcByteLogoPng,
-                          badge: arcByteLogoPng,
-                        });
+                        try {
+                          localStorage.setItem('arcMailNotificationsEnabled', '1');
+                        } catch {
+                          return;
+                        }
+                        notificationsEnabledRef.current = true;
+                        await notify('Notifications enabled', 'ArcMail will notify you about new email.');
                       }
                     } catch {
                       return;
                     }
                   },
                 });
-              } else if (document.hidden && Notification.permission === 'granted') {
+              } else if (document.hidden && Notification.permission === 'granted' && notificationsEnabledRef.current) {
                 try {
-                  new Notification('New mail', {
-                    body: diff > 1 ? `+${diff} new in Inbox` : '1 new in Inbox',
-                    icon: arcByteLogoPng,
-                    badge: arcByteLogoPng,
-                    tag: 'arcmail-inbox',
-                  });
+                  await notify('New mail', diff > 1 ? `+${diff} new in Inbox` : '1 new in Inbox');
                 } catch {
                   return;
                 }

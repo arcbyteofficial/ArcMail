@@ -120,7 +120,7 @@ const MailLogin = () => {
         />
       </div>
 
-      <header className="relative z-20 p-6 md:p-12 flex justify-between items-start">
+      <header className="relative z-20 hidden md:flex p-6 md:p-12 justify-between items-start">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
