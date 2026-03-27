@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Lock, ArrowRight, Loader2, ShieldCheck, Mail } from 'lucide-react';
+import { Lock, ArrowRight, Loader2, ShieldCheck } from 'lucide-react';
 import logo from '../../assets/arcbyte.co Logo_white_transparent.png';
 
 const MailLogin = () => {
@@ -108,10 +108,6 @@ const MailLogin = () => {
             className="w-full bg-[#111111]/60 backdrop-blur-sm border border-white/5 p-8 md:p-10 shadow-[0_28px_80px_rgba(0,0,0,0.85)] rounded-2xl"
           >
             <div className="mb-8">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/[0.03] text-[10px] font-mono uppercase tracking-[0.22em] text-white/45 mb-4">
-                <Mail size={12} className="text-accent" />
-                <span>ArcMail</span>
-              </div>
               <h2 className="text-2xl font-display font-bold mb-2">ArcMail Login</h2>
               <p className="text-sm text-white/40">
                 Use your ArcMail Login Credentials. Access is audited and encrypted at rest.
@@ -192,41 +188,40 @@ const MailLogin = () => {
         </div>
       </main>
 
-      <footer className="relative z-20 md:hidden px-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-5">
-        <div className="w-full max-w-md mx-auto rounded-2xl border border-white/10 bg-gradient-to-r from-white/[0.06] via-white/[0.03] to-transparent backdrop-blur-md shadow-[0_20px_60px_rgba(0,0,0,0.55)] overflow-hidden">
-          <div className="px-4 py-3 flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-accent shadow-[0_0_14px_rgba(99,102,241,0.75)]" />
-                <span className="text-[10px] font-mono uppercase tracking-[0.22em] text-white/50">ArcByte Co</span>
+      <footer className="relative z-20 md:hidden px-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-6">
+        <div className="w-full max-w-md mx-auto">
+          <div className="relative">
+            <div className="absolute -inset-4 bg-[#1DB954]/12 blur-3xl rounded-full" />
+            <div className="relative rounded-2xl border border-white/10 bg-[#0B0B0B]/75 backdrop-blur-xl shadow-[0_20px_60px_rgba(0,0,0,0.65)] overflow-hidden">
+              <div className="h-[2px] bg-gradient-to-r from-transparent via-[#1DB954]/80 to-transparent" />
+              <div className="px-5 py-4 flex items-center justify-between gap-4">
+                <div className="min-w-0 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-[#1DB954]/12 border border-[#1DB954]/25 flex items-center justify-center shrink-0">
+                    <img src={logo} alt="ArcMail" className="w-5 h-5 object-contain" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[12px] font-bold tracking-tight text-white/90">ArcMail</div>
+                    <div className="text-[12px] font-medium tracking-tight text-white/60 truncate mt-0.5">
+                      Operator‑grade messaging
+                    </div>
+                  </div>
+                </div>
+                <div className="shrink-0 flex items-center gap-2">
+                  <span className="px-3 h-7 rounded-full bg-[#121212] border border-[#1F1F1F] text-[11px] font-semibold text-white/70 flex items-center">
+                    Powered by ArcByte Co
+                  </span>
+                </div>
               </div>
-              <div className="text-[11px] font-semibold tracking-tight text-white/80 truncate mt-0.5">
-                ArcMail · Operator Edition
+              <div className="px-5 pb-4 flex items-center justify-between text-[11px] font-medium text-white/45">
+                <div className="flex items-center gap-2">
+                  <Lock size={10} />
+                  <span>Secure sign‑in</span>
+                </div>
+                <span>&copy; {new Date().getFullYear()} ArcByte Co</span>
               </div>
             </div>
-            <div className="shrink-0 flex items-center gap-2">
-              <span className="px-2.5 h-6 rounded-full bg-white/[0.06] border border-white/10 text-[10px] font-mono uppercase tracking-widest text-white/45 flex items-center">
-                Powered by ArcByte
-              </span>
-            </div>
-          </div>
-          <div className="h-[1px] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-          <div className="px-4 py-2 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.18em] text-white/30">
-            <span>Secure sign-in</span>
-            <span>&copy; {new Date().getFullYear()} ArcByte Co</span>
           </div>
         </div>
-      </footer>
-
-      <footer className="relative z-20 hidden md:flex p-8 md:p-12 justify-between items-end text-[10px] uppercase tracking-widest text-white/25 font-mono">
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-2">
-            <Lock size={10} />
-            <span>Encrypted server‑side authentication</span>
-          </div>
-          <span>Sessions monitored for anomalous activity</span>
-        </div>
-        <div>&copy; {new Date().getFullYear()} ArcByte Inc.</div>
       </footer>
     </div>
   );
