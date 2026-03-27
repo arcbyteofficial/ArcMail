@@ -5,7 +5,7 @@ import { api } from '../api/client';
 interface AuthContextType {
   isAuthenticated: boolean;
   user: { name: string; email?: string; role?: string; id?: string; status?: string; clientId?: string } | null;
-  login: (password: string, email?: string, rememberMe?: boolean) => Promise<boolean>;
+  login: (password: string, email?: string, rememberMe?: boolean) => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
   isLoading: boolean;
 }
@@ -104,7 +104,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     initializeAuth();
   }, [logout]);
 
-  const login = async (password: string, email?: string, rememberMe?: boolean): Promise<boolean> => {
+  const login = async (password: string, email?: string, rememberMe?: boolean): Promise<{ ok: boolean; error?: string }> => {
     try {
       const res = await api.post('/auth/mail-login', { email, password, rememberMe: Boolean(rememberMe) });
 
@@ -133,11 +133,33 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           storage.setItem('mailSessionId', res.data.sessionId);
         }
         
-        return true;
+        return { ok: true };
       }
-      return false;
-    } catch {
-      return false;
+      return { ok: false, error: 'Sign in failed. Please try again.' };
+    } catch (err) {
+      const status =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { status?: unknown; data?: unknown } }).response?.status
+          : null;
+      const data =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { data?: unknown } }).response?.data
+          : null;
+      const errorCode =
+        data && typeof data === 'object' && 'error' in data && typeof data.error === 'string' ? data.error : null;
+      const detailCode =
+        data && typeof data === 'object' && 'code' in data && typeof data.code === 'string' ? data.code : null;
+
+      if (status === 401) return { ok: false, error: 'Invalid mailbox credentials.' };
+      if (errorCode === 'imap_tls_error') {
+        return {
+          ok: false,
+          error: `Mail server TLS blocked${detailCode ? ` (${detailCode})` : ''}.`,
+        };
+      }
+      if (errorCode === 'imap_unreachable') return { ok: false, error: 'Mail server unavailable. Try again.' };
+      if (status === 502) return { ok: false, error: 'Mail server error. Try again.' };
+      return { ok: false, error: 'Connection error. Please try again.' };
     }
   };
 

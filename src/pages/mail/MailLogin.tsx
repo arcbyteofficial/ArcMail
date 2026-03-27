@@ -20,11 +20,11 @@ const MailLogin = () => {
     setIsLoading(true);
 
     try {
-      const success = await login(password, email, rememberMe);
-      if (success) {
+      const result = await login(password, email, rememberMe);
+      if (result.ok) {
         navigate('/');
       } else {
-        setError('Invalid mailbox credentials.');
+        setError(result.error || 'Sign in failed. Please try again.');
       }
     } catch {
       setError('Connection error. Please try again.');

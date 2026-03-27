@@ -1226,6 +1226,8 @@ const MailAppContent = () => {
   const [composeOpen, setComposeOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const threadsAbortRef = useRef<AbortController | null>(null);
+  const threadsCursorRef = useRef<string | undefined>(undefined);
+  const selectedIdRef = useRef<string | null>(null);
 
   // Handle Loading
   useEffect(() => {
@@ -1250,24 +1252,38 @@ const MailAppContent = () => {
     }
   }, [isAuthenticated, isLoading, navigate, user]);
 
+  useEffect(() => {
+    threadsCursorRef.current = threadsCursor;
+  }, [threadsCursor]);
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
   // Load threads
   const loadThreads = useCallback(async (options?: { reset?: boolean }) => {
     if (!user || !isAuthenticated) return;
     const imapFolder = MAIL_FOLDER_IMAP_PATH[activeFolder];
     const reset = options?.reset ?? false;
+    const isCanceledError = (e: unknown) => {
+      if (!e || typeof e !== 'object') return false;
+      if ('code' in e && (e as { code?: unknown }).code === 'ERR_CANCELED') return true;
+      if ('name' in e && (e as { name?: unknown }).name === 'CanceledError') return true;
+      return false;
+    };
     
     setThreadsLoading(true);
     setThreadsError(null);
+    let timeoutId: number | undefined;
     try {
       threadsAbortRef.current?.abort();
       const controller = new AbortController();
       threadsAbortRef.current = controller;
-      const timeoutId = window.setTimeout(() => controller.abort(), 15000);
+      timeoutId = window.setTimeout(() => controller.abort(), 60000);
       const res = await api.get('/mail/threads', {
-        params: { folder: imapFolder, limit: 50, cursor: reset ? undefined : threadsCursor },
+        params: { folder: imapFolder, limit: 50, cursor: reset ? undefined : threadsCursorRef.current },
         signal: controller.signal,
       });
-      window.clearTimeout(timeoutId);
       const data = res.data as { threads: MailThreadSummary[]; nextCursor?: string };
       const mapped = (data.threads || []).map(t => ({
           ...t,
@@ -1286,24 +1302,52 @@ const MailAppContent = () => {
         const existingIds = new Set(prev.map(p => p.id));
         return [...prev, ...mapped.filter(i => !existingIds.has(i.id))];
       });
+      threadsCursorRef.current = data.nextCursor;
       setThreadsCursor(data.nextCursor);
       
-      if (reset && mapped.length > 0 && !isMobile && !selectedId) {
+      if (reset && mapped.length > 0 && !isMobile && !selectedIdRef.current) {
         setSelectedId(mapped[0].id);
       }
-    } catch {
+    } catch (err) {
+      if (isCanceledError(err)) return;
+      const response =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { data?: unknown; status?: unknown } }).response
+          : undefined;
+      const data = response?.data ?? null;
+      const code =
+        data && typeof data === 'object' && 'code' in data && typeof data.code === 'string' ? data.code : null;
+      const detailsText =
+        data &&
+        typeof data === 'object' &&
+        'details' in data &&
+        data.details &&
+        typeof data.details === 'object' &&
+        'responseText' in data.details &&
+        typeof (data.details as { responseText?: unknown }).responseText === 'string'
+          ? String((data.details as { responseText?: string }).responseText)
+          : null;
+      threadsCursorRef.current = undefined;
       setThreadsCursor(undefined);
-      setThreadsError('Failed to load messages. Check connection and try again.');
+      if (!response) {
+        setThreadsError('API unreachable. Start dev servers with `npm run dev`.');
+        return;
+      }
+      setThreadsError(
+        `Failed to load messages. Check connection and try again.${code ? ` (${code})` : ''}${detailsText ? ` — ${detailsText}` : ''}`
+      );
     } finally {
+      if (timeoutId) window.clearTimeout(timeoutId);
       setThreadsLoading(false);
     }
-  }, [activeFolder, isAuthenticated, threadsCursor, user, isMobile, selectedId]);
+  }, [activeFolder, isAuthenticated, user, isMobile]);
 
   // Initial load
   useEffect(() => {
     if (!isLoading && isAuthenticated && user?.role === 'MAIL_USER') {
       setThreads([]);
       setThreadsCursor(undefined);
+      threadsCursorRef.current = undefined;
       setSelectedId(null);
       setThreadDetail(null);
       loadThreads({ reset: true });
@@ -1328,7 +1372,7 @@ const MailAppContent = () => {
     }
     let cancelled = false;
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 15000);
+    const timeoutId = window.setTimeout(() => controller.abort(), 60000);
     const fetchDetail = async () => {
       setThreadDetailLoading(true);
       try {
@@ -1354,8 +1398,11 @@ const MailAppContent = () => {
         } else {
           setThreadDetail(null);
         }
-      } catch {
-        if (!cancelled) setThreadDetail(null);
+      } catch (err) {
+        if (cancelled) return;
+        if (err && typeof err === 'object' && 'code' in err && (err as { code?: unknown }).code === 'ERR_CANCELED') return;
+        if (err && typeof err === 'object' && 'name' in err && (err as { name?: unknown }).name === 'CanceledError') return;
+        setThreadDetail(null);
       } finally {
         window.clearTimeout(timeoutId);
         if (!cancelled) setThreadDetailLoading(false);
