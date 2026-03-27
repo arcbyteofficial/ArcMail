@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api/client';
-import { Lock, ArrowRight, Loader2, ShieldCheck, X, User, Phone, BadgeCheck, Mail } from 'lucide-react';
+import { Lock, ArrowRight, Loader2, ShieldCheck, X, User, Phone, BadgeCheck, Mail, Check } from 'lucide-react';
 import logo from '../../assets/arcbyte.co Logo_white_transparent.png';
 
 const MailLogin = () => {
@@ -233,12 +233,16 @@ const MailLogin = () => {
 
               <div className="flex items-center justify-between text-xs text-white/40">
                 <label className="flex items-center gap-2 cursor-pointer hover:text-white transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="appearance-none w-4 h-4 rounded border border-white/15 bg-[#141414] checked:bg-accent checked:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 transition-all"
-                  />
+                  <span className="relative">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="peer sr-only"
+                    />
+                    <span className="block w-4 h-4 rounded border border-white/15 bg-[#141414] peer-checked:bg-accent peer-checked:border-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent/30 transition-all" />
+                    <Check size={12} className="absolute inset-0 m-auto text-black opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none" />
+                  </span>
                   Remember me
                 </label>
                 <button
