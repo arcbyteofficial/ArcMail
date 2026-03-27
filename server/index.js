@@ -510,6 +510,11 @@ const buildRfc822 = ({ from, to, cc, subject, html, text }) => {
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
+// Alias to support clients using /api/login
+app.post('/api/login', (req, res) => {
+  res.redirect(307, '/api/auth/mail-login');
+});
+
 app.post('/api/auth/mail-login', async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
@@ -607,6 +612,118 @@ app.get('/api/mail/threads', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/mail/search', requireAuth, async (req, res) => {
+  const folder = typeof req.query?.folder === 'string' ? req.query.folder : 'INBOX';
+  const q = typeof req.query?.q === 'string' ? req.query.q.trim() : '';
+  const fromQ = typeof req.query?.from === 'string' ? req.query.from.trim() : '';
+  const toQ = typeof req.query?.to === 'string' ? req.query.to.trim() : '';
+  const unreadOnly = String(req.query?.unread || '').toLowerCase() === 'true';
+  const flaggedOnly = String(req.query?.flagged || '').toLowerCase() === 'true';
+  const answeredOnly = String(req.query?.answered || '').toLowerCase() === 'true';
+  const withAttachOnly = String(req.query?.attachment || '').toLowerCase() === 'true';
+  const sinceMs = typeof req.query?.since === 'string' ? Number(req.query.since) : NaN;
+  const beforeMs = typeof req.query?.before === 'string' ? Number(req.query.before) : NaN;
+  const limitRaw = typeof req.query?.limit === 'string' ? Number(req.query.limit) : 50;
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, limitRaw)) : 50;
+  const cursor = typeof req.query?.cursor === 'string' ? req.query.cursor : undefined;
+
+  let password = '';
+  try {
+    password = decryptString(req.session.encPassword);
+  } catch {
+    return res.status(401).json({ error: 'session_expired' });
+  }
+
+  const contains = (v, s) => String(v || '').toLowerCase().includes(String(s || '').toLowerCase());
+  const matchAddr = (addr, needle) => {
+    if (!needle) return true;
+    if (!addr) return false;
+    return contains(addr.address, needle) || contains(addr.name, needle);
+  };
+  const matchList = (list, needle) => {
+    if (!needle) return true;
+    if (!Array.isArray(list)) return false;
+    return list.some((a) => matchAddr(a, needle));
+  };
+  const inRange = (d) => {
+    const t = new Date(d).getTime();
+    if (Number.isFinite(sinceMs) && t < sinceMs) return false;
+    if (Number.isFinite(beforeMs) && t > beforeMs) return false;
+    return true;
+  };
+
+  try {
+    const result = await withImap({ email: req.session.email, password, folder }, async (client) => {
+      const exists = Number(client.mailbox?.exists || 0);
+      const cursorNum = cursor ? Number(cursor) : NaN;
+      const endSeq = Number.isFinite(cursorNum) ? Math.min(exists, cursorNum) : exists;
+      if (!endSeq || endSeq < 1) return { threads: [], nextCursor: undefined };
+
+      let collected = [];
+      let nextCursor = undefined;
+      let seq = endSeq;
+      const minSeq = 1;
+      while (seq >= minSeq && collected.length < limit) {
+        const batchEnd = seq;
+        const batchStart = Math.max(minSeq, batchEnd - 99);
+        const range = `${batchStart}:${batchEnd}`;
+        for await (const msg of client.fetch(range, { envelope: true, flags: true, internalDate: true, source: withAttachOnly })) {
+          const from = msg.envelope?.from || [];
+          const to = msg.envelope?.to || [];
+          const subject = msg.envelope?.subject || '';
+          const flagsSet = msg.flags instanceof Set ? msg.flags : new Set(Array.isArray(msg.flags) ? msg.flags : []);
+          const seen = flagsSet.has('\\Seen');
+          const flagged = flagsSet.has('\\Flagged');
+          const answered = flagsSet.has('\\Answered');
+          const date = msg.envelope?.date || msg.internalDate || new Date();
+          if (!inRange(date)) continue;
+          if (unreadOnly && seen) continue;
+          if (flaggedOnly && !flagged) continue;
+          if (answeredOnly && !answered) continue;
+          if (q && !(contains(subject, q) || matchAddr(from[0], q))) continue;
+          if (fromQ && !(matchList(from, fromQ))) continue;
+          if (toQ && !(matchList(to, toQ))) continue;
+
+          if (withAttachOnly) {
+            let hasAttachment = false;
+            try {
+              if (msg.source) {
+                const parsed = await simpleParser(msg.source);
+                hasAttachment = Array.isArray(parsed.attachments) && parsed.attachments.length > 0;
+              }
+            } catch {}
+            if (!hasAttachment) continue;
+          }
+
+          collected.push({
+            id: String(msg.uid),
+            subject: subject || '(no subject)',
+            snippet: '',
+            unread: !seen,
+            from: from[0] ? { name: from[0].name || undefined, address: String(from[0].address || '') } : null,
+            lastMessageAt: (date).toISOString(),
+          });
+          if (collected.length >= limit) break;
+        }
+        if (batchStart > minSeq) {
+          seq = batchStart - 1;
+          nextCursor = String(seq);
+        } else {
+          seq = 0;
+          nextCursor = undefined;
+        }
+      }
+
+      collected.sort((a, b) => (a.lastMessageAt > b.lastMessageAt ? -1 : a.lastMessageAt < b.lastMessageAt ? 1 : 0));
+      return { threads: collected, nextCursor };
+    });
+    return res.json(result);
+  } catch (err) {
+    if (isImapAuthFailure(err)) return res.status(401).json({ error: 'invalid_credentials' });
+    const code = getErrorCode(err);
+    return res.status(502).json({ error: 'imap_error', code, details: imapErrorDetails(err) });
+  }
+});
 app.get('/api/mail/threads/:id', requireAuth, async (req, res) => {
   const id = String(req.params.id || '');
   const uid = Number(id);

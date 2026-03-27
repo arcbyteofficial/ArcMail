@@ -121,6 +121,19 @@ type ComposeDraft = {
   showCcBcc?: boolean;
 };
 
+type SpeechRecognitionEventResult = { transcript: string };
+type SpeechRecognitionEvent = { results: ArrayLike<{ 0: SpeechRecognitionEventResult }> };
+interface ISpeechRecognition {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start: () => void;
+  stop: () => void;
+  onresult: ((e: SpeechRecognitionEvent) => void) | null;
+  onend: (() => void) | null;
+}
+type SpeechRecognitionConstructor = new () => ISpeechRecognition;
+
 type ViewportState = {
   isMobile: boolean;
   isTablet: boolean;
@@ -1397,6 +1410,9 @@ const MailAppContent = () => {
     draft: undefined,
   });
   const [searchQuery, setSearchQuery] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [searchFilters, setSearchFilters] = useState<{ unread?: boolean; flagged?: boolean; answered?: boolean; attachment?: boolean; from?: string; to?: string; since?: string; before?: string }>({});
+  const [voiceActive, setVoiceActive] = useState(false);
   const threadsAbortRef = useRef<AbortController | null>(null);
   const threadsCursorRef = useRef<string | undefined>(undefined);
   const selectedIdRef = useRef<string | null>(null);
@@ -1523,6 +1539,109 @@ const MailAppContent = () => {
     } catch {/* ignore */}
   }, [activeFolder]);
 
+  const searchThreads = useCallback(async (options?: { reset?: boolean }) => {
+    if (!user || !isAuthenticated) return;
+    const imapFolder = MAIL_FOLDER_IMAP_PATH[activeFolder];
+    const reset = options?.reset ?? false;
+    const q = searchQuery.trim();
+    if (!q && !searchFilters.unread && !searchFilters.flagged && !searchFilters.answered && !searchFilters.attachment && !searchFilters.from && !searchFilters.to && !searchFilters.since && !searchFilters.before) return;
+    setThreadsLoading(true);
+    setThreadsError(null);
+    let timeoutId: number | undefined;
+    try {
+      threadsAbortRef.current?.abort();
+      const controller = new AbortController();
+      threadsAbortRef.current = controller;
+      timeoutId = window.setTimeout(() => controller.abort(), 60000);
+      const params: Record<string, string> = { folder: imapFolder, limit: '50' };
+      if (q) params.q = q;
+      if (reset ? undefined : threadsCursorRef.current) params.cursor = String(threadsCursorRef.current);
+      if (searchFilters.unread) params.unread = 'true';
+      if (searchFilters.flagged) params.flagged = 'true';
+      if (searchFilters.answered) params.answered = 'true';
+      if (searchFilters.attachment) params.attachment = 'true';
+      if (searchFilters.from) params.from = searchFilters.from;
+      if (searchFilters.to) params.to = searchFilters.to;
+      if (searchFilters.since) params.since = String(Date.parse(searchFilters.since));
+      if (searchFilters.before) params.before = String(Date.parse(searchFilters.before));
+      const res = await api.get('/mail/search', { params, signal: controller.signal });
+      const data = res.data as { threads: MailThreadSummary[]; nextCursor?: string };
+      const mapped = (data.threads || []).map(t => ({
+        ...t,
+        id: String(t.id),
+        folder: activeFolder,
+        sender: t.from?.name || t.from?.address || 'Unknown',
+        senderEmail: t.from?.address || '',
+        subject: t.subject || '(no subject)',
+        snippet: t.snippet || '',
+        timestamp: t.lastMessageAt || '',
+        unread: Boolean(t.unread),
+      }));
+      setThreads(prev => {
+        if (reset) return mapped;
+        const existingIds = new Set(prev.map(p => p.id));
+        return [...prev, ...mapped.filter(i => !existingIds.has(i.id))];
+      });
+      threadsCursorRef.current = data.nextCursor;
+      setThreadsCursor(data.nextCursor);
+      if (reset && mapped.length > 0 && !isMobile && !selectedIdRef.current) {
+        setSelectedId(mapped[0].id);
+      }
+    } catch (err) {
+      const response = err && typeof err === 'object' && 'response' in err ? (err as { response?: { data?: unknown; status?: unknown } }).response : undefined;
+      threadsCursorRef.current = undefined;
+      setThreadsCursor(undefined);
+      if (!response) {
+        setThreadsError('API unreachable. Start dev servers with `npm run dev`.');
+      } else {
+        setThreadsError('Search failed. Try again.');
+      }
+    } finally {
+      if (timeoutId) window.clearTimeout(timeoutId);
+      setThreadsLoading(false);
+    }
+  }, [activeFolder, isAuthenticated, user, isMobile, searchFilters, searchQuery]);
+
+  useEffect(() => {
+    const q = searchQuery.trim();
+    const hasFilters = Boolean(searchFilters.unread || searchFilters.flagged || searchFilters.answered || searchFilters.attachment || searchFilters.from || searchFilters.to || searchFilters.since || searchFilters.before);
+    if (!q && !hasFilters) return;
+    const id = window.setTimeout(() => {
+      threadsCursorRef.current = undefined;
+      setThreadsCursor(undefined);
+      searchThreads({ reset: true });
+    }, 300);
+    return () => window.clearTimeout(id);
+  }, [searchQuery, searchFilters, searchThreads]);
+
+  
+
+  const onVoiceToggle = useCallback(() => {
+    const ctor = (window as unknown as { SpeechRecognition?: SpeechRecognitionConstructor; webkitSpeechRecognition?: SpeechRecognitionConstructor }).SpeechRecognition
+      || (window as unknown as { SpeechRecognition?: SpeechRecognitionConstructor; webkitSpeechRecognition?: SpeechRecognitionConstructor }).webkitSpeechRecognition;
+    if (!ctor) return;
+    if (voiceActive) {
+      setVoiceActive(false);
+      return;
+    }
+    const rec: ISpeechRecognition = new ctor();
+    rec.continuous = false;
+    rec.interimResults = false;
+    rec.lang = 'en-US';
+    rec.onresult = (e) => {
+      const first = e.results && e.results[0] && (e.results[0] as unknown as { 0?: SpeechRecognitionEventResult })[0];
+      const text = first?.transcript || '';
+      if (text) setSearchQuery(text);
+    };
+    rec.onend = () => setVoiceActive(false);
+    try {
+      setVoiceActive(true);
+      rec.start();
+    } catch {
+      setVoiceActive(false);
+    }
+  }, [voiceActive]);
+
   // Load threads
   const loadThreads = useCallback(async (options?: { reset?: boolean }) => {
     if (!user || !isAuthenticated) return;
@@ -1613,6 +1732,15 @@ const MailAppContent = () => {
       setThreadsLoading(false);
     }
   }, [activeFolder, isAuthenticated, user, isMobile]);
+
+  useEffect(() => {
+    const q = searchQuery.trim();
+    const hasFilters = Boolean(searchFilters.unread || searchFilters.flagged || searchFilters.answered || searchFilters.attachment || searchFilters.from || searchFilters.to || searchFilters.since || searchFilters.before);
+    if (q || hasFilters) return;
+    threadsCursorRef.current = undefined;
+    setThreadsCursor(undefined);
+    loadThreads({ reset: true });
+  }, [searchQuery, searchFilters, loadThreads]);
 
   // Initial load
   useEffect(() => {
@@ -1839,14 +1967,61 @@ const MailAppContent = () => {
                       <kbd className={cn("hidden md:inline-flex h-6 items-center gap-1 rounded border px-2 font-mono text-[10px] font-medium", isDark ? "border-[#333] bg-[#1A1A1A] text-[#787878]" : "border-[#E0E0E0] bg-[#F0F0F0] text-[#949494]")}>
                          <span className="text-xs">⌘</span>K
                       </kbd>
-                      <button className={cn("transition-colors p-1.5 rounded-full", isDark ? "text-[#787878] hover:text-white hover:bg-[#282828]" : "text-[#949494] hover:text-black hover:bg-[#F0F0F0]")}>
+                      <button onClick={() => setFiltersOpen(v => !v)} className={cn("transition-colors p-1.5 rounded-full", isDark ? "text-[#787878] hover:text-white hover:bg-[#282828]" : "text-[#949494] hover:text-black hover:bg-[#F0F0F0]")}>
                          <Filter size={16} />
                       </button>
-                      <button className={cn("transition-colors p-1.5 rounded-full", isDark ? "text-[#787878] hover:text-white hover:bg-[#282828]" : "text-[#949494] hover:text-black hover:bg-[#F0F0F0]")}>
+                      <button onClick={onVoiceToggle} aria-pressed={voiceActive} className={cn("transition-colors p-1.5 rounded-full", isDark ? "text-[#787878] hover:text-white hover:bg-[#282828]" : "text-[#949494] hover:text-black hover:bg-[#F0F0F0]")}>
                          <Mic size={16} />
                       </button>
                    </div>
                 </div>
+                <AnimatePresence>
+                  {filtersOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      className={cn("absolute left-0 right-0 top-14 rounded-2xl border p-4 grid grid-cols-2 md:grid-cols-3 gap-3 z-50", isDark ? "bg-[#0F0F0F] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]")}
+                    >
+                      <div className="flex flex-col gap-1">
+                        <label className={cn("text-xs font-semibold", isDark ? "text-white/70" : "text-black/70")}>From</label>
+                        <input className={cn("h-9 rounded-lg px-3 border", isDark ? "bg-[#121212] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black")} value={searchFilters.from || ''} onChange={e => setSearchFilters(s => ({ ...s, from: e.target.value }))} />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className={cn("text-xs font-semibold", isDark ? "text-white/70" : "text-black/70")}>To</label>
+                        <input className={cn("h-9 rounded-lg px-3 border", isDark ? "bg-[#121212] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black")} value={searchFilters.to || ''} onChange={e => setSearchFilters(s => ({ ...s, to: e.target.value }))} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs">Unread</label>
+                        <input type="checkbox" checked={!!searchFilters.unread} onChange={e => setSearchFilters(s => ({ ...s, unread: e.target.checked || undefined }))} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs">Flagged</label>
+                        <input type="checkbox" checked={!!searchFilters.flagged} onChange={e => setSearchFilters(s => ({ ...s, flagged: e.target.checked || undefined }))} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs">Answered</label>
+                        <input type="checkbox" checked={!!searchFilters.answered} onChange={e => setSearchFilters(s => ({ ...s, answered: e.target.checked || undefined }))} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs">Attachments</label>
+                        <input type="checkbox" checked={!!searchFilters.attachment} onChange={e => setSearchFilters(s => ({ ...s, attachment: e.target.checked || undefined }))} />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className={cn("text-xs font-semibold", isDark ? "text-white/70" : "text-black/70")}>Since</label>
+                        <input type="date" className={cn("h-9 rounded-lg px-3 border", isDark ? "bg-[#121212] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black")} value={searchFilters.since || ''} onChange={e => setSearchFilters(s => ({ ...s, since: e.target.value || undefined }))} />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className={cn("text-xs font-semibold", isDark ? "text-white/70" : "text-black/70")}>Before</label>
+                        <input type="date" className={cn("h-9 rounded-lg px-3 border", isDark ? "bg-[#121212] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black")} value={searchFilters.before || ''} onChange={e => setSearchFilters(s => ({ ...s, before: e.target.value || undefined }))} />
+                      </div>
+                      <div className="col-span-full flex justify-end gap-2">
+                        <button onClick={() => { setSearchFilters({}); setFiltersOpen(false); setSearchQuery(''); loadThreads({ reset: true }); }} className={cn("px-4 h-9 rounded-full text-xs font-semibold border", isDark ? "bg-[#121212] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black")}>Clear</button>
+                        <button onClick={() => { threadsCursorRef.current = undefined; setThreadsCursor(undefined); searchThreads({ reset: true }); setFiltersOpen(false); }} className="px-4 h-9 rounded-full text-xs font-semibold bg-[#1DB954] text-black">Apply</button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
              </div>
           </div>
 
