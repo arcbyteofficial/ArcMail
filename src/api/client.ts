@@ -3,8 +3,13 @@ import axios from 'axios';
 const envApiUrl = (import.meta.env.VITE_API_URL as string | undefined)
   || (import.meta.env.VITE_APP_URL as string | undefined);
 
+const cleanEnvUrl = (value: string) => {
+  const trimmed = value.trim();
+  return trimmed.replace(/^['"`]+/, '').replace(/['"`]+$/, '');
+};
+
 const normalizeBase = (base: string) => {
-  const b = base.replace(/\/+$/, '');
+  const b = cleanEnvUrl(base).replace(/\/+$/, '');
   return b.endsWith('/api') ? b : `${b}/api`;
 };
 
@@ -21,7 +26,14 @@ const inferApiBase = () => {
   return null;
 };
 
-const API_URL = envApiUrl ? normalizeBase(envApiUrl) : inferApiBase() || '/api';
+const API_URL = (() => {
+  if (envApiUrl) {
+    const cleaned = cleanEnvUrl(envApiUrl);
+    if (/^https?:\/\//i.test(cleaned)) return normalizeBase(cleaned);
+    if (cleaned.startsWith('/')) return cleaned;
+  }
+  return inferApiBase() || '/api';
+})();
 
 export const api = axios.create({
   baseURL: API_URL,
