@@ -182,10 +182,10 @@ const MailLogin = () => {
             className="w-full bg-[#111111]/60 backdrop-blur-sm border border-white/5 p-8 md:p-10 shadow-[0_28px_80px_rgba(0,0,0,0.85)]"
           >
             <div className="mb-8">
-              <div className="mb-5 flex justify-center">
-                <img src={logo} alt="ArcByte" className="h-14 w-auto object-contain" />
+              <div className="flex items-center gap-3 mb-2">
+                <img src={logo} alt="ArcByte" className="h-8 w-8 object-contain shrink-0" />
+                <h2 className="text-2xl font-display font-bold">ArcMail Login</h2>
               </div>
-              <h2 className="text-2xl font-display font-bold mb-2">ArcMail Login</h2>
               <p className="text-sm text-white/40">
                 Use your ArcMail Login Credentials. Access is audited and encrypted at rest.
               </p>
