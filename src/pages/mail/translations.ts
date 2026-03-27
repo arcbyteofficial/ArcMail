@@ -47,6 +47,7 @@ export const translations: Record<Language, Record<string, string>> = {
     'reply_reminder_desc': 'You have {count} unread emails',
     'remind_later': 'Remind later',
     'reply_now': 'Reply now',
+    'external': 'External',
     
     // Reading Pane
     'inbox_ready': 'Your inbox is ready',

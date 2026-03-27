@@ -46,7 +46,7 @@ const MailLogin = () => {
         />
       </div>
 
-      <header className="relative z-20 p-8 md:p-12 flex justify-between items-start">
+      <header className="relative z-20 p-6 md:p-12 flex justify-between items-start">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -74,7 +74,7 @@ const MailLogin = () => {
       </header>
 
       <main className="flex-1 relative z-10 flex flex-col lg:flex-row items-center justify-center w-full max-w-[1600px] mx-auto px-6 md:px-12 lg:px-24">
-        <div className="w-full lg:w-3/5 mb-16 lg:mb-0 lg:pr-24">
+        <div className="hidden lg:block w-full lg:w-3/5 mb-16 lg:mb-0 lg:pr-24">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -100,12 +100,12 @@ const MailLogin = () => {
           </motion.div>
         </div>
 
-        <div className="w-full lg:w-2/5 max-w-md">
+        <div className="w-full lg:w-2/5 max-w-md mx-auto">
           <motion.div
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.8, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
-            className="bg-[#111111]/60 backdrop-blur-sm border border-white/5 p-8 md:p-10 shadow-[0_28px_80px_rgba(0,0,0,0.85)]"
+            className="w-full bg-[#111111]/60 backdrop-blur-sm border border-white/5 p-8 md:p-10 shadow-[0_28px_80px_rgba(0,0,0,0.85)] rounded-2xl"
           >
             <div className="mb-8">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/[0.03] text-[10px] font-mono uppercase tracking-[0.22em] text-white/45 mb-4">
@@ -191,6 +191,32 @@ const MailLogin = () => {
           </motion.div>
         </div>
       </main>
+
+      <footer className="relative z-20 md:hidden px-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-5">
+        <div className="w-full max-w-md mx-auto rounded-2xl border border-white/10 bg-gradient-to-r from-white/[0.06] via-white/[0.03] to-transparent backdrop-blur-md shadow-[0_20px_60px_rgba(0,0,0,0.55)] overflow-hidden">
+          <div className="px-4 py-3 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-accent shadow-[0_0_14px_rgba(99,102,241,0.75)]" />
+                <span className="text-[10px] font-mono uppercase tracking-[0.22em] text-white/50">ArcByte Co</span>
+              </div>
+              <div className="text-[11px] font-semibold tracking-tight text-white/80 truncate mt-0.5">
+                ArcMail · Operator Edition
+              </div>
+            </div>
+            <div className="shrink-0 flex items-center gap-2">
+              <span className="px-2.5 h-6 rounded-full bg-white/[0.06] border border-white/10 text-[10px] font-mono uppercase tracking-widest text-white/45 flex items-center">
+                Powered by ArcByte
+              </span>
+            </div>
+          </div>
+          <div className="h-[1px] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+          <div className="px-4 py-2 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.18em] text-white/30">
+            <span>Secure sign-in</span>
+            <span>&copy; {new Date().getFullYear()} ArcByte Co</span>
+          </div>
+        </div>
+      </footer>
 
       <footer className="relative z-20 hidden md:flex p-8 md:p-12 justify-between items-end text-[10px] uppercase tracking-widest text-white/25 font-mono">
         <div className="flex flex-col gap-2">

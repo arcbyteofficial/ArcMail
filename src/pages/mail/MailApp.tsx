@@ -19,7 +19,6 @@ import {
   Clock,
   X,
   Check,
-  Menu,
   Mic,
   ChevronRight,
   MoreVertical,
@@ -78,6 +77,7 @@ type MailThreadSummary = {
   starred?: boolean;
   tags?: string[];
   from?: { name?: string; address: string } | null;
+  to?: { name?: string; address: string }[] | null;
   lastMessageAt?: string;
 };
 
@@ -471,6 +471,21 @@ const MailListItem = ({
 }) => {
   const { isDark } = useTheme();
   const { t } = useLanguage();
+  const isExternal = (() => {
+    const domainOf = (addr: string) => {
+      const at = addr.lastIndexOf('@');
+      return at >= 0 ? addr.slice(at + 1).toLowerCase() : '';
+    };
+    const isArcbyte = (addr: string) => {
+      const d = domainOf(addr);
+      return d === 'arcbyte.co' || d.endsWith('.arcbyte.co');
+    };
+    if (thread.folder === 'sent') {
+      const tos = Array.isArray(thread.to) ? thread.to : [];
+      return tos.some((a) => a && typeof a.address === 'string' && a.address && !isArcbyte(a.address));
+    }
+    return Boolean(thread.senderEmail && !isArcbyte(thread.senderEmail));
+  })();
 
   return (
     <div
@@ -514,12 +529,19 @@ const MailListItem = ({
             )}>
               {thread.sender}
             </span>
-            <span className={cn(
-              "text-[12px] shrink-0",
-              thread.unread ? "text-[#1DB954] font-medium" : (isDark ? "text-[#5E5E5E]" : "text-[#949494]")
-            )}>
-              {new Date(thread.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              {isExternal && (
+                <span className="px-2 h-5 rounded-full text-[10px] font-bold tracking-wide bg-[#FFB86B] text-black flex items-center">
+                  {t('external')}
+                </span>
+              )}
+              <span className={cn(
+                "text-[12px] shrink-0",
+                thread.unread ? "text-[#1DB954] font-medium" : (isDark ? "text-[#5E5E5E]" : "text-[#949494]")
+              )}>
+                {new Date(thread.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
          </div>
          
          <div className={cn(
@@ -722,10 +744,41 @@ const ReadingPane = ({
     );
   }
 
+  const domainOf = (addr: string) => {
+    const at = addr.lastIndexOf('@');
+    return at >= 0 ? addr.slice(at + 1).toLowerCase() : '';
+  };
+  const isArcbyteAddress = (addr: string) => {
+    const d = domainOf(addr);
+    return d === 'arcbyte.co' || d.endsWith('.arcbyte.co');
+  };
+  const threadIsExternal = (() => {
+    if (!thread) return false;
+    if (thread.folder === 'sent') {
+      for (const m of thread.messages) {
+        for (const a of [...m.to, ...m.cc, ...m.bcc]) {
+          if (a && typeof a.address === 'string' && a.address && !isArcbyteAddress(a.address)) return true;
+        }
+      }
+      return false;
+    }
+    for (const m of thread.messages) {
+      if (m.fromAddress && !isArcbyteAddress(m.fromAddress)) return true;
+    }
+    return false;
+  })();
+
   return (
     <div className={cn("flex-1 flex flex-col h-full relative overflow-hidden", isDark ? "bg-[#121212]" : "bg-white")}>
       {/* Spotify Gradient Overlay */}
-      {isDark && <div className="absolute top-0 inset-x-0 h-[500px] bg-gradient-to-b from-[#1DB954]/10 via-[#1DB954]/[0.02] to-transparent pointer-events-none z-0" />}
+      {isDark && (
+        <div
+          className={cn(
+            "absolute top-0 inset-x-0 h-[500px] bg-gradient-to-b to-transparent pointer-events-none z-0",
+            threadIsExternal ? "from-[#FFB86B]/10 via-[#FFB86B]/[0.02]" : "from-[#1DB954]/10 via-[#1DB954]/[0.02]"
+          )}
+        />
+      )}
       
       {/* Toolbar */}
       <div className={cn(
@@ -829,6 +882,21 @@ const ReadingPane = ({
                const isLast = idx === thread.messages.length - 1;
                const senderInitial = (msg.fromName || msg.fromAddress || '?')[0].toUpperCase();
                const isExpanded = expandedMsgId === msg.id;
+               const isExternal = (() => {
+                 const domainOf = (addr: string) => {
+                   const at = addr.lastIndexOf('@');
+                   return at >= 0 ? addr.slice(at + 1).toLowerCase() : '';
+                 };
+                 const isArcbyte = (addr: string) => {
+                   const d = domainOf(addr);
+                   return d === 'arcbyte.co' || d.endsWith('.arcbyte.co');
+                 };
+                 if (thread.folder === 'sent') {
+                   const all = [...msg.to, ...msg.cc, ...msg.bcc];
+                   return all.some((a) => a && typeof a.address === 'string' && a.address && !isArcbyte(a.address));
+                 }
+                 return Boolean(msg.fromAddress && !isArcbyte(msg.fromAddress));
+               })();
                
                return (
                  <div key={msg.id} className={cn("group transition-all duration-300", !isLast && "opacity-60 hover:opacity-100")}>
@@ -843,6 +911,13 @@ const ReadingPane = ({
                                  <span className={cn("text-[15px] font-bold truncate", isDark ? "text-white" : "text-black")}>
                                    {msg.fromName || msg.fromAddress}
                                  </span>
+                                 {isExternal && (
+                                   <span
+                                     className="px-2 h-5 rounded-full text-[10px] font-bold tracking-wide bg-[#FFB86B] text-black shrink-0 flex items-center"
+                                   >
+                                     {t('external')}
+                                   </span>
+                                 )}
                                  <button
                                    onClick={() => setExpandedMsgId((prev) => (prev === msg.id ? null : msg.id))}
                                    className={cn(
@@ -865,30 +940,30 @@ const ReadingPane = ({
                                    animate={{ opacity: 1, y: 0 }}
                                    exit={{ opacity: 0, y: -4 }}
                                    className={cn(
-                                     "mt-2 rounded-xl border px-4 py-3 text-[12px] leading-relaxed",
+                                     "mt-2 w-full max-w-full rounded-xl border px-4 py-3 text-[12px] leading-relaxed overflow-hidden",
                                      isDark ? "bg-[#181818] border-[#282828] text-[#EAEAEA]" : "bg-white border-[#E5E5E5] text-[#121212]"
                                    )}
                                  >
-                                   <div className={cn("flex gap-2", isDark ? "text-white/70" : "text-black/70")}>
+                                   <div className={cn("flex gap-2 min-w-0", isDark ? "text-white/70" : "text-black/70")}>
                                      <span className="shrink-0 font-semibold">From:</span>
-                                     <span className="truncate">
+                                     <span className="min-w-0 break-words break-all whitespace-normal">
                                        {msg.fromName ? `${msg.fromName} <${msg.fromAddress || ''}>` : (msg.fromAddress || '')}
                                      </span>
                                    </div>
-                                   <div className={cn("flex gap-2 mt-1", isDark ? "text-white/70" : "text-black/70")}>
+                                   <div className={cn("flex gap-2 mt-1 min-w-0", isDark ? "text-white/70" : "text-black/70")}>
                                      <span className="shrink-0 font-semibold">To:</span>
-                                     <span className="truncate">{msg.to.map(t => t.name || t.address).join(', ')}</span>
+                                     <span className="min-w-0 break-words break-all whitespace-normal">{msg.to.map(t => t.name || t.address).join(', ')}</span>
                                    </div>
                                    {msg.cc.length > 0 && (
-                                     <div className={cn("flex gap-2 mt-1", isDark ? "text-white/70" : "text-black/70")}>
+                                     <div className={cn("flex gap-2 mt-1 min-w-0", isDark ? "text-white/70" : "text-black/70")}>
                                        <span className="shrink-0 font-semibold">Cc:</span>
-                                       <span className="truncate">{msg.cc.map(t => t.name || t.address).join(', ')}</span>
+                                       <span className="min-w-0 break-words break-all whitespace-normal">{msg.cc.map(t => t.name || t.address).join(', ')}</span>
                                      </div>
                                    )}
                                    {msg.bcc.length > 0 && (
-                                     <div className={cn("flex gap-2 mt-1", isDark ? "text-white/70" : "text-black/70")}>
+                                     <div className={cn("flex gap-2 mt-1 min-w-0", isDark ? "text-white/70" : "text-black/70")}>
                                        <span className="shrink-0 font-semibold">Bcc:</span>
-                                       <span className="truncate">{msg.bcc.map(t => t.name || t.address).join(', ')}</span>
+                                       <span className="min-w-0 break-words break-all whitespace-normal">{msg.bcc.map(t => t.name || t.address).join(', ')}</span>
                                      </div>
                                    )}
                                  </motion.div>
@@ -945,11 +1020,18 @@ const ReadingPane = ({
             })}
           </div>
 
-          <div className={cn("mt-10 pt-8 border-t flex items-center gap-3", isDark ? "border-[#282828]" : "border-[#E5E5E5]")}>
+          <div
+            className={cn(
+              "mt-10 pt-8 border-t flex items-center gap-3 w-full",
+              isMobile ? "justify-center" : "justify-start",
+              isDark ? "border-[#282828]" : "border-[#E5E5E5]"
+            )}
+          >
             <button
               onClick={onReply}
               className={cn(
-                "flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-[14px] transition-all hover:scale-105 active:scale-95",
+                "flex items-center justify-center gap-2 px-5 py-2.5 rounded-full font-bold text-[14px] transition-all hover:scale-105 active:scale-95",
+                isMobile && "px-4 flex-1 max-w-[180px]",
                 isDark ? "bg-[#1A1A1A] text-white hover:bg-[#222] border border-[#282828]" : "bg-white text-black hover:bg-[#F9F9F9] border border-[#E5E5E5]"
               )}
             >
@@ -959,7 +1041,8 @@ const ReadingPane = ({
             <button
               onClick={onForward}
               className={cn(
-                "flex items-center gap-2 px-5 py-2.5 rounded-full font-bold text-[14px] transition-all hover:scale-105 active:scale-95",
+                "flex items-center justify-center gap-2 px-5 py-2.5 rounded-full font-bold text-[14px] transition-all hover:scale-105 active:scale-95",
+                isMobile && "px-4 flex-1 max-w-[180px]",
                 isDark ? "bg-[#1A1A1A] text-white hover:bg-[#222] border border-[#282828]" : "bg-white text-black hover:bg-[#F9F9F9] border border-[#E5E5E5]"
               )}
             >
@@ -1324,17 +1407,19 @@ const MobileNav = ({
   activeFolder,
   onFolderChange,
   onCompose,
-  onMenu
+  onLogout,
 }: {
   activeFolder: MailFolder;
   onFolderChange: (f: MailFolder) => void;
   onCompose: () => void;
-  onMenu: () => void;
+  onLogout: () => void;
 }) => {
   const { isDark } = useTheme();
   const { t } = useLanguage();
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   return (
+    <>
     <div className="fixed bottom-6 inset-x-4 z-40 flex justify-center">
       <div className={cn(
         "w-full max-w-md h-16 rounded-2xl flex items-center justify-between px-6 backdrop-blur-xl border shadow-2xl relative",
@@ -1380,15 +1465,84 @@ const MobileNav = ({
           isDark={isDark}
         />
         
-        <MobileNavItem 
-          icon={Menu} 
-          label={t('more')} 
-          isActive={false} 
-          onClick={onMenu}
-          isDark={isDark}
-        />
+        <button
+          onClick={() => setConfirmOpen(true)}
+          className={cn(
+            "relative flex flex-col items-center justify-center w-14 h-full transition-all duration-300",
+            isDark ? "text-[#FF5555] hover:text-white" : "text-[#CC2A2A] hover:text-black"
+          )}
+        >
+          <LogOut size={22} strokeWidth={2.3} />
+          <span className="text-[10px] font-medium mt-1 hidden">Logout</span>
+        </button>
       </div>
     </div>
+    <AnimatePresence>
+      {confirmOpen && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm"
+            onClick={() => setConfirmOpen(false)}
+          />
+          <motion.div
+            initial={{ opacity: 0, y: 14, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 14, scale: 0.98 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+            className="fixed inset-x-4 bottom-[calc(7.5rem+env(safe-area-inset-bottom))] z-[90] flex justify-center"
+          >
+            <div className={cn(
+              "w-full max-w-md rounded-2xl border shadow-2xl overflow-hidden",
+              isDark ? "bg-[#121212] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black"
+            )}>
+              <div className="p-5">
+                <div className="flex items-start gap-4">
+                  <div className={cn(
+                    "w-10 h-10 rounded-xl flex items-center justify-center border shrink-0",
+                    isDark ? "bg-red-500/10 border-red-500/25" : "bg-red-50 border-red-200"
+                  )}>
+                    <AlertTriangle size={18} className={cn(isDark ? "text-red-400" : "text-red-600")} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-base font-bold tracking-tight">Log out?</div>
+                    <div className={cn("text-sm mt-1", isDark ? "text-white/60" : "text-black/60")}>
+                      Are you sure you want to log out?
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className={cn("px-5 pb-5 flex items-center gap-3", "justify-end")}>
+                <button
+                  onClick={() => setConfirmOpen(false)}
+                  className={cn(
+                    "px-4 h-10 rounded-full text-sm font-semibold border transition-colors",
+                    isDark ? "bg-transparent border-[#2A2A2A] text-white/80 hover:bg-[#1A1A1A]" : "bg-transparent border-[#E5E5E5] text-black/70 hover:bg-[#F7F7F7]"
+                  )}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setConfirmOpen(false);
+                    onLogout();
+                  }}
+                  className={cn(
+                    "px-4 h-10 rounded-full text-sm font-semibold transition-colors",
+                    isDark ? "bg-[#FF5555] hover:bg-[#FF6B6B] text-black" : "bg-[#FF5555] hover:bg-[#FF6B6B] text-black"
+                  )}
+                >
+                  Log out
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+    </>
   );
 };
 
@@ -2711,7 +2865,7 @@ const MailAppContent = () => {
             window.scrollTo(0, 0);
           }}
           onCompose={() => openCompose()}
-          onMenu={() => setSidebarCollapsed(false)}
+          onLogout={logout}
         />
       )}
 

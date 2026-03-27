@@ -638,12 +638,14 @@ app.get('/api/mail/threads', requireAuth, async (req, res) => {
       const threads = [];
       for await (const msg of client.fetch(range, { envelope: true, flags: true, internalDate: true })) {
         const from = msg.envelope?.from?.[0] || null;
+        const to = msg.envelope?.to || [];
         threads.push({
           id: String(msg.uid),
           subject: msg.envelope?.subject || '(no subject)',
           snippet: '',
           unread: !(msg.flags instanceof Set ? msg.flags.has('\\Seen') : false),
           from: from ? { name: from.name || undefined, address: String(from.address || '') } : null,
+          to: to.map((a) => ({ name: a.name || undefined, address: String(a.address || '') })),
           lastMessageAt: (msg.envelope?.date || msg.internalDate || new Date()).toISOString(),
         });
       }
@@ -751,6 +753,7 @@ app.get('/api/mail/search', requireAuth, async (req, res) => {
             snippet: '',
             unread: !seen,
             from: from[0] ? { name: from[0].name || undefined, address: String(from[0].address || '') } : null,
+            to: to.map((a) => ({ name: a.name || undefined, address: String(a.address || '') })),
             lastMessageAt: (date).toISOString(),
           });
           if (collected.length >= limit) break;
