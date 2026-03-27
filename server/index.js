@@ -120,6 +120,9 @@ const REMEMBER_ME_TTL_MS = Number(
 
 const sessions = new Map();
 const attachmentCache = new Map();
+const forgotPasswordRate = new Map();
+const FORGOT_PASSWORD_RATE_WINDOW_MS = Number(process.env.FORGOT_PASSWORD_RATE_WINDOW_MS || 60 * 60 * 1000);
+const FORGOT_PASSWORD_RATE_MAX = Number(process.env.FORGOT_PASSWORD_RATE_MAX || 5);
 const ATTACHMENT_CACHE_TTL_MS = Number(process.env.ATTACHMENT_CACHE_TTL_MS || 10 * 60 * 1000);
 const ATTACHMENT_CACHE_MAX = Number(process.env.ATTACHMENT_CACHE_MAX || 50);
 const ATTACHMENT_CACHE_MAX_BYTES = Number(process.env.ATTACHMENT_CACHE_MAX_BYTES || 15 * 1024 * 1024);
@@ -144,6 +147,16 @@ const cleanupAttachmentCache = () => {
 };
 
 setInterval(cleanupAttachmentCache, 30_000);
+setInterval(() => {
+  const now = nowMs();
+  for (const [ip, entry] of forgotPasswordRate.entries()) {
+    if (!entry || typeof entry !== 'object' || typeof entry.resetAt !== 'number') {
+      forgotPasswordRate.delete(ip);
+      continue;
+    }
+    if (now > entry.resetAt) forgotPasswordRate.delete(ip);
+  }
+}, 60_000);
 
 const createSession = ({ email, password, ttlMs }) => {
   const sessionId = crypto.randomUUID();
@@ -610,6 +623,97 @@ app.post('/api/auth/mail-login', async (req, res) => {
 app.get('/api/auth/me', requireAuth, (req, res) => {
   const name = req.session.email.split('@')[0] || req.session.email;
   return res.json({ name, email: req.session.email, role: 'MAIL_USER', status: 'Active' });
+});
+
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const fullName = typeof req.body?.fullName === 'string' ? req.body.fullName.trim() : '';
+  const employeeId = typeof req.body?.employeeId === 'string' ? req.body.employeeId.trim() : '';
+  const phone = typeof req.body?.phone === 'string' ? req.body.phone.trim() : '';
+  const companyEmail = typeof req.body?.companyEmail === 'string' ? req.body.companyEmail.trim() : '';
+  const altPhone = typeof req.body?.altPhone === 'string' ? req.body.altPhone.trim() : '';
+
+  if (!fullName || !employeeId || !phone || !companyEmail || !altPhone) {
+    return res.status(400).json({ error: 'invalid_payload' });
+  }
+  if (!/^ARC\d+$/i.test(employeeId)) return res.status(400).json({ error: 'invalid_employee_id' });
+  if (!/^[6-9]\d{9}$/.test(phone)) return res.status(400).json({ error: 'invalid_phone' });
+  if (!/^[6-9]\d{9}$/.test(altPhone)) return res.status(400).json({ error: 'invalid_phone' });
+  const emailLower = companyEmail.toLowerCase();
+  if (!emailLower.endsWith('@arcbyte.co')) return res.status(400).json({ error: 'invalid_email' });
+  const local = emailLower.replace(/@arcbyte\.co$/, '');
+  if (!local || !/^[a-z0-9._-]+$/.test(local)) return res.status(400).json({ error: 'invalid_email' });
+
+  const rawIp = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
+  const ip = rawIp || 'unknown';
+  const now = nowMs();
+  const existing = forgotPasswordRate.get(ip);
+  if (existing && typeof existing === 'object' && typeof existing.count === 'number' && typeof existing.resetAt === 'number') {
+    if (now <= existing.resetAt && existing.count >= FORGOT_PASSWORD_RATE_MAX) {
+      return res.status(429).json({ error: 'rate_limited' });
+    }
+    if (now > existing.resetAt) {
+      forgotPasswordRate.set(ip, { count: 1, resetAt: now + FORGOT_PASSWORD_RATE_WINDOW_MS });
+    } else {
+      forgotPasswordRate.set(ip, { count: existing.count + 1, resetAt: existing.resetAt });
+    }
+  } else {
+    forgotPasswordRate.set(ip, { count: 1, resetAt: now + FORGOT_PASSWORD_RATE_WINDOW_MS });
+  }
+
+  const adminTo = process.env.FORGOT_PASSWORD_TO || 'sysadmin@mail.arcbyte.co';
+  const host = process.env.FORGOT_SMTP_HOST || SMTP_HOST;
+  const port = Number(process.env.FORGOT_SMTP_PORT || SMTP_PORT || 465);
+  const user = typeof process.env.FORGOT_SMTP_USER === 'string' ? process.env.FORGOT_SMTP_USER : '';
+  const pass = typeof process.env.FORGOT_SMTP_PASS === 'string' ? process.env.FORGOT_SMTP_PASS : '';
+  const from = process.env.FORGOT_SMTP_FROM || user || 'no-reply@mail.arcbyte.co';
+
+  if (!user || !pass) return res.status(501).json({ error: 'forgot_password_unconfigured' });
+
+  const subject = `ArcMail Password Reset Request — ${companyEmail}`;
+  const text = [
+    'ArcMail password reset request',
+    '',
+    `Full name: ${fullName}`,
+    `Employee / Intern ID: ${employeeId}`,
+    `Issued company mail ID: ${companyEmail}`,
+    `Phone number: ${phone}`,
+    `Phone number (secondary): ${altPhone}`,
+    '',
+    `IP: ${ip}`,
+    `User-Agent: ${String(req.headers['user-agent'] || '')}`,
+    `Time: ${new Date().toISOString()}`,
+    '',
+    'If this request is not expected, ignore it.',
+  ].join('\n');
+
+  try {
+    const secure = port === 465;
+    const transport = nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      requireTLS: !secure,
+      auth: { user, pass },
+      connectionTimeout: SMTP_CONNECTION_TIMEOUT,
+      greetingTimeout: SMTP_GREETING_TIMEOUT,
+      socketTimeout: SMTP_SOCKET_TIMEOUT,
+      tls: {
+        rejectUnauthorized: SMTP_TLS_REJECT_UNAUTHORIZED,
+        servername: host,
+        ca: SMTP_TLS_CA,
+      },
+    });
+    await transport.sendMail({
+      from,
+      to: adminTo,
+      subject,
+      text,
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : undefined;
+    return res.status(502).json({ error: 'smtp_error', code, details: smtpErrorDetails(err) });
+  }
 });
 
 app.get('/api/mail/threads', requireAuth, async (req, res) => {

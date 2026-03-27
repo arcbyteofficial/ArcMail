@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Lock, ArrowRight, Loader2, ShieldCheck } from 'lucide-react';
+import { api } from '../../api/client';
+import { Lock, ArrowRight, Loader2, ShieldCheck, X, User, Phone, BadgeCheck, Mail } from 'lucide-react';
 import logo from '../../assets/arcbyte.co Logo_white_transparent.png';
 
 const MailLogin = () => {
@@ -11,6 +12,15 @@ const MailLogin = () => {
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [fpSubmitted, setFpSubmitted] = useState(false);
+  const [fpFullName, setFpFullName] = useState('');
+  const [fpEmployeeIdSuffix, setFpEmployeeIdSuffix] = useState('');
+  const [fpPhone, setFpPhone] = useState('');
+  const [fpCompanyUser, setFpCompanyUser] = useState('');
+  const [fpAltPhone, setFpAltPhone] = useState('');
+  const [fpError, setFpError] = useState('');
+  const [fpSending, setFpSending] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -30,6 +40,65 @@ const MailLogin = () => {
       setError('Connection error. Please try again.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const resetForgot = () => {
+    setFpSubmitted(false);
+    setFpFullName('');
+    setFpEmployeeIdSuffix('');
+    setFpPhone('');
+    setFpCompanyUser('');
+    setFpAltPhone('');
+    setFpError('');
+  };
+
+  const closeForgot = () => {
+    setForgotOpen(false);
+    resetForgot();
+  };
+
+  const submitForgot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFpError('');
+    if (!fpFullName.trim()) return setFpError('Enter your full name.');
+    if (!fpEmployeeIdSuffix.trim()) return setFpError('Enter your Employee / Intern ID.');
+    if (!/^\d+$/.test(fpEmployeeIdSuffix.trim())) return setFpError('Employee / Intern ID must be numbers only.');
+    if (!/^[6-9]\d{9}$/.test(fpPhone.trim())) return setFpError('Enter a valid Indian phone number (10 digits).');
+    if (!fpCompanyUser.trim()) return setFpError('Enter your issued company mail ID.');
+    if (!/^[a-zA-Z0-9._-]+$/.test(fpCompanyUser.trim())) return setFpError('Company mail ID can only contain letters, numbers, dot, underscore, and hyphen.');
+    if (!/^[6-9]\d{9}$/.test(fpAltPhone.trim())) return setFpError('Enter a valid Indian phone number (10 digits).');
+    setFpSending(true);
+    try {
+      const employeeId = `ARC${fpEmployeeIdSuffix.trim()}`;
+      const companyEmail = `${fpCompanyUser.trim()}@arcbyte.co`.toLowerCase();
+      await api.post('/auth/forgot-password', {
+        fullName: fpFullName.trim(),
+        employeeId,
+        phone: fpPhone.trim(),
+        companyEmail,
+        altPhone: fpAltPhone.trim(),
+      });
+      setFpSubmitted(true);
+      window.setTimeout(() => closeForgot(), 1400);
+    } catch (err) {
+      const response =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { status?: unknown; data?: unknown } }).response
+          : undefined;
+      const status = response && typeof response.status === 'number' ? response.status : null;
+      const data = response?.data as unknown;
+      const errorCode =
+        data && typeof data === 'object' && 'error' in data && typeof (data as { error?: unknown }).error === 'string'
+          ? String((data as { error: string }).error)
+          : null;
+      if (!response) setFpError('Connection error. Please try again.');
+      else if (status === 429 || errorCode === 'rate_limited') setFpError('Too many requests. Try again later.');
+      else if (status === 501 || errorCode === 'forgot_password_unconfigured') setFpError('Reset requests are not configured yet.');
+      else if (status === 400) setFpError('Please check your details and try again.');
+      else setFpError('Failed to submit request. Try again.');
+    } finally {
+      setFpSending(false);
     }
   };
 
@@ -164,9 +233,27 @@ const MailLogin = () => {
                   />
                   Remember me
                 </label>
-                <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-white/35">
-                  Internal use only
-                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForgotOpen(true);
+                    setFpError('');
+                    setFpSubmitted(false);
+                    setFpFullName('');
+                    setFpEmployeeIdSuffix('');
+                    setFpPhone('');
+                    setFpCompanyUser(() => {
+                      const v = String(email || '').trim();
+                      const lower = v.toLowerCase();
+                      if (lower.endsWith('@arcbyte.co')) return lower.replace(/@arcbyte\.co$/i, '');
+                      return '';
+                    });
+                    setFpAltPhone('');
+                  }}
+                  className="text-[11px] font-semibold text-white/55 hover:text-white transition-colors"
+                >
+                  Forgot password?
+                </button>
               </div>
 
               <button
@@ -223,6 +310,195 @@ const MailLogin = () => {
           </div>
         </div>
       </footer>
+
+      <AnimatePresence>
+        {forgotOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm"
+              onClick={closeForgot}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 18, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 18, scale: 0.98 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+              className="fixed inset-0 z-[90] flex justify-center items-start px-4 pt-[10vh] pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+            >
+              <div className="w-full max-w-md">
+                <div className="rounded-3xl p-[1px] bg-gradient-to-b from-white/12 via-white/10 to-transparent shadow-[0_28px_90px_rgba(0,0,0,0.8)]">
+                  <div className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 backdrop-blur-xl overflow-hidden">
+                    <div className="h-[2px] bg-gradient-to-r from-transparent via-[#1DB954]/90 to-transparent" />
+                    <div className="px-6 pt-6 pb-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0 flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-[#1DB954] flex items-center justify-center shrink-0">
+                          <Lock size={16} className="text-black" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-lg font-bold tracking-tight text-white/95">Forgot password</div>
+                            <div className="text-sm text-white/55 mt-0.5">Send a reset request to IT.</div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={closeForgot}
+                          className="p-2 rounded-full text-white/55 hover:text-white hover:bg-white/5 transition-colors"
+                        >
+                          <X size={18} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <form onSubmit={submitForgot} className="px-6 pb-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                  {fpError && (
+                    <div className="mb-4 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                      {fpError}
+                    </div>
+                  )}
+                  {fpSubmitted ? (
+                    <div className="rounded-2xl border border-[#1DB954]/25 bg-[#1DB954]/10 px-4 py-4 text-sm text-white/80 flex items-start gap-3">
+                      <BadgeCheck size={18} className="text-[#1DB954] shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <div className="font-semibold text-white/90">Request submitted</div>
+                        <div className="text-white/55 mt-0.5">You’ll be contacted shortly.</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-semibold tracking-wide text-white/60 mb-2">
+                          Full name
+                        </label>
+                        <div className="group flex items-center gap-3 bg-[#111111] border border-white/10 rounded-2xl px-4 h-12 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25 transition-all">
+                          <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                            <User size={16} strokeWidth={2.2} />
+                          </div>
+                          <input
+                            value={fpFullName}
+                            onChange={(e) => setFpFullName(e.target.value)}
+                            className="flex-1 min-w-0 bg-transparent outline-none text-white placeholder-white/20 text-base"
+                            placeholder="Your full name"
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold tracking-wide text-white/60 mb-2">
+                          Employee / Intern ID
+                        </label>
+                        <div className="group flex items-center gap-3 bg-[#111111] border border-white/10 rounded-2xl px-4 h-12 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25 transition-all">
+                          <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                            <ShieldCheck size={16} strokeWidth={2.2} />
+                          </div>
+                          <div className="px-2.5 h-8 rounded-xl bg-[#0B0B0B] border border-white/10 text-white/80 text-sm font-bold tracking-wide flex items-center">
+                            ARC
+                          </div>
+                          <input
+                            value={fpEmployeeIdSuffix}
+                            onChange={(e) => setFpEmployeeIdSuffix(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                            className="flex-1 min-w-0 bg-transparent outline-none text-white placeholder-white/20 text-base"
+                            placeholder="12345"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold tracking-wide text-white/60 mb-2">
+                          Phone number
+                        </label>
+                        <div className="group flex items-center gap-3 bg-[#111111] border border-white/10 rounded-2xl px-4 h-12 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25 transition-all">
+                          <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                            <Phone size={16} strokeWidth={2.2} />
+                          </div>
+                          <div className="px-2.5 h-8 rounded-xl bg-[#151515] border border-white/10 text-white/75 text-sm font-bold tracking-wide flex items-center">
+                            +91
+                          </div>
+                          <input
+                            value={fpPhone}
+                            onChange={(e) => setFpPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                            className="flex-1 min-w-0 bg-transparent outline-none text-white placeholder-white/20 text-base"
+                            placeholder="9876543210"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={10}
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold tracking-wide text-white/60 mb-2">
+                          Issued company mail ID
+                        </label>
+                        <div className="group flex items-center gap-3 bg-[#111111] border border-white/10 rounded-2xl px-4 h-12 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25 transition-all min-w-0 overflow-hidden">
+                          <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                            <Mail size={16} strokeWidth={2.2} />
+                          </div>
+                          <input
+                            value={fpCompanyUser}
+                            onChange={(e) => setFpCompanyUser(e.target.value.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 64))}
+                            className="flex-1 min-w-0 bg-transparent outline-none text-white placeholder-white/20 text-base"
+                            placeholder="your.name"
+                            autoCapitalize="none"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            required
+                          />
+                          <span className="shrink-0 px-2.5 h-8 rounded-xl bg-[#151515] border border-white/10 text-white/60 text-sm font-semibold flex items-center">
+                            @arcbyte.co
+                          </span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold tracking-wide text-white/60 mb-2">
+                          Confirm phone number
+                        </label>
+                        <div className="group flex items-center gap-3 bg-[#111111] border border-white/10 rounded-2xl px-4 h-12 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25 transition-all">
+                          <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                            <Phone size={16} strokeWidth={2.2} />
+                          </div>
+                          <div className="px-2.5 h-8 rounded-xl bg-[#151515] border border-white/10 text-white/75 text-sm font-bold tracking-wide flex items-center">
+                            +91
+                          </div>
+                          <input
+                            value={fpAltPhone}
+                            onChange={(e) => setFpAltPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                            className="flex-1 min-w-0 bg-transparent outline-none text-white placeholder-white/20 text-base"
+                            placeholder="9876543210"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={10}
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={fpSending}
+                        className="w-full h-12 rounded-2xl bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black font-bold tracking-[0.14em] text-xs flex items-center justify-center gap-2 transition-all duration-300 shadow-[0_18px_50px_rgba(29,185,84,0.18)] hover:shadow-[0_22px_60px_rgba(29,185,84,0.28)] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed disabled:shadow-none"
+                      >
+                        {fpSending ? <Loader2 className="animate-spin" size={18} /> : 'Submit request'}
+                      </button>
+                    </div>
+                  )}
+                    </form>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
