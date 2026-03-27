@@ -17,6 +17,15 @@ const IMAP_HOST = process.env.IMAP_HOST || 'imap.hostinger.com';
 const IMAP_PORT = Number(process.env.IMAP_PORT || 993);
 const SMTP_HOST = process.env.SMTP_HOST || 'smtp.hostinger.com';
 const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
+const SMTP_PORTS = typeof process.env.SMTP_PORTS === 'string'
+  ? process.env.SMTP_PORTS
+      .split(',')
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isFinite(n) && n > 0)
+  : null;
+const SMTP_CONNECTION_TIMEOUT = Number(process.env.SMTP_CONNECTION_TIMEOUT || 15000);
+const SMTP_GREETING_TIMEOUT = Number(process.env.SMTP_GREETING_TIMEOUT || 15000);
+const SMTP_SOCKET_TIMEOUT = Number(process.env.SMTP_SOCKET_TIMEOUT || 60000);
 
 const rawCorsOrigin = process.env.CORS_ORIGIN || 'https://mail.arcbyte.co';
 const allowedOrigins = rawCorsOrigin
@@ -1112,48 +1121,35 @@ app.post('/api/mail/send', requireAuth, requireCsrf, async (req, res) => {
   };
 
   try {
-    const primary = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: SMTP_PORT,
-      secure: SMTP_PORT === 465,
-      auth: { user: req.session.email, pass: password },
-      tls: {
-        rejectUnauthorized: SMTP_TLS_REJECT_UNAUTHORIZED,
-        servername: SMTP_HOST,
-        ca: SMTP_TLS_CA,
-      },
-    });
-    const result = await sendWith(primary);
-    const messageId = typeof result?.messageId === 'string' ? result.messageId : undefined;
-    let savedTo = null;
-    if (rawMessage) {
+    const makeTransport = (port) => {
+      const secure = port === 465;
+      return nodemailer.createTransport({
+        host: SMTP_HOST,
+        port,
+        secure,
+        requireTLS: !secure,
+        auth: { user: req.session.email, pass: password },
+        connectionTimeout: SMTP_CONNECTION_TIMEOUT,
+        greetingTimeout: SMTP_GREETING_TIMEOUT,
+        socketTimeout: SMTP_SOCKET_TIMEOUT,
+        tls: {
+          rejectUnauthorized: SMTP_TLS_REJECT_UNAUTHORIZED,
+          servername: SMTP_HOST,
+          ca: SMTP_TLS_CA,
+        },
+      });
+    };
+
+    const portsToTry = (SMTP_PORTS && SMTP_PORTS.length > 0
+      ? SMTP_PORTS
+      : [SMTP_PORT, SMTP_PORT === 465 ? 587 : 465]
+    ).filter((v, i, a) => a.indexOf(v) === i);
+
+    let lastErr = null;
+    for (const port of portsToTry) {
       try {
-        await withImap({ email: req.session.email, password, folder: 'INBOX' }, async (client) => {
-          const r = await tryAppendToSent(client, rawMessage);
-          if (r.ok) savedTo = r.path;
-          return true;
-        });
-      } catch {
-      }
-    }
-    return res.json({ ok: true, messageId, savedTo });
-  } catch (err) {
-    if (isSmtpAuthFailure(err)) return res.status(401).json({ error: 'invalid_credentials' });
-    if (SMTP_PORT === 465) {
-      try {
-        const fallback = nodemailer.createTransport({
-          host: SMTP_HOST,
-          port: 587,
-          secure: false,
-          requireTLS: true,
-          auth: { user: req.session.email, pass: password },
-          tls: {
-            rejectUnauthorized: SMTP_TLS_REJECT_UNAUTHORIZED,
-            servername: SMTP_HOST,
-            ca: SMTP_TLS_CA,
-          },
-        });
-        const result = await sendWith(fallback);
+        const transport = makeTransport(port);
+        const result = await sendWith(transport);
         const messageId = typeof result?.messageId === 'string' ? result.messageId : undefined;
         let savedTo = null;
         if (rawMessage) {
@@ -1163,15 +1159,19 @@ app.post('/api/mail/send', requireAuth, requireCsrf, async (req, res) => {
               if (r.ok) savedTo = r.path;
               return true;
             });
-          } catch {
-          }
+          } catch {}
         }
         return res.json({ ok: true, messageId, savedTo });
-      } catch (e) {
-        const code = e && typeof e === 'object' && 'code' in e ? String(e.code) : undefined;
-        return res.status(502).json({ error: 'smtp_error', code, details: smtpErrorDetails(e) });
+      } catch (err) {
+        if (isSmtpAuthFailure(err)) return res.status(401).json({ error: 'invalid_credentials' });
+        lastErr = err;
       }
     }
+
+    const code = lastErr && typeof lastErr === 'object' && 'code' in lastErr ? String(lastErr.code) : undefined;
+    return res.status(502).json({ error: 'smtp_error', code, details: smtpErrorDetails(lastErr) });
+  } catch (err) {
+    if (isSmtpAuthFailure(err)) return res.status(401).json({ error: 'invalid_credentials' });
     const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : undefined;
     return res.status(502).json({ error: 'smtp_error', code, details: smtpErrorDetails(err) });
   }
