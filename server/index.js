@@ -102,40 +102,33 @@ if (IS_PROD && (!JWT_SECRET || !SESSION_SECRET)) {
 }
 
 const app = express();
-const corsHeaders = {
-  allowMethods: 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-  allowHeaders: 'Content-Type, Authorization, x-csrf-token, x-mail-session',
+const corsOptions = {
+  origin(origin, cb) {
+    if (!origin) return cb(null, true);
+    try {
+      const u = new URL(origin);
+      if (
+        allowedOrigins.includes(origin) ||
+        u.hostname === 'localhost' ||
+        u.hostname === '127.0.0.1' ||
+        u.hostname === 'arcbyte.co' ||
+        u.hostname.endsWith('.arcbyte.co')
+      ) {
+        return cb(null, true);
+      }
+    } catch {
+      return cb(null, false);
+    }
+    return cb(null, false);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token', 'x-mail-session'],
+  optionsSuccessStatus: 200,
 };
 
-const isAllowedCorsOrigin = (origin) => {
-  if (!origin) return true;
-  if (allowedOrigins.includes(origin)) return true;
-  try {
-    const u = new URL(origin);
-    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return true;
-    if (u.hostname === 'arcbyte.co' || u.hostname.endsWith('.arcbyte.co')) return true;
-  } catch {
-    return false;
-  }
-  return false;
-};
-
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin && isAllowedCorsOrigin(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', corsHeaders.allowMethods);
-    res.setHeader('Access-Control-Allow-Headers', corsHeaders.allowHeaders);
-  }
-  if (req.method === 'OPTIONS') {
-    if (!origin || isAllowedCorsOrigin(origin)) return res.sendStatus(204);
-    return res.sendStatus(403);
-  }
-  return next();
-});
-
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 app.use(express.json({ limit: '2mb' }));
 
 // Prevent process exit on certain transient IMAP errors
@@ -652,7 +645,7 @@ app.get('/api/health', (_req, res) =>
 
 // Alias to support clients using /api/login
 app.post('/api/login', (req, res) => {
-  res.redirect(307, '/api/auth/mail-login');
+  return res.status(404).json({ error: 'use_/api/auth/mail-login' });
 });
 app.get('/api/login', (_req, res) => res.status(405).json({ error: 'method_not_allowed' }));
 app.get('/api/auth/mail-login', (_req, res) => res.status(405).json({ error: 'method_not_allowed' }));

@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api/client';
 import { Lock, ArrowRight, Loader2, ShieldCheck, X, User, Phone, BadgeCheck, Mail } from 'lucide-react';
 import logo from '../../assets/arcbyte.co Logo_white_transparent.png';
+import arcmailLogo from '../../assets/arcmail.png';
 
 const MailLogin = () => {
   const [email, setEmail] = useState('');
@@ -179,9 +180,12 @@ const MailLogin = () => {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.8, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
-            className="w-full bg-[#111111]/60 backdrop-blur-sm border border-white/5 p-8 md:p-10 shadow-[0_28px_80px_rgba(0,0,0,0.85)] rounded-2xl"
+            className="w-full bg-[#111111]/60 backdrop-blur-sm border border-white/5 p-8 md:p-10 shadow-[0_28px_80px_rgba(0,0,0,0.85)]"
           >
             <div className="mb-8">
+              <div className="mb-5 flex justify-center">
+                <img src={arcmailLogo} alt="ArcMail" className="h-14 w-auto object-contain" />
+              </div>
               <h2 className="text-2xl font-display font-bold mb-2">ArcMail Login</h2>
               <p className="text-sm text-white/40">
                 Use your ArcMail Login Credentials. Access is audited and encrypted at rest.
@@ -279,42 +283,6 @@ const MailLogin = () => {
           </motion.div>
         </div>
       </main>
-
-      <footer className="relative z-20 md:hidden px-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-6">
-        <div className="w-full max-w-md mx-auto">
-          <div className="relative">
-            <div className="absolute -inset-4 bg-[#1DB954]/12 blur-3xl rounded-full" />
-            <div className="relative rounded-2xl border border-white/10 bg-[#0B0B0B]/75 backdrop-blur-xl shadow-[0_20px_60px_rgba(0,0,0,0.65)] overflow-hidden">
-              <div className="h-[2px] bg-gradient-to-r from-transparent via-[#1DB954]/80 to-transparent" />
-              <div className="px-5 py-4 flex items-center justify-between gap-4">
-                <div className="min-w-0 flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-[#1DB954]/12 border border-[#1DB954]/25 flex items-center justify-center shrink-0">
-                    <img src={logo} alt="ArcMail" className="w-5 h-5 object-contain" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-[12px] font-bold tracking-tight text-white/90">ArcMail</div>
-                    <div className="text-[12px] font-medium tracking-tight text-white/60 truncate mt-0.5">
-                      Operator‑grade messaging
-                    </div>
-                  </div>
-                </div>
-                <div className="shrink-0 flex items-center gap-2">
-                  <span className="px-3 h-7 rounded-full bg-[#121212] border border-[#1F1F1F] text-[11px] font-semibold text-white/70 flex items-center">
-                    Powered by ArcByte Co
-                  </span>
-                </div>
-              </div>
-              <div className="px-5 pb-4 flex items-center justify-between text-[11px] font-medium text-white/45">
-                <div className="flex items-center gap-2">
-                  <Lock size={10} />
-                  <span>Secure sign‑in</span>
-                </div>
-                <span>&copy; {new Date().getFullYear()} ArcByte Co</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </footer>
 
       <AnimatePresence>
         {forgotOpen && (
