@@ -26,11 +26,20 @@ const inferApiBase = () => {
   return null;
 };
 
+const isLocalHost = () => {
+  try {
+    const host = window.location.hostname;
+    return host === 'localhost' || host === '127.0.0.1';
+  } catch {
+    return false;
+  }
+};
+
 const API_URL = (() => {
   if (envApiUrl) {
     const cleaned = cleanEnvUrl(envApiUrl);
     if (/^https?:\/\//i.test(cleaned)) return normalizeBase(cleaned);
-    if (cleaned.startsWith('/')) return cleaned;
+    if (cleaned.startsWith('/') && isLocalHost()) return cleaned;
   }
   return inferApiBase() || '/api';
 })();

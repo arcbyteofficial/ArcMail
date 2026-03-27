@@ -45,6 +45,7 @@ app.use(
       try {
         const u = new URL(origin);
         if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return cb(null, true);
+        if (u.hostname === 'arcbyte.co' || u.hostname.endsWith('.arcbyte.co')) return cb(null, true);
       } catch {
         return cb(new Error('Not allowed by CORS'));
       }

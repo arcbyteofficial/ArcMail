@@ -171,10 +171,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (errorCode === 'imap_unreachable') return { ok: false, error: 'Mail server unavailable. Try again.' };
       if (status === 502) return { ok: false, error: 'Mail server error. Try again.' };
       if (status === 404) {
+        const base = typeof api.defaults.baseURL === 'string' ? api.defaults.baseURL : '';
         return {
           ok: false,
           error:
-            'API endpoint not found. Confirm VITE_API_URL points to https://api.arcbyte.co (or https://api.arcbyte.co/api).',
+            `API endpoint not found. Confirm VITE_API_URL points to https://api.arcbyte.co (or https://api.arcbyte.co/api). Current baseURL: ${base || '(empty)'}`,
         };
       }
       return { ok: false, error: 'Connection error. Please try again.' };
