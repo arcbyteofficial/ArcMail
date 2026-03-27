@@ -1071,15 +1071,54 @@ const EmailHtmlFrame = ({ html, isDark }: { html: string; isDark: boolean }) => 
   }, []);
 
   const srcDoc = useMemo(() => {
+    const isArcbyteEmail = /data-arcbyte-email/i.test(html);
+    const shouldInvert = isDark && !isArcbyteEmail;
+    const baseBg = shouldInvert ? '#ffffff' : isDark ? '#0A0A0A' : '#ffffff';
+    const baseText = shouldInvert ? '#121212' : isDark ? '#EDEDED' : '#121212';
+    const baseBorder = shouldInvert ? '#e5e5e5' : '#2a2a2a';
+    const arcbyteForcedThemeCss = isArcbyteEmail
+      ? isDark
+        ? `
+          [data-arcbyte-email].bg { background:#0A0A0A !important; }
+          [data-arcbyte-email] .pill { background:#0F0F0F !important; border-color: rgba(255,255,255,0.08) !important; color: rgba(255,255,255,0.72) !important; }
+          [data-arcbyte-email] .card { background:#0B0B0B !important; border-color: rgba(255,255,255,0.10) !important; }
+          [data-arcbyte-email] .chip { background:#111111 !important; border-color: rgba(255,255,255,0.08) !important; }
+          [data-arcbyte-email] .chipTitle { color: rgba(255,255,255,0.50) !important; }
+          [data-arcbyte-email] .title { color:#FFFFFF !important; }
+          [data-arcbyte-email] .muted { color: rgba(255,255,255,0.62) !important; }
+          [data-arcbyte-email] .label { color: rgba(255,255,255,0.55) !important; }
+          [data-arcbyte-email] .value { color:#FFFFFF !important; }
+          [data-arcbyte-email] .tableHeader { background:#0F0F0F !important; color: rgba(255,255,255,0.55) !important; }
+          [data-arcbyte-email] .tableCell { background:#0B0B0B !important; }
+          [data-arcbyte-email] .fineprint { color: rgba(255,255,255,0.40) !important; }
+          [data-arcbyte-email] .brand { color: rgba(255,255,255,0.28) !important; }
+        `
+        : `
+          [data-arcbyte-email].bg { background:#F4F5F7 !important; }
+          [data-arcbyte-email] .pill { background:#FFFFFF !important; border-color: rgba(0,0,0,0.10) !important; color: rgba(0,0,0,0.60) !important; }
+          [data-arcbyte-email] .card { background:#FFFFFF !important; border-color: rgba(0,0,0,0.12) !important; }
+          [data-arcbyte-email] .chip { background:#F7F8FA !important; border-color: rgba(0,0,0,0.08) !important; }
+          [data-arcbyte-email] .chipTitle { color: rgba(0,0,0,0.55) !important; }
+          [data-arcbyte-email] .title { color:#0B0B0B !important; }
+          [data-arcbyte-email] .muted { color: rgba(0,0,0,0.62) !important; }
+          [data-arcbyte-email] .label { color: rgba(0,0,0,0.55) !important; }
+          [data-arcbyte-email] .value { color:#0B0B0B !important; }
+          [data-arcbyte-email] .tableHeader { background:#F0F1F3 !important; color: rgba(0,0,0,0.55) !important; }
+          [data-arcbyte-email] .tableCell { background:#FFFFFF !important; }
+          [data-arcbyte-email] .fineprint { color: rgba(0,0,0,0.45) !important; }
+          [data-arcbyte-email] .brand { color: rgba(0,0,0,0.30) !important; }
+        `
+      : '';
     const css = `
       html, body { margin: 0; padding: 0; }
-      body { background: #ffffff; color: #121212; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; font-size: 15px; line-height: 1.65; padding: 16px; }
+      body { background: ${baseBg}; color: ${baseText}; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; font-size: 15px; line-height: 1.65; padding: 16px; }
       img { max-width: 100%; height: auto; }
       table { max-width: 100%; }
       pre { white-space: pre-wrap; word-break: break-word; }
-      blockquote { margin: 12px 0; padding-left: 12px; border-left: 2px solid #e5e5e5; }
-      hr { border: 0; border-top: 1px solid #e5e5e5; margin: 16px 0; }
-      ${isDark ? 'img, video { filter: invert(1) hue-rotate(180deg); }' : ''}
+      blockquote { margin: 12px 0; padding-left: 12px; border-left: 2px solid ${baseBorder}; }
+      hr { border: 0; border-top: 1px solid ${baseBorder}; margin: 16px 0; }
+      ${shouldInvert ? 'img, video { filter: invert(1) hue-rotate(180deg); }' : ''}
+      ${arcbyteForcedThemeCss}
     `;
     return `<!doctype html>
 <html>
@@ -1099,8 +1138,13 @@ const EmailHtmlFrame = ({ html, isDark }: { html: string; isDark: boolean }) => 
         ref={frameRef}
         title="message"
         sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
-        className={cn("w-full block", isDark ? "bg-[#121212]" : "bg-white")}
-        style={{ height: `${heightPx}px`, maxHeight: '70vh', filter: isDark ? 'invert(1) hue-rotate(180deg)' : undefined }}
+        className="w-full block"
+        style={{
+          height: `${heightPx}px`,
+          maxHeight: '70vh',
+          filter: isDark && !/data-arcbyte-email/i.test(html) ? 'invert(1) hue-rotate(180deg)' : undefined,
+          background: isDark ? '#0A0A0A' : '#ffffff',
+        }}
         srcDoc={srcDoc}
         onLoad={() => {
           computeHeight();

@@ -43,7 +43,7 @@ const API_URL = (() => {
   if (envApiUrl) {
     const cleaned = cleanEnvUrl(envApiUrl);
     if (/^https?:\/\//i.test(cleaned)) return normalizeBase(cleaned);
-    if (cleaned.startsWith('/') && isLocalHost()) return cleaned;
+    if (cleaned.startsWith('/') && !isLocalHost()) return cleaned;
   }
   return inferApiBase() || '/api';
 })();

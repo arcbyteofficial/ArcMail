@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,6 +9,41 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import nodemailer from 'nodemailer';
 import { URL, fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const envRoot = path.join(__dirname, '..');
+const envMode = process.env.NODE_ENV || 'development';
+const envFiles = [
+  path.join(envRoot, '.env'),
+  path.join(envRoot, '.env.local'),
+  path.join(envRoot, `.env.${envMode}`),
+  path.join(envRoot, `.env.${envMode}.local`),
+];
+for (const p of envFiles) {
+  try {
+    if (fs.existsSync(p)) dotenv.config({ path: p, override: true });
+  } catch {}
+}
+
+let arcbyteLogoDataUri = '';
+const getArcbyteLogoDataUri = () => {
+  if (arcbyteLogoDataUri) return arcbyteLogoDataUri;
+  const candidates = [
+    path.join(envRoot, 'src', 'assets', 'arcbyte.co Logo_white_transparent.png'),
+    path.join(envRoot, 'src', 'assets', 'arcbyte.co Logo_white_transparent.png'.replace(/ /g, '%20')),
+  ];
+  for (const p of candidates) {
+    try {
+      if (!fs.existsSync(p)) continue;
+      const buf = fs.readFileSync(p);
+      arcbyteLogoDataUri = `data:image/png;base64,${buf.toString('base64')}`;
+      return arcbyteLogoDataUri;
+    } catch {}
+  }
+  arcbyteLogoDataUri = '';
+  return arcbyteLogoDataUri;
+};
 
 const PORT = Number(process.env.PORT || 5000);
 const IS_PROD = process.env.NODE_ENV === 'production';
@@ -569,7 +604,12 @@ const buildRfc822 = ({ from, to, cc, subject, html, text }) => {
   return parts.join('\r\n').replace(/\r?\n/g, '\r\n');
 };
 
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
+app.get('/api/health', (_req, res) =>
+  res.json({
+    ok: true,
+    routes: { forgotPassword: true },
+  })
+);
 
 // Alias to support clients using /api/login
 app.post('/api/login', (req, res) => {
@@ -669,6 +709,20 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
   if (!user || !pass) return res.status(501).json({ error: 'forgot_password_unconfigured' });
 
+  const escapeHtml = (value) =>
+    String(value ?? '').replace(/[&<>"']/g, (ch) => {
+      if (ch === '&') return '&amp;';
+      if (ch === '<') return '&lt;';
+      if (ch === '>') return '&gt;';
+      if (ch === '"') return '&quot;';
+      return '&#39;';
+    });
+
+  const requestedAt = new Date();
+  const requestedAtIso = requestedAt.toISOString();
+  const userAgent = String(req.headers['user-agent'] || '');
+  const logoDataUri = getArcbyteLogoDataUri();
+
   const subject = `ArcMail Password Reset Request — ${companyEmail}`;
   const text = [
     'ArcMail password reset request',
@@ -680,40 +734,221 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     `Phone number (secondary): ${altPhone}`,
     '',
     `IP: ${ip}`,
-    `User-Agent: ${String(req.headers['user-agent'] || '')}`,
-    `Time: ${new Date().toISOString()}`,
+    `User-Agent: ${userAgent}`,
+    `Time: ${requestedAtIso}`,
     '',
     'If this request is not expected, ignore it.',
   ].join('\n');
 
-  try {
-    const secure = port === 465;
-    const transport = nodemailer.createTransport({
-      host,
-      port,
-      secure,
-      requireTLS: !secure,
-      auth: { user, pass },
-      connectionTimeout: SMTP_CONNECTION_TIMEOUT,
-      greetingTimeout: SMTP_GREETING_TIMEOUT,
-      socketTimeout: SMTP_SOCKET_TIMEOUT,
-      tls: {
-        rejectUnauthorized: SMTP_TLS_REJECT_UNAUTHORIZED,
-        servername: host,
-        ca: SMTP_TLS_CA,
-      },
-    });
-    await transport.sendMail({
-      from,
-      to: adminTo,
-      subject,
-      text,
-    });
-    return res.json({ ok: true });
-  } catch (err) {
-    const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : undefined;
-    return res.status(502).json({ error: 'smtp_error', code, details: smtpErrorDetails(err) });
+  const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="supported-color-schemes" content="dark light" />
+    <title>${escapeHtml(subject)}</title>
+    <style>
+      .font {
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+      }
+      body { margin:0 !important; padding:0 !important; background:#0A0A0A !important; color:#EDEDED !important; }
+      .bg { background:#0A0A0A !important; }
+      .pill { background:#0F0F0F !important; border:1px solid rgba(255,255,255,0.08) !important; color:rgba(255,255,255,0.72) !important; }
+      .card { background:#0B0B0B !important; border:1px solid rgba(255,255,255,0.10) !important; }
+      .chip { background:#111111 !important; border:1px solid rgba(255,255,255,0.08) !important; }
+      .chipTitle { color:rgba(255,255,255,0.50) !important; }
+      .title { color:#FFFFFF !important; }
+      .muted { color:rgba(255,255,255,0.62) !important; }
+      .label { color:rgba(255,255,255,0.55) !important; }
+      .value { color:#FFFFFF !important; }
+      .tableHeader { background:#0F0F0F !important; color:rgba(255,255,255,0.55) !important; }
+      .tableCell { background:#0B0B0B !important; }
+      .fineprint { color:rgba(255,255,255,0.40) !important; }
+      .brand { color:rgba(255,255,255,0.28) !important; }
+      @media (prefers-color-scheme: light) {
+        body { background:#F4F5F7 !important; color:#0B0B0B !important; }
+        .bg { background:#F4F5F7 !important; }
+        .pill { background:#FFFFFF !important; border:1px solid rgba(0,0,0,0.10) !important; color:rgba(0,0,0,0.60) !important; }
+        .card { background:#FFFFFF !important; border:1px solid rgba(0,0,0,0.12) !important; }
+        .chip { background:#F7F8FA !important; border:1px solid rgba(0,0,0,0.08) !important; }
+        .chipTitle { color:rgba(0,0,0,0.55) !important; }
+        .title { color:#0B0B0B !important; }
+        .muted { color:rgba(0,0,0,0.62) !important; }
+        .label { color:rgba(0,0,0,0.55) !important; }
+        .value { color:#0B0B0B !important; }
+        .tableHeader { background:#F0F1F3 !important; color:rgba(0,0,0,0.55) !important; }
+        .tableCell { background:#FFFFFF !important; }
+        .fineprint { color:rgba(0,0,0,0.45) !important; }
+        .brand { color:rgba(0,0,0,0.30) !important; }
+      }
+    </style>
+  </head>
+  <body class="font" style="margin:0;padding:0;background:#0A0A0A;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,\"SF Pro Display\",\"SF Pro Text\",\"Segoe UI\",Inter,Roboto,Helvetica,Arial,sans-serif;color:#EDEDED;">
+    <table role="presentation" class="bg font" data-arcbyte-email="forgot-password" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#0A0A0A;padding:28px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:640px;">
+            <tr>
+              <td style="padding:0 0 14px 0;">
+                <div class="pill" style="display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:#FFFFFF;border:1px solid rgba(0,0,0,0.10);color:rgba(0,0,0,0.60);font-size:12px;letter-spacing:0.14em;text-transform:uppercase;">
+                  ${logoDataUri ? `<img src="${logoDataUri}" alt="ArcByte" width="14" height="14" style="display:block;width:14px;height:14px;object-fit:contain;" />` : ''}
+                  <span style="font-weight:800;">ArcByte</span>
+                </div>
+              </td>
+            </tr>
+
+            <tr>
+              <td class="card" style="border-radius:22px;overflow:hidden;border:1px solid rgba(0,0,0,0.12);background:#FFFFFF;">
+                <div style="height:2px;background:linear-gradient(90deg, transparent, #1DB954, transparent);"></div>
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td style="padding:22px 22px 14px 22px;">
+                      <div style="display:flex;gap:12px;align-items:flex-start;">
+                        <div style="width:40px;height:40px;border-radius:14px;background:#0B0B0B;display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(0,0,0,0.10);">
+                          ${logoDataUri
+                            ? `<img src="${logoDataUri}" alt="ArcByte" width="22" height="22" style="display:block;width:22px;height:22px;object-fit:contain;" />`
+                            : `<span style="font-weight:900;color:#FFFFFF;font-size:12px;letter-spacing:0.08em;">ARC</span>`}
+                        </div>
+                        <div style="min-width:0;">
+                          <div class="title" style="font-size:18px;font-weight:800;letter-spacing:-0.02em;color:#0B0B0B;">Password Reset Request</div>
+                          <div class="muted" style="margin-top:4px;font-size:13px;line-height:1.5;color:rgba(0,0,0,0.62);">
+                            A user submitted a reset request from the ArcMail login screen.
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="padding:0 22px 18px 22px;">
+                      <div class="chip" style="padding:14px 16px;border-radius:16px;background:#F7F8FA;border:1px solid rgba(0,0,0,0.08);">
+                        <div class="chipTitle" style="font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:rgba(0,0,0,0.55);">Requested Account</div>
+                        <div class="value" style="margin-top:8px;font-size:16px;font-weight:900;color:#0B0B0B;word-break:break-word;">${escapeHtml(companyEmail)}</div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="padding:0 22px 18px 22px;">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-radius:16px;overflow:hidden;border:1px solid rgba(0,0,0,0.08);">
+                        <tr>
+                          <td class="tableHeader" colspan="2" style="padding:12px 16px;background:#F0F1F3;color:rgba(0,0,0,0.55);font-size:12px;letter-spacing:0.14em;text-transform:uppercase;">
+                            Request Details
+                          </td>
+                        </tr>
+                        <tr>
+                          <td class="label tableCell" style="padding:12px 16px;background:#FFFFFF;color:rgba(0,0,0,0.55);font-size:12px;width:44%;">Full name</td>
+                          <td class="value tableCell" style="padding:12px 16px;background:#FFFFFF;color:#0B0B0B;font-size:13px;font-weight:800;word-break:break-word;">${escapeHtml(fullName)}</td>
+                        </tr>
+                        <tr>
+                          <td class="label tableCell" style="padding:12px 16px;background:#FFFFFF;color:rgba(0,0,0,0.55);font-size:12px;">Employee / Intern ID</td>
+                          <td class="value tableCell" style="padding:12px 16px;background:#FFFFFF;color:#0B0B0B;font-size:13px;font-weight:800;word-break:break-word;">${escapeHtml(employeeId)}</td>
+                        </tr>
+                        <tr>
+                          <td class="label tableCell" style="padding:12px 16px;background:#FFFFFF;color:rgba(0,0,0,0.55);font-size:12px;">Phone number</td>
+                          <td class="value tableCell" style="padding:12px 16px;background:#FFFFFF;color:#0B0B0B;font-size:13px;font-weight:800;word-break:break-word;">+91 ${escapeHtml(phone)}</td>
+                        </tr>
+                        <tr>
+                          <td class="label tableCell" style="padding:12px 16px;background:#FFFFFF;color:rgba(0,0,0,0.55);font-size:12px;">Confirm phone</td>
+                          <td class="value tableCell" style="padding:12px 16px;background:#FFFFFF;color:#0B0B0B;font-size:13px;font-weight:800;word-break:break-word;">+91 ${escapeHtml(altPhone)}</td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="padding:0 22px 22px 22px;">
+                      <div class="chip" style="padding:14px 16px;border-radius:16px;background:#F7F8FA;border:1px solid rgba(0,0,0,0.08);">
+                        <div class="chipTitle" style="font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:rgba(0,0,0,0.55);">Security Context</div>
+                        <div class="muted" style="margin-top:10px;color:rgba(0,0,0,0.62);font-size:12px;line-height:1.55;">
+                          <div><span class="label">IP:</span> <span class="value" style="font-weight:800;">${escapeHtml(ip)}</span></div>
+                          <div style="margin-top:6px;"><span class="label">Time:</span> <span class="value" style="font-weight:800;">${escapeHtml(requestedAtIso)}</span></div>
+                          <div style="margin-top:6px;"><span class="label">User-Agent:</span> <span class="muted" style="font-weight:600;word-break:break-word;">${escapeHtml(userAgent)}</span></div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td class="fineprint" style="padding:14px 2px 0 2px;color:rgba(0,0,0,0.45);font-size:12px;line-height:1.55;text-align:left;">
+                If this request is unexpected, ignore it. Do not reply with credentials. This message was generated by ArcByte.
+              </td>
+            </tr>
+            <tr>
+              <td class="brand" style="padding:10px 2px 0 2px;color:rgba(0,0,0,0.30);font-size:11px;letter-spacing:0.14em;text-transform:uppercase;text-align:left;">
+                Powered by ArcByte
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+  const candidates = [];
+  const addCandidate = (h, p) => {
+    const key = `${h}:${p}`;
+    if (!candidates.some((c) => `${c.host}:${c.port}` === key)) candidates.push({ host: h, port: p });
+  };
+  addCandidate(host, port);
+  addCandidate(host, port === 465 ? 587 : 465);
+  if (host === 'smtp.hostinger.com') {
+    addCandidate('smtp.titan.email', 465);
+    addCandidate('smtp.titan.email', 587);
   }
+  if (host === 'smtp.titan.email') {
+    addCandidate('smtp.hostinger.com', 465);
+    addCandidate('smtp.hostinger.com', 587);
+  }
+
+  const shouldRetrySmtp = (err) => {
+    if (!err || typeof err !== 'object') return false;
+    const code = 'code' in err && typeof err.code === 'string' ? err.code : '';
+    return ['EAUTH', 'ETIMEDOUT', 'ECONNRESET', 'ECONNECTION', 'EHOSTUNREACH', 'ENOTFOUND'].includes(code);
+  };
+
+  let lastErr = null;
+  for (const c of candidates) {
+    try {
+      const secure = c.port === 465;
+      const transport = nodemailer.createTransport({
+        host: c.host,
+        port: c.port,
+        secure,
+        requireTLS: !secure,
+        auth: { user, pass },
+        connectionTimeout: SMTP_CONNECTION_TIMEOUT,
+        greetingTimeout: SMTP_GREETING_TIMEOUT,
+        socketTimeout: SMTP_SOCKET_TIMEOUT,
+        tls: {
+          rejectUnauthorized: SMTP_TLS_REJECT_UNAUTHORIZED,
+          servername: c.host,
+          ca: SMTP_TLS_CA,
+        },
+      });
+      await transport.sendMail({
+        from,
+        to: adminTo,
+        subject,
+        text,
+        html,
+        replyTo: companyEmail,
+      });
+      return res.json({ ok: true });
+    } catch (err) {
+      lastErr = err;
+      if (!shouldRetrySmtp(err)) break;
+      continue;
+    }
+  }
+
+  const code = lastErr && typeof lastErr === 'object' && 'code' in lastErr ? String(lastErr.code) : undefined;
+  return res.status(502).json({ error: 'smtp_error', code, details: smtpErrorDetails(lastErr) });
 });
 
 app.get('/api/mail/threads', requireAuth, async (req, res) => {
@@ -1397,7 +1632,7 @@ app.post('/api/auth/logout', requireAuth, (req, res) => {
   return res.json({ ok: true });
 });
 
-const distDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
+const distDir = path.join(__dirname, '..', 'dist');
 if (fs.existsSync(distDir)) {
   app.use(express.static(distDir));
   app.get(/^(?!\/api\/).*/, (_req, res) => {

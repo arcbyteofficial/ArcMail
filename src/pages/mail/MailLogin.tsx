@@ -92,10 +92,15 @@ const MailLogin = () => {
         data && typeof data === 'object' && 'error' in data && typeof (data as { error?: unknown }).error === 'string'
           ? String((data as { error: string }).error)
           : null;
+      const detailCode =
+        data && typeof data === 'object' && 'code' in data && typeof (data as { code?: unknown }).code === 'string'
+          ? String((data as { code: string }).code)
+          : null;
       if (!response) setFpError('Connection error. Please try again.');
       else if (status === 429 || errorCode === 'rate_limited') setFpError('Too many requests. Try again later.');
       else if (status === 501 || errorCode === 'forgot_password_unconfigured') setFpError('Reset requests are not configured yet.');
       else if (status === 400) setFpError('Please check your details and try again.');
+      else if (status === 502 && errorCode === 'smtp_error') setFpError(`Mail service error${detailCode ? ` (${detailCode})` : ''}. Try again later.`);
       else setFpError('Failed to submit request. Try again.');
     } finally {
       setFpSending(false);
