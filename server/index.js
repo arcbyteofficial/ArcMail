@@ -514,6 +514,8 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }));
 app.post('/api/login', (req, res) => {
   res.redirect(307, '/api/auth/mail-login');
 });
+app.get('/api/login', (_req, res) => res.status(405).json({ error: 'method_not_allowed' }));
+app.get('/api/auth/mail-login', (_req, res) => res.status(405).json({ error: 'method_not_allowed' }));
 
 app.post('/api/auth/mail-login', async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';

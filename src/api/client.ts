@@ -1,11 +1,27 @@
 import axios from 'axios';
-const rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
-const normalizedApiUrl = rawApiUrl ? rawApiUrl.replace(/\/+$/, '') : '';
-const API_URL = normalizedApiUrl
-  ? normalizedApiUrl.endsWith('/api')
-    ? normalizedApiUrl
-    : `${normalizedApiUrl}/api`
-  : '/api';
+
+const envApiUrl = (import.meta.env.VITE_API_URL as string | undefined)
+  || (import.meta.env.VITE_APP_URL as string | undefined);
+
+const normalizeBase = (base: string) => {
+  const b = base.replace(/\/+$/, '');
+  return b.endsWith('/api') ? b : `${b}/api`;
+};
+
+const inferApiBase = () => {
+  try {
+    const host = window.location.hostname;
+    if (host === 'mail.arcbyte.co') return 'https://api.arcbyte.co/api';
+    if (host.endsWith('.arcbyte.co') && host.startsWith('mail.')) {
+      return `https://api.${host.slice('mail.'.length)}/api`;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+};
+
+const API_URL = envApiUrl ? normalizeBase(envApiUrl) : inferApiBase() || '/api';
 
 export const api = axios.create({
   baseURL: API_URL,
