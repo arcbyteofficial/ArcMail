@@ -1,7 +1,6 @@
 import axios from 'axios';
 
-const envApiUrl = (import.meta.env.VITE_API_URL as string | undefined)
-  || (import.meta.env.VITE_APP_URL as string | undefined);
+const envApiUrl = import.meta.env.VITE_API_URL as string | undefined;
 
 const cleanEnvUrl = (value: string) => {
   const trimmed = value.trim();
@@ -11,6 +10,15 @@ const cleanEnvUrl = (value: string) => {
 const normalizeBase = (base: string) => {
   const b = cleanEnvUrl(base).replace(/\/+$/, '');
   return b.endsWith('/api') ? b : `${b}/api`;
+};
+
+const isLocalBaseUrl = (value: string) => {
+  try {
+    const u = new URL(value);
+    return u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+  } catch {
+    return false;
+  }
 };
 
 const inferApiBase = () => {
@@ -42,10 +50,15 @@ const isLocalHost = () => {
 const API_URL = (() => {
   if (envApiUrl) {
     const cleaned = cleanEnvUrl(envApiUrl);
-    if (/^https?:\/\//i.test(cleaned)) return normalizeBase(cleaned);
+    if (/^https?:\/\//i.test(cleaned)) {
+      if (!isLocalHost() && isLocalBaseUrl(cleaned)) {
+        return inferApiBase() || 'https://api.arcbyte.co/api';
+      }
+      return normalizeBase(cleaned);
+    }
     if (cleaned.startsWith('/') && !isLocalHost()) return cleaned;
   }
-  return inferApiBase() || '/api';
+  return inferApiBase() || (isLocalHost() ? 'http://localhost:5050/api' : 'https://api.arcbyte.co/api');
 })();
 
 export const api = axios.create({
@@ -99,10 +112,16 @@ api.interceptors.response.use(
         localStorage.removeItem(k);
         sessionStorage.removeItem(k);
       });
-      
-      // Only redirect if not already on a login page
-      if (!window.location.pathname.includes('login')) {
-        window.location.href = '/login';
+
+      try {
+        const raw = localStorage.getItem('mailAccounts');
+        const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+        const hasAccounts = Array.isArray(parsed) && parsed.length > 0;
+        if (!hasAccounts && !window.location.pathname.includes('login')) {
+          window.location.href = '/login';
+        }
+      } catch {
+        if (!window.location.pathname.includes('login')) window.location.href = '/login';
       }
     }
     return Promise.reject(error);

@@ -15,6 +15,14 @@ import {
   Reply,
   Forward,
   LogOut,
+  Plus,
+  Mail,
+  KeyRound,
+  Eye,
+  EyeOff,
+  Loader2,
+  UserRound,
+  ImagePlus,
   Filter,
   Clock,
   X,
@@ -253,7 +261,7 @@ const SidebarItem = ({
           )}>
             {label}
           </span>
-          {count !== undefined && count > 0 && (
+          {count !== undefined && (
             <span className={cn(
                 "text-[10px] font-bold px-1.5 py-0.5 rounded-md min-w-[20px] text-center transition-colors",
                 active 
@@ -275,28 +283,58 @@ const SidebarItem = ({
 };
 
 const MailSidebar = ({
-  email,
+  accounts,
+  activeAccountId,
+  activeEmail,
   activeFolder,
   onFolderChange,
   onCompose,
   collapsed,
   setCollapsed,
-  onLogout,
+  onLogoutCurrent,
+  onLogoutAll,
+  onAddAccount,
+  onSwitchAccount,
+  onLogoutAccount,
+  onUpdateAccountProfile,
   isMobile,
   folderCounts,
+  folderUnreadCounts,
 }: {
-  email: string;
+  accounts: { id: string; email: string; name: string; avatarDataUrl?: string }[];
+  activeAccountId: string | null;
+  activeEmail: string;
   activeFolder: MailFolder;
   onFolderChange: (f: MailFolder) => void;
   onCompose: () => void;
   collapsed: boolean;
   setCollapsed: (v: boolean) => void;
-  onLogout: () => void;
+  onLogoutCurrent: () => void;
+  onLogoutAll: () => void;
+  onAddAccount: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  onSwitchAccount: (accountId: string) => void;
+  onLogoutAccount: (accountId: string) => void;
+  onUpdateAccountProfile: (accountId: string, updates: { displayName?: string; avatarDataUrl?: string | null }) => void;
   isMobile: boolean;
   folderCounts?: Partial<Record<MailFolder, number>>;
+  folderUnreadCounts?: Partial<Record<MailFolder, number>>;
 }) => {
   const { isDark } = useTheme();
   const { t } = useLanguage();
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [addAccountOpen, setAddAccountOpen] = useState(false);
+  const [addEmail, setAddEmail] = useState('');
+  const [addPassword, setAddPassword] = useState('');
+  const [addShowPassword, setAddShowPassword] = useState(false);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileAccountId, setProfileAccountId] = useState<string | null>(null);
+  const [profileName, setProfileName] = useState('');
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [removeConfirm, setRemoveConfirm] = useState<{ id: string; email: string } | null>(null);
+  const activeInitial = (activeEmail || '?')[0]?.toUpperCase() || '?';
+  const activeAccount = useMemo(() => accounts.find((a) => a.id === activeAccountId) || null, [accounts, activeAccountId]);
 
   return (
     <aside
@@ -361,7 +399,7 @@ const MailSidebar = ({
             active={activeFolder === 'inbox'}
             onClick={() => onFolderChange('inbox')}
             collapsed={collapsed}
-            count={folderCounts?.inbox}
+            count={folderUnreadCounts?.inbox ?? 0}
           />
           <SidebarItem
             icon={Star}
@@ -376,7 +414,7 @@ const MailSidebar = ({
             active={activeFolder === 'sent'}
             onClick={() => onFolderChange('sent')}
             collapsed={collapsed}
-            count={folderCounts?.sent}
+            count={folderCounts?.sent ?? 0}
           />
           <SidebarItem
             icon={FileText}
@@ -384,7 +422,7 @@ const MailSidebar = ({
             active={activeFolder === 'drafts'}
             onClick={() => onFolderChange('drafts')}
             collapsed={collapsed}
-            count={folderCounts?.drafts}
+            count={folderCounts?.drafts ?? 0}
           />
         </div>
         
@@ -403,7 +441,7 @@ const MailSidebar = ({
             active={activeFolder === 'spam'}
             onClick={() => onFolderChange('spam')}
             collapsed={collapsed}
-            count={folderCounts?.spam}
+            count={folderCounts?.spam ?? 0}
           />
           <SidebarItem
             icon={Trash2}
@@ -411,23 +449,537 @@ const MailSidebar = ({
             active={activeFolder === 'trash'}
             onClick={() => onFolderChange('trash')}
             collapsed={collapsed}
-            count={folderCounts?.trash}
+            count={folderCounts?.trash ?? 0}
           />
         </div>
       </nav>
 
       {/* Profile */}
       <div className={cn("p-4 mt-auto border-t", isDark ? "border-[#1A1A1A]" : "border-[#E5E5E5]")}>
-        <div className={cn(
-            "relative flex items-center gap-3 w-full p-3 rounded-2xl transition-all duration-300 group cursor-pointer overflow-hidden",
-            collapsed ? "justify-center p-0 bg-transparent" : (isDark ? "bg-[#181818] border border-[#282828]" : "bg-white border border-[#E5E5E5] shadow-sm")
-        )}>
+        <div className="relative">
+          <AnimatePresence>
+            {accountMenuOpen && !collapsed && (
+              <>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 z-[60]"
+                  onClick={() => setAccountMenuOpen(false)}
+                />
+                <motion.div
+                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                  transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                  className={cn(
+                    "absolute left-0 right-0 bottom-[calc(100%+12px)] z-[70] rounded-2xl border shadow-2xl overflow-hidden",
+                    isDark ? "bg-[#0B0B0B] border-[#282828]" : "bg-white border-[#E5E5E5]"
+                  )}
+                >
+                  <div className={cn("px-4 py-3 text-[11px] font-bold tracking-widest uppercase", isDark ? "text-white/45" : "text-black/45")}>
+                    Accounts
+                  </div>
+                  <div className="px-2 pb-2">
+                    {accounts.map((a) => {
+                      const active = a.id === activeAccountId;
+                      return (
+                        <div key={a.id} className={cn("flex items-center gap-2 rounded-xl px-2 py-2", active && (isDark ? "bg-[#181818]" : "bg-[#F6F6F6]"))}>
+                          <button
+                            onClick={() => {
+                              onSwitchAccount(a.id);
+                              setAccountMenuOpen(false);
+                            }}
+                            className="flex-1 min-w-0 flex items-center gap-3 text-left"
+                          >
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-[#1DB954] to-[#1ED760] p-[2px] shrink-0">
+                              <div className={cn("w-full h-full rounded-full flex items-center justify-center overflow-hidden", isDark ? "bg-[#0B0B0B]" : "bg-white")}>
+                                {a.avatarDataUrl ? (
+                                  <img src={a.avatarDataUrl} alt={a.name} className="w-full h-full object-cover" />
+                                ) : (
+                                  <span className={cn("font-bold text-[12px]", isDark ? "text-white" : "text-black")}>{(a.email || '?')[0].toUpperCase()}</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="min-w-0">
+                              <div className={cn("text-[13px] font-bold truncate", isDark ? "text-white" : "text-black")}>{a.name || a.email}</div>
+                              <div className={cn("text-[12px] truncate", isDark ? "text-[#787878]" : "text-[#949494]")}>{a.email}</div>
+                            </div>
+                          </button>
+                          <div className="shrink-0 flex items-center gap-1">
+                            <button
+                              onClick={() => {
+                                setProfileAccountId(a.id);
+                                setProfileName(a.name || '');
+                                setProfileError(null);
+                                setProfileOpen(true);
+                                setAccountMenuOpen(false);
+                              }}
+                              className={cn(
+                                "w-7 h-7 rounded-full flex items-center justify-center transition-colors",
+                                isDark ? "text-white/45 hover:text-white hover:bg-[#1A1A1A]" : "text-black/45 hover:text-black hover:bg-[#F0F0F0]"
+                              )}
+                              title="Edit profile"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            {active && (
+                              <div className={cn("px-2.5 h-7 rounded-full flex items-center justify-center border text-[10px] font-bold tracking-widest uppercase", isDark ? "bg-[#121212] border-[#282828] text-[#1DB954]" : "bg-white border-[#E5E5E5] text-[#1DB954]")}>
+                                Active
+                              </div>
+                            )}
+                            {!active && (
+                              <button
+                                onClick={() => {
+                                  setRemoveConfirm({ id: a.id, email: a.email });
+                                  setAccountMenuOpen(false);
+                                }}
+                                className={cn(
+                                  "w-7 h-7 rounded-full flex items-center justify-center transition-colors",
+                                  isDark ? "text-white/45 hover:text-[#FF5555] hover:bg-[#1A1A1A]" : "text-black/45 hover:text-[#FF5555] hover:bg-[#F0F0F0]"
+                                )}
+                                title={t('sign_out')}
+                              >
+                                <X size={14} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <button
+                      onClick={() => {
+                        setAddEmail('');
+                        setAddPassword('');
+                        setAddError(null);
+                        setAddAccountOpen(true);
+                        setAccountMenuOpen(false);
+                      }}
+                      className={cn(
+                        "mt-2 w-full flex items-center justify-center gap-2 px-4 h-10 rounded-xl font-bold text-[12px] transition-colors border",
+                        isDark ? "bg-[#121212] border-[#282828] text-white hover:bg-[#1A1A1A]" : "bg-white border-[#E5E5E5] text-black hover:bg-[#F6F6F6]"
+                      )}
+                    >
+                      <Plus size={16} />
+                      Add account
+                    </button>
+                    <button
+                      onClick={() => {
+                        setAccountMenuOpen(false);
+                        onLogoutAll();
+                      }}
+                      className={cn(
+                        "mt-2 w-full flex items-center justify-center gap-2 px-4 h-10 rounded-xl font-bold text-[12px] transition-colors",
+                        "bg-[#FF5555] hover:bg-[#FF6B6B] text-black"
+                      )}
+                    >
+                      <LogOut size={16} />
+                      Log out all
+                    </button>
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence>
+            {profileOpen && profileAccountId && (
+              <>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm"
+                  onClick={() => setProfileOpen(false)}
+                />
+                <motion.div
+                  initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 14, scale: 0.98 }}
+                  transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                  className="fixed inset-x-4 top-[12vh] z-[90] flex justify-center"
+                >
+                  <div className="w-full max-w-md">
+                    <div
+                      className={cn(
+                        "rounded-3xl p-[1px] shadow-[0_28px_90px_rgba(0,0,0,0.75)]",
+                        isDark ? "bg-gradient-to-b from-white/14 via-white/10 to-transparent" : "bg-gradient-to-b from-black/12 via-black/10 to-transparent"
+                      )}
+                    >
+                      <div className={cn("rounded-3xl border backdrop-blur-xl overflow-hidden", isDark ? "bg-[#0B0B0B]/92 border-[#282828]" : "bg-white/92 border-[#E5E5E5]")}>
+                        <div className="h-[2px] bg-gradient-to-r from-transparent via-[#1DB954]/90 to-transparent" />
+                        <div className="px-6 pt-6 pb-4">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0 flex items-start gap-3">
+                              <div className="w-10 h-10 rounded-2xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                                <UserRound size={18} strokeWidth={2.4} />
+                              </div>
+                              <div className="min-w-0">
+                                <div className={cn("text-lg font-bold tracking-tight", isDark ? "text-white" : "text-black")}>Account</div>
+                                <div className={cn("text-sm mt-0.5", isDark ? "text-white/55" : "text-black/55")}>Edit name & profile photo.</div>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => setProfileOpen(false)}
+                              className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-[#1A1A1A]" : "text-black/55 hover:text-black hover:bg-[#F0F0F0]")}
+                            >
+                              <X size={18} />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="px-6 pb-6">
+                          {profileError && (
+                            <div className="mb-4 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                              {profileError}
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-4 mb-5">
+                            <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-[#1DB954] to-[#1ED760] p-[2px] shrink-0">
+                              <div className={cn("w-full h-full rounded-full overflow-hidden flex items-center justify-center", isDark ? "bg-[#0B0B0B]" : "bg-white")}>
+                                {accounts.find((a) => a.id === profileAccountId)?.avatarDataUrl ? (
+                                  <img src={accounts.find((a) => a.id === profileAccountId)?.avatarDataUrl} alt="avatar" className="w-full h-full object-cover" />
+                                ) : (
+                                  <span className={cn("font-bold text-xl", isDark ? "text-white" : "text-black")}>
+                                    {(accounts.find((a) => a.id === profileAccountId)?.email || '?')[0].toUpperCase()}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className={cn("text-[12px] font-bold tracking-widest uppercase", isDark ? "text-white/45" : "text-black/45")}>
+                                {accounts.find((a) => a.id === profileAccountId)?.email || ''}
+                              </div>
+                              <div className="flex items-center gap-2 mt-2">
+                                <label
+                                  className={cn(
+                                    "px-3 h-9 rounded-xl font-bold text-[12px] flex items-center gap-2 cursor-pointer border transition-colors",
+                                    isDark ? "bg-[#121212] border-[#282828] text-white hover:bg-[#1A1A1A]" : "bg-white border-[#E5E5E5] text-black hover:bg-[#F6F6F6]"
+                                  )}
+                                >
+                                  <ImagePlus size={16} />
+                                  Change
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      e.target.value = '';
+                                      setProfileError(null);
+                                      if (!file) return;
+                                      if (!file.type.startsWith('image/')) {
+                                        setProfileError('Choose an image file.');
+                                        return;
+                                      }
+                                      if (file.size > 200_000) {
+                                        setProfileError('Image is too large. Use a smaller image.');
+                                        return;
+                                      }
+                                      const reader = new FileReader();
+                                      reader.onload = () => {
+                                        const result = typeof reader.result === 'string' ? reader.result : '';
+                                        if (!result) return;
+                                        onUpdateAccountProfile(profileAccountId, { avatarDataUrl: result });
+                                      };
+                                      reader.readAsDataURL(file);
+                                    }}
+                                  />
+                                </label>
+                                <button
+                                  onClick={() => onUpdateAccountProfile(profileAccountId, { avatarDataUrl: null })}
+                                  className={cn(
+                                    "px-3 h-9 rounded-xl font-bold text-[12px] flex items-center gap-2 transition-colors border",
+                                    isDark ? "bg-transparent border-[#282828] text-white/70 hover:bg-[#1A1A1A] hover:text-white" : "bg-transparent border-[#E5E5E5] text-black/70 hover:bg-[#F6F6F6] hover:text-black"
+                                  )}
+                                >
+                                  <Trash2 size={16} />
+                                  Remove
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className={cn("text-[11px] font-bold tracking-widest uppercase mb-2", isDark ? "text-white/45" : "text-black/45")}>Display name</div>
+                            <div
+                              className={cn(
+                                "group flex items-center gap-3 rounded-2xl px-4 h-12 border transition-all",
+                                isDark ? "bg-[#111111] border-white/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25" : "bg-white border-black/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/20"
+                              )}
+                            >
+                              <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                                <UserRound size={16} strokeWidth={2.2} />
+                              </div>
+                              <input
+                                value={profileName}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setProfileName(v);
+                                  onUpdateAccountProfile(profileAccountId, { displayName: v });
+                                }}
+                                className={cn("flex-1 min-w-0 bg-transparent outline-none text-base", isDark ? "text-white placeholder-white/20" : "text-black placeholder-black/30")}
+                                placeholder="Your name"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="mt-4 flex items-center justify-between gap-3">
+                            <button
+                              onClick={() => {
+                                const fallback = accounts.find((a) => a.id === profileAccountId)?.email?.split('@')[0] || '';
+                                setProfileName(fallback);
+                                onUpdateAccountProfile(profileAccountId, { displayName: fallback });
+                              }}
+                              className={cn(
+                                "px-4 h-10 rounded-xl font-bold text-[12px] border transition-colors",
+                                isDark ? "bg-transparent border-[#282828] text-white/70 hover:bg-[#1A1A1A] hover:text-white" : "bg-transparent border-[#E5E5E5] text-black/70 hover:bg-[#F6F6F6] hover:text-black"
+                              )}
+                            >
+                              Reset
+                            </button>
+                            <button
+                              onClick={() => setProfileOpen(false)}
+                              className={cn("px-4 h-10 rounded-xl font-bold text-[12px] transition-colors", "bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black")}
+                            >
+                              Done
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence>
+            {removeConfirm && (
+              <>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm"
+                  onClick={() => setRemoveConfirm(null)}
+                />
+                <motion.div
+                  initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 14, scale: 0.98 }}
+                  transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                  className="fixed inset-0 z-[90] flex items-center justify-center px-4"
+                >
+                  <div className={cn("w-full max-w-md rounded-3xl border shadow-2xl overflow-hidden", isDark ? "bg-[#0B0B0B] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black")}>
+                    <div className="h-[2px] bg-gradient-to-r from-transparent via-[#FF5555]/85 to-transparent" />
+                    <div className="p-6">
+                      <div className="flex items-start gap-4">
+                        <div className={cn("w-11 h-11 rounded-2xl flex items-center justify-center border shrink-0", isDark ? "bg-[#121212] border-[#282828]" : "bg-[#F7F7F7] border-[#E5E5E5]")}>
+                          <AlertTriangle size={18} className="text-[#FF5555]" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-lg font-bold tracking-tight">Remove account?</div>
+                          <div className={cn("text-sm mt-1", isDark ? "text-white/55" : "text-black/55")}>
+                            This logs out {removeConfirm.email}.
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="px-6 pb-6 flex items-center gap-3">
+                      <button
+                        onClick={() => setRemoveConfirm(null)}
+                        className={cn(
+                          "flex-1 h-11 rounded-2xl font-bold text-[12px] border transition-colors",
+                          isDark ? "bg-transparent border-[#282828] text-white/75 hover:bg-[#1A1A1A] hover:text-white" : "bg-transparent border-[#E5E5E5] text-black/70 hover:bg-[#F6F6F6] hover:text-black"
+                        )}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => {
+                          onLogoutAccount(removeConfirm.id);
+                          setRemoveConfirm(null);
+                        }}
+                        className="flex-1 h-11 rounded-2xl font-bold text-[12px] bg-[#FF5555] hover:bg-[#FF6B6B] text-black transition-colors"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence>
+            {addAccountOpen && (
+              <>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm"
+                  onClick={() => setAddAccountOpen(false)}
+                />
+                <motion.div
+                  initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 14, scale: 0.98 }}
+                  transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                  className="fixed inset-x-4 top-[12vh] z-[90] flex justify-center"
+                >
+                  <div className="w-full max-w-md">
+                    <div className={cn(
+                      "rounded-3xl p-[1px] shadow-[0_28px_90px_rgba(0,0,0,0.75)]",
+                      isDark ? "bg-gradient-to-b from-white/14 via-white/10 to-transparent" : "bg-gradient-to-b from-black/12 via-black/10 to-transparent"
+                    )}>
+                      <div className={cn("rounded-3xl border backdrop-blur-xl overflow-hidden", isDark ? "bg-[#0B0B0B]/92 border-[#282828]" : "bg-white/92 border-[#E5E5E5]")}>
+                        <div className="h-[2px] bg-gradient-to-r from-transparent via-[#1DB954]/90 to-transparent" />
+                        <div className="px-6 pt-6 pb-4">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0 flex items-start gap-3">
+                              <div className="w-10 h-10 rounded-2xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                                <Plus size={18} strokeWidth={2.4} />
+                              </div>
+                              <div className="min-w-0">
+                                <div className={cn("text-lg font-bold tracking-tight", isDark ? "text-white" : "text-black")}>Add account</div>
+                                <div className={cn("text-sm mt-0.5", isDark ? "text-white/55" : "text-black/55")}>
+                                  Keep multiple inboxes signed in and switch instantly.
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => setAddAccountOpen(false)}
+                              className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-[#1A1A1A]" : "text-black/55 hover:text-black hover:bg-[#F0F0F0]")}
+                            >
+                              <X size={18} />
+                            </button>
+                          </div>
+                        </div>
+
+                        <form
+                          onSubmit={async (evt) => {
+                            evt.preventDefault();
+                            setAddError(null);
+                            const e = addEmail.trim();
+                            const p = addPassword;
+                            if (!e || !p) {
+                              setAddError('Enter email and password.');
+                              return;
+                            }
+                            setAddBusy(true);
+                            try {
+                              const res = await onAddAccount(e, p);
+                              if (!res.ok) {
+                                setAddError(res.error || 'Sign in failed.');
+                                return;
+                              }
+                              setAddAccountOpen(false);
+                            } finally {
+                              setAddBusy(false);
+                            }
+                          }}
+                          className="px-6 pb-6"
+                        >
+                          {addError && (
+                            <div className="mb-4 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                              {addError}
+                            </div>
+                          )}
+
+                          <div className="space-y-4">
+                            <div>
+                              <div className={cn("text-[11px] font-bold tracking-widest uppercase mb-2", isDark ? "text-white/45" : "text-black/45")}>Email</div>
+                              <div className={cn(
+                                "group flex items-center gap-3 rounded-2xl px-4 h-12 border transition-all",
+                                isDark ? "bg-[#111111] border-white/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25" : "bg-white border-black/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/20"
+                              )}>
+                                <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                                  <Mail size={16} strokeWidth={2.2} />
+                                </div>
+                                <input
+                                  value={addEmail}
+                                  onChange={(e) => setAddEmail(e.target.value)}
+                                  className={cn("flex-1 min-w-0 bg-transparent outline-none text-base", isDark ? "text-white placeholder-white/20" : "text-black placeholder-black/30")}
+                                  placeholder="name@mail.arcbyte.co"
+                                  autoCapitalize="none"
+                                  autoCorrect="off"
+                                  spellCheck={false}
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className={cn("text-[11px] font-bold tracking-widest uppercase mb-2", isDark ? "text-white/45" : "text-black/45")}>Password</div>
+                              <div className={cn(
+                                "group flex items-center gap-3 rounded-2xl px-4 h-12 border transition-all",
+                                isDark ? "bg-[#111111] border-white/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25" : "bg-white border-black/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/20"
+                              )}>
+                                <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                                  <KeyRound size={16} strokeWidth={2.2} />
+                                </div>
+                                <input
+                                  value={addPassword}
+                                  onChange={(e) => setAddPassword(e.target.value)}
+                                  type={addShowPassword ? "text" : "password"}
+                                  className={cn("flex-1 min-w-0 bg-transparent outline-none text-base", isDark ? "text-white placeholder-white/20" : "text-black placeholder-black/30")}
+                                  placeholder="Mailbox password"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setAddShowPassword((v) => !v)}
+                                  className={cn(
+                                    "w-9 h-9 rounded-xl flex items-center justify-center transition-colors",
+                                    isDark ? "text-white/55 hover:text-white hover:bg-white/5" : "text-black/55 hover:text-black hover:bg-black/5"
+                                  )}
+                                >
+                                  {addShowPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                </button>
+                              </div>
+                            </div>
+
+                            <button
+                              type="submit"
+                              disabled={addBusy}
+                              className={cn(
+                                "w-full h-12 rounded-2xl font-bold tracking-[0.14em] text-xs transition-all duration-300 flex items-center justify-center gap-2",
+                                "bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black shadow-[0_18px_50px_rgba(29,185,84,0.18)] hover:shadow-[0_22px_60px_rgba(29,185,84,0.28)] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed disabled:shadow-none"
+                              )}
+                            >
+                              {addBusy ? <Loader2 className="animate-spin" size={18} /> : 'Add account'}
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+
+          <div
+            onClick={() => {
+              if (collapsed) return;
+              setAccountMenuOpen((v) => !v);
+            }}
+            className={cn(
+              "relative flex items-center gap-3 w-full p-3 rounded-2xl transition-all duration-300 group cursor-pointer overflow-hidden",
+              collapsed ? "justify-center p-0 bg-transparent cursor-default" : (isDark ? "bg-[#181818] border border-[#282828] hover:bg-[#1A1A1A]" : "bg-white border border-[#E5E5E5] shadow-sm hover:bg-[#F6F6F6]")
+            )}
+          >
            
            {/* Avatar */}
            <div className="relative shrink-0">
               <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#1DB954] to-[#1ED760] p-[2px]">
-                 <div className={cn("w-full h-full rounded-full flex items-center justify-center", isDark ? "bg-[#0B0B0B]" : "bg-white")}>
-                    <span className={cn("font-bold", isDark ? "text-white" : "text-black")}>{email.charAt(0).toUpperCase()}</span>
+                 <div className={cn("w-full h-full rounded-full flex items-center justify-center overflow-hidden", isDark ? "bg-[#0B0B0B]" : "bg-white")}>
+                    {activeAccount?.avatarDataUrl ? (
+                      <img src={activeAccount.avatarDataUrl} alt={activeEmail} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className={cn("font-bold", isDark ? "text-white" : "text-black")}>{activeInitial}</span>
+                    )}
                  </div>
               </div>
               <div className={cn("absolute bottom-0.5 right-0.5 w-2.5 h-2.5 bg-[#1DB954] border-2 rounded-full z-10", isDark ? "border-[#121212]" : "border-white")} />
@@ -437,13 +989,18 @@ const MailSidebar = ({
              <>
                <div className="flex-1 min-w-0 relative z-10">
                   <div className="flex items-center justify-between">
-                     <span className={cn("text-[14px] font-bold truncate", isDark ? "text-white" : "text-black")}>{email.split('@')[0]}</span>
+                    <span className={cn("text-[14px] font-bold truncate", isDark ? "text-white" : "text-black")}>
+                      {activeAccount?.name || activeEmail.split('@')[0]}
+                    </span>
                   </div>
-                  <div className={cn("text-[12px] truncate", isDark ? "text-[#787878]" : "text-[#949494]")}>{email}</div>
+                  <div className={cn("text-[12px] truncate", isDark ? "text-[#787878]" : "text-[#949494]")}>{activeEmail}</div>
                </div>
                
                <button 
-                 onClick={onLogout}
+                 onClick={(e) => {
+                   e.stopPropagation();
+                   onLogoutCurrent();
+                 }}
                  className={cn(
                    "p-2 rounded-full transition-colors relative z-10",
                    isDark ? "text-[#5E5E5E] hover:text-[#FF5555] hover:bg-[#282828]" : "text-[#949494] hover:text-[#FF5555] hover:bg-[#F0F0F0]"
@@ -454,6 +1011,7 @@ const MailSidebar = ({
                </button>
              </>
            )}
+          </div>
         </div>
       </div>
     </aside>
@@ -1073,13 +1631,13 @@ const EmailHtmlFrame = ({ html, isDark }: { html: string; isDark: boolean }) => 
   const srcDoc = useMemo(() => {
     const isArcbyteEmail = /data-arcbyte-email/i.test(html);
     const shouldInvert = isDark && !isArcbyteEmail;
-    const baseBg = shouldInvert ? '#ffffff' : isDark ? '#0A0A0A' : '#ffffff';
+    const baseBg = shouldInvert ? '#EDEDED' : isDark ? '#121212' : '#ffffff';
     const baseText = shouldInvert ? '#121212' : isDark ? '#EDEDED' : '#121212';
     const baseBorder = shouldInvert ? '#e5e5e5' : '#2a2a2a';
     const arcbyteForcedThemeCss = isArcbyteEmail
       ? isDark
         ? `
-          [data-arcbyte-email].bg { background:#0A0A0A !important; }
+          [data-arcbyte-email].bg { background:#121212 !important; }
           [data-arcbyte-email] .pill { background:#0F0F0F !important; border-color: rgba(255,255,255,0.08) !important; color: rgba(255,255,255,0.72) !important; }
           [data-arcbyte-email] .card { background:#0B0B0B !important; border-color: rgba(255,255,255,0.10) !important; }
           [data-arcbyte-email] .chip { background:#111111 !important; border-color: rgba(255,255,255,0.08) !important; }
@@ -1117,7 +1675,7 @@ const EmailHtmlFrame = ({ html, isDark }: { html: string; isDark: boolean }) => 
       pre { white-space: pre-wrap; word-break: break-word; }
       blockquote { margin: 12px 0; padding-left: 12px; border-left: 2px solid ${baseBorder}; }
       hr { border: 0; border-top: 1px solid ${baseBorder}; margin: 16px 0; }
-      ${shouldInvert ? 'img, video { filter: invert(1) hue-rotate(180deg); }' : ''}
+      ${''}
       ${arcbyteForcedThemeCss}
     `;
     return `<!doctype html>
@@ -1143,7 +1701,7 @@ const EmailHtmlFrame = ({ html, isDark }: { html: string; isDark: boolean }) => 
           height: `${heightPx}px`,
           maxHeight: '70vh',
           filter: isDark && !/data-arcbyte-email/i.test(html) ? 'invert(1) hue-rotate(180deg)' : undefined,
-          background: isDark ? '#0A0A0A' : '#ffffff',
+          background: isDark ? ( /data-arcbyte-email/i.test(html) ? '#121212' : '#EDEDED') : '#ffffff',
         }}
         srcDoc={srcDoc}
         onLoad={() => {
@@ -1196,6 +1754,25 @@ const ComposeModal = ({
       tempDiv.innerHTML = body;
       const plainText = tempDiv.textContent || tempDiv.innerText || '';
 
+      const identity = (() => {
+        const name = String(localStorage.getItem('userName') || '').trim();
+        const activeId = String(localStorage.getItem('activeMailAccountId') || '').trim();
+        const raw = localStorage.getItem('mailAccounts');
+        if (!raw) return { fromName: name || undefined, fromAvatarDataUrl: undefined as string | undefined };
+        try {
+          const parsed = JSON.parse(raw) as unknown;
+          if (!Array.isArray(parsed)) return { fromName: name || undefined, fromAvatarDataUrl: undefined };
+          const acc = parsed.find((a) => a && typeof a === 'object' && 'id' in a && String((a as { id?: unknown }).id) === activeId) as
+            | { avatarDataUrl?: unknown }
+            | undefined;
+          const avatar = acc && typeof acc.avatarDataUrl === 'string' ? acc.avatarDataUrl : undefined;
+          const safeAvatar = avatar && avatar.length <= 200_000 ? avatar : undefined;
+          return { fromName: name || undefined, fromAvatarDataUrl: safeAvatar };
+        } catch {
+          return { fromName: name || undefined, fromAvatarDataUrl: undefined };
+        }
+      })();
+
       await api.post('/mail/send', {
         to: toList,
         cc: ccList,
@@ -1203,6 +1780,8 @@ const ComposeModal = ({
         subject: subject.trim(),
         html: body,
         text: plainText,
+        fromName: identity.fromName,
+        fromAvatarDataUrl: identity.fromAvatarDataUrl,
       });
       // const savedTo = (resp?.data && typeof resp.data === 'object' && 'savedTo' in resp.data) ? (resp.data.savedTo as string | null) : null;
       onSent?.('sent', { to: toList, subject: subject.trim(), html: body, text: plainText, date: new Date().toISOString() });
@@ -1451,16 +2030,17 @@ const MobileNav = ({
   activeFolder,
   onFolderChange,
   onCompose,
-  onLogout,
+  profileActive,
+  onOpenProfile,
 }: {
   activeFolder: MailFolder;
   onFolderChange: (f: MailFolder) => void;
   onCompose: () => void;
-  onLogout: () => void;
+  profileActive: boolean;
+  onOpenProfile: () => void;
 }) => {
   const { isDark } = useTheme();
   const { t } = useLanguage();
-  const [confirmOpen, setConfirmOpen] = useState(false);
 
   return (
     <>
@@ -1474,7 +2054,7 @@ const MobileNav = ({
         <MobileNavItem 
           icon={Inbox} 
           label={t('inbox')} 
-          isActive={activeFolder === 'inbox'} 
+          isActive={!profileActive && activeFolder === 'inbox'} 
           onClick={() => onFolderChange('inbox')}
           isDark={isDark}
         />
@@ -1482,7 +2062,7 @@ const MobileNav = ({
         <MobileNavItem 
           icon={Send} 
           label={t('sent')} 
-          isActive={activeFolder === 'sent'} 
+          isActive={!profileActive && activeFolder === 'sent'} 
           onClick={() => onFolderChange('sent')}
           isDark={isDark}
         />
@@ -1504,89 +2084,405 @@ const MobileNav = ({
         <MobileNavItem 
           icon={FileText} 
           label={t('drafts')} 
-          isActive={activeFolder === 'drafts'} 
+          isActive={!profileActive && activeFolder === 'drafts'} 
           onClick={() => onFolderChange('drafts')}
           isDark={isDark}
         />
         
-        <button
-          onClick={() => setConfirmOpen(true)}
-          className={cn(
-            "relative flex flex-col items-center justify-center w-14 h-full transition-all duration-300",
-            isDark ? "text-[#FF5555] hover:text-white" : "text-[#CC2A2A] hover:text-black"
+        <MobileNavItem
+          icon={UserRound}
+          label="Profile"
+          isActive={profileActive}
+          onClick={onOpenProfile}
+          isDark={isDark}
+        />
+      </div>
+    </div>
+    </>
+  );
+};
+
+const MobileProfileSection = ({
+  accounts,
+  activeAccountId,
+  onClose,
+  onSwitchAccount,
+  onLogoutAccount,
+  onUpdateAccountProfile,
+  onAddAccount,
+  onLogoutCurrent,
+}: {
+  accounts: { id: string; email: string; name: string; avatarDataUrl?: string }[];
+  activeAccountId: string | null;
+  onClose: () => void;
+  onSwitchAccount: (id: string) => void;
+  onLogoutAccount: (id: string) => void;
+  onUpdateAccountProfile: (id: string, updates: { displayName?: string; avatarDataUrl?: string | null }) => void;
+  onAddAccount: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  onLogoutCurrent: () => void;
+}) => {
+  const { isDark } = useTheme();
+  const active = accounts.find((a) => a.id === activeAccountId) || accounts[0] || null;
+  const [displayName, setDisplayName] = useState(active?.name || '');
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [addEmail, setAddEmail] = useState('');
+  const [addPassword, setAddPassword] = useState('');
+  const [addShow, setAddShow] = useState(false);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [removeConfirm, setRemoveConfirm] = useState<{ id: string; email: string } | null>(null);
+  const addSectionRef = useRef<HTMLDivElement | null>(null);
+  const addEmailRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    setDisplayName(active?.name || '');
+  }, [active?.id, active?.name]);
+
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-[calc(7.5rem+env(safe-area-inset-bottom))]">
+      <div className="px-4 pt-5 pb-4">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onClose}
+            className={cn(
+              "w-10 h-10 rounded-2xl flex items-center justify-center transition-colors border",
+              isDark ? "bg-[#121212] border-[#282828] text-white hover:bg-[#1A1A1A]" : "bg-white border-[#E5E5E5] text-black hover:bg-[#F6F6F6]"
+            )}
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <div className="min-w-0">
+            <div className={cn("text-xl font-bold tracking-tight", isDark ? "text-white" : "text-black")}>Profile</div>
+            <div className={cn("text-sm mt-0.5 truncate", isDark ? "text-white/55" : "text-black/55")}>Edit name & photo.</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 space-y-4">
+        <div className={cn("rounded-3xl border overflow-hidden", isDark ? "bg-[#0B0B0B] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]")}>
+          <div className="h-[2px] bg-gradient-to-r from-transparent via-[#1DB954]/90 to-transparent" />
+          <div className="p-5">
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-[#1DB954] to-[#1ED760] p-[2px] shrink-0">
+                <div className={cn("w-full h-full rounded-full overflow-hidden flex items-center justify-center", isDark ? "bg-[#0B0B0B]" : "bg-white")}>
+                  {active?.avatarDataUrl ? (
+                    <img src={active.avatarDataUrl} alt={active?.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <span className={cn("font-bold text-xl", isDark ? "text-white" : "text-black")}>{(active?.email || '?')[0].toUpperCase()}</span>
+                  )}
+                </div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className={cn("text-[12px] font-bold tracking-widest uppercase truncate", isDark ? "text-white/45" : "text-black/45")}>{active?.email || ''}</div>
+                <div className={cn("text-base font-bold mt-1 truncate", isDark ? "text-white" : "text-black")}>{active?.name || ''}</div>
+              </div>
+            </div>
+
+            {photoError && (
+              <div className="mt-4 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                {photoError}
+              </div>
+            )}
+
+            <div className="mt-4 flex items-center gap-2">
+              <label
+                className={cn(
+                  "flex-1 px-3 h-10 rounded-xl font-bold text-[12px] flex items-center justify-center gap-2 cursor-pointer border transition-colors",
+                  isDark ? "bg-[#121212] border-[#282828] text-white hover:bg-[#1A1A1A]" : "bg-white border-[#E5E5E5] text-black hover:bg-[#F6F6F6]"
+                )}
+              >
+                <ImagePlus size={16} />
+                Change photo
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    setPhotoError(null);
+                    if (!file || !activeAccountId) return;
+                    if (!file.type.startsWith('image/')) return setPhotoError('Choose an image file.');
+                    if (file.size > 200_000) return setPhotoError('Image is too large. Use a smaller image.');
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const result = typeof reader.result === 'string' ? reader.result : '';
+                      if (!result) return;
+                      onUpdateAccountProfile(activeAccountId, { avatarDataUrl: result });
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                />
+              </label>
+              <button
+                onClick={() => activeAccountId && onUpdateAccountProfile(activeAccountId, { avatarDataUrl: null })}
+                className={cn(
+                  "px-3 h-10 rounded-xl font-bold text-[12px] flex items-center justify-center gap-2 transition-colors border",
+                  isDark ? "bg-transparent border-[#282828] text-white/70 hover:bg-[#1A1A1A] hover:text-white" : "bg-transparent border-[#E5E5E5] text-black/70 hover:bg-[#F6F6F6] hover:text-black"
+                )}
+              >
+                <Trash2 size={16} />
+                Remove
+              </button>
+            </div>
+
+            <div className="mt-4">
+              <div className={cn("text-[11px] font-bold tracking-widest uppercase mb-2", isDark ? "text-white/45" : "text-black/45")}>Display name</div>
+              <div className={cn("group flex items-center gap-3 rounded-2xl px-4 h-12 border transition-all", isDark ? "bg-[#111111] border-white/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25" : "bg-white border-black/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/20")}>
+                <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                  <UserRound size={16} strokeWidth={2.2} />
+                </div>
+                <input
+                  value={displayName}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setDisplayName(v);
+                    if (activeAccountId) onUpdateAccountProfile(activeAccountId, { displayName: v });
+                  }}
+                  className={cn("flex-1 min-w-0 bg-transparent outline-none text-base", isDark ? "text-white placeholder-white/20" : "text-black placeholder-black/30")}
+                  placeholder="Your name"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className={cn("rounded-3xl border overflow-hidden", isDark ? "bg-[#0B0B0B] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]")}>
+          <div
+            className={cn(
+              "px-5 py-4 text-[11px] font-bold tracking-widest uppercase flex items-center justify-between",
+              isDark ? "text-white/45" : "text-black/45"
+            )}
+          >
+            <span>Accounts</span>
+            <button
+              onClick={() => {
+                setAddOpen(true);
+                window.setTimeout(() => {
+                  addSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  window.setTimeout(() => addEmailRef.current?.focus(), 250);
+                }, 0);
+              }}
+              className={cn(
+                "w-9 h-9 rounded-xl flex items-center justify-center transition-colors border",
+                isDark
+                  ? "bg-transparent border-[#282828] text-white/55 hover:text-white hover:bg-[#1A1A1A]"
+                  : "bg-transparent border-[#E5E5E5] text-black/55 hover:text-black hover:bg-[#F6F6F6]"
+              )}
+              title="Add account"
+            >
+              <Plus size={18} />
+            </button>
+          </div>
+          <div className="px-3 pb-4 space-y-2">
+            {accounts.map((a) => {
+              const isActive = a.id === activeAccountId;
+              return (
+                <div key={a.id} className={cn("flex items-center gap-3 rounded-2xl border px-3 py-3", isDark ? "border-[#1A1A1A] bg-[#111111]" : "border-[#E5E5E5] bg-[#FAFAFA]")}>
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#1DB954] to-[#1ED760] p-[2px] shrink-0">
+                    <div className={cn("w-full h-full rounded-full overflow-hidden flex items-center justify-center", isDark ? "bg-[#0B0B0B]" : "bg-white")}>
+                      {a.avatarDataUrl ? (
+                        <img src={a.avatarDataUrl} alt={a.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className={cn("font-bold", isDark ? "text-white" : "text-black")}>{(a.email || '?')[0].toUpperCase()}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className={cn("text-[14px] font-bold truncate", isDark ? "text-white" : "text-black")}>{a.name || a.email}</div>
+                    <div className={cn("text-[12px] truncate", isDark ? "text-white/50" : "text-black/50")}>{a.email}</div>
+                  </div>
+                  <div className="shrink-0 flex items-center gap-2">
+                    {isActive ? (
+                      <div className={cn("px-3 h-9 rounded-xl font-bold text-[11px] tracking-widest uppercase flex items-center border", isDark ? "bg-[#121212] border-[#282828] text-[#1DB954]" : "bg-white border-[#E5E5E5] text-[#1DB954]")}>
+                        Active
+                      </div>
+                    ) : (
+                      <>
+                      <button
+                        onClick={() => onSwitchAccount(a.id)}
+                        className={cn("px-3 h-9 rounded-xl font-bold text-[12px] transition-colors border", isDark ? "bg-[#121212] border-[#282828] text-white hover:bg-[#1A1A1A]" : "bg-white border-[#E5E5E5] text-black hover:bg-[#F6F6F6]")}
+                      >
+                        Switch
+                      </button>
+                    <button
+                      onClick={() => setRemoveConfirm({ id: a.id, email: a.email })}
+                      className={cn("w-9 h-9 rounded-xl flex items-center justify-center transition-colors border", isDark ? "bg-transparent border-[#282828] text-white/55 hover:text-[#FF5555] hover:bg-[#1A1A1A]" : "bg-transparent border-[#E5E5E5] text-black/55 hover:text-[#FF5555] hover:bg-[#F6F6F6]")}
+                    >
+                      <X size={16} />
+                    </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <AnimatePresence>
+          {removeConfirm && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm"
+                onClick={() => setRemoveConfirm(null)}
+              />
+              <motion.div
+                initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 14, scale: 0.98 }}
+                transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                className="fixed inset-0 z-[90] flex items-center justify-center px-4"
+              >
+                <div className={cn("w-full max-w-md rounded-3xl border shadow-2xl overflow-hidden", isDark ? "bg-[#0B0B0B] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black")}>
+                  <div className="h-[2px] bg-gradient-to-r from-transparent via-[#FF5555]/85 to-transparent" />
+                  <div className="p-6">
+                    <div className="flex items-start gap-4">
+                      <div className={cn("w-11 h-11 rounded-2xl flex items-center justify-center border shrink-0", isDark ? "bg-[#121212] border-[#282828]" : "bg-[#F7F7F7] border-[#E5E5E5]")}>
+                        <AlertTriangle size={18} className="text-[#FF5555]" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-lg font-bold tracking-tight">Remove account?</div>
+                        <div className={cn("text-sm mt-1", isDark ? "text-white/55" : "text-black/55")}>
+                          This logs out {removeConfirm.email}.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="px-6 pb-6 flex items-center gap-3">
+                    <button
+                      onClick={() => setRemoveConfirm(null)}
+                      className={cn(
+                        "flex-1 h-11 rounded-2xl font-bold text-[12px] border transition-colors",
+                        isDark ? "bg-transparent border-[#282828] text-white/75 hover:bg-[#1A1A1A] hover:text-white" : "bg-transparent border-[#E5E5E5] text-black/70 hover:bg-[#F6F6F6] hover:text-black"
+                      )}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => {
+                        onLogoutAccount(removeConfirm.id);
+                        setRemoveConfirm(null);
+                      }}
+                      className="flex-1 h-11 rounded-2xl font-bold text-[12px] bg-[#FF5555] hover:bg-[#FF6B6B] text-black transition-colors"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </>
           )}
-        >
-          <LogOut size={22} strokeWidth={2.3} />
-          <span className="text-[10px] font-medium mt-1 hidden">Logout</span>
+        </AnimatePresence>
+
+        <AnimatePresence initial={false}>
+          {addOpen && (
+            <motion.div
+              ref={addSectionRef}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 36 }}
+              className={cn("rounded-3xl border overflow-hidden", isDark ? "bg-[#0B0B0B] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]")}
+            >
+              <div
+                className={cn(
+                  "px-5 py-4 text-[11px] font-bold tracking-widest uppercase flex items-center justify-between",
+                  isDark ? "text-white/45" : "text-black/45"
+                )}
+              >
+                <span>Add account</span>
+                <button
+                  onClick={() => setAddOpen(false)}
+                  className={cn(
+                    "w-9 h-9 rounded-xl flex items-center justify-center transition-colors border",
+                    isDark
+                      ? "bg-transparent border-[#282828] text-white/55 hover:text-white hover:bg-[#1A1A1A]"
+                      : "bg-transparent border-[#E5E5E5] text-black/55 hover:text-black hover:bg-[#F6F6F6]"
+                  )}
+                  title="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="px-5 pb-5">
+                {addError && (
+                  <div className="mb-4 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">{addError}</div>
+                )}
+                <div className="space-y-3">
+                  <div className={cn("group flex items-center gap-3 rounded-2xl px-4 h-12 border transition-all", isDark ? "bg-[#111111] border-white/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25" : "bg-white border-black/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/20")}>
+                    <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                      <Mail size={16} strokeWidth={2.2} />
+                    </div>
+                    <input
+                      ref={addEmailRef}
+                      value={addEmail}
+                      onChange={(e) => setAddEmail(e.target.value)}
+                      className={cn("flex-1 min-w-0 bg-transparent outline-none text-base", isDark ? "text-white placeholder-white/20" : "text-black placeholder-black/30")}
+                      placeholder="name@mail.arcbyte.co"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                    />
+                  </div>
+                  <div className={cn("group flex items-center gap-3 rounded-2xl px-4 h-12 border transition-all", isDark ? "bg-[#111111] border-white/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25" : "bg-white border-black/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/20")}>
+                    <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                      <KeyRound size={16} strokeWidth={2.2} />
+                    </div>
+                    <input
+                      value={addPassword}
+                      onChange={(e) => setAddPassword(e.target.value)}
+                      type={addShow ? 'text' : 'password'}
+                      className={cn("flex-1 min-w-0 bg-transparent outline-none text-base", isDark ? "text-white placeholder-white/20" : "text-black placeholder-black/30")}
+                      placeholder="Mailbox password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setAddShow((v) => !v)}
+                      className={cn("w-9 h-9 rounded-xl flex items-center justify-center transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-white/5" : "text-black/55 hover:text-black hover:bg-black/5")}
+                    >
+                      {addShow ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  <button
+                    disabled={addBusy}
+                    onClick={async () => {
+                      setAddError(null);
+                      const e = addEmail.trim();
+                      const p = addPassword;
+                      if (!e || !p) return setAddError('Enter email and password.');
+                      setAddBusy(true);
+                      try {
+                        const res = await onAddAccount(e, p);
+                        if (!res.ok) return setAddError(res.error || 'Sign in failed.');
+                        setAddEmail('');
+                        setAddPassword('');
+                      } finally {
+                        setAddBusy(false);
+                      }
+                    }}
+                    className={cn(
+                      "w-full h-12 rounded-2xl font-bold tracking-[0.14em] text-xs transition-all duration-300 flex items-center justify-center gap-2",
+                      "bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black shadow-[0_18px_50px_rgba(29,185,84,0.18)] hover:shadow-[0_22px_60px_rgba(29,185,84,0.28)] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed disabled:shadow-none"
+                    )}
+                  >
+                    {addBusy ? <Loader2 className="animate-spin" size={18} /> : 'Add account'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <button onClick={onLogoutCurrent} className="w-full h-12 rounded-2xl font-bold tracking-[0.14em] text-xs bg-[#FF5555] hover:bg-[#FF6B6B] text-black transition-colors">
+          Log out
         </button>
       </div>
     </div>
-    <AnimatePresence>
-      {confirmOpen && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm"
-            onClick={() => setConfirmOpen(false)}
-          />
-          <motion.div
-            initial={{ opacity: 0, y: 14, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 14, scale: 0.98 }}
-            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-            className="fixed inset-x-4 bottom-[calc(7.5rem+env(safe-area-inset-bottom))] z-[90] flex justify-center"
-          >
-            <div className={cn(
-              "w-full max-w-md rounded-2xl border shadow-2xl overflow-hidden",
-              isDark ? "bg-[#121212] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black"
-            )}>
-              <div className="p-5">
-                <div className="flex items-start gap-4">
-                  <div className={cn(
-                    "w-10 h-10 rounded-xl flex items-center justify-center border shrink-0",
-                    isDark ? "bg-red-500/10 border-red-500/25" : "bg-red-50 border-red-200"
-                  )}>
-                    <AlertTriangle size={18} className={cn(isDark ? "text-red-400" : "text-red-600")} />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-base font-bold tracking-tight">Log out?</div>
-                    <div className={cn("text-sm mt-1", isDark ? "text-white/60" : "text-black/60")}>
-                      Are you sure you want to log out?
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className={cn("px-5 pb-5 flex items-center gap-3", "justify-end")}>
-                <button
-                  onClick={() => setConfirmOpen(false)}
-                  className={cn(
-                    "px-4 h-10 rounded-full text-sm font-semibold border transition-colors",
-                    isDark ? "bg-transparent border-[#2A2A2A] text-white/80 hover:bg-[#1A1A1A]" : "bg-transparent border-[#E5E5E5] text-black/70 hover:bg-[#F7F7F7]"
-                  )}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    setConfirmOpen(false);
-                    onLogout();
-                  }}
-                  className={cn(
-                    "px-4 h-10 rounded-full text-sm font-semibold transition-colors",
-                    isDark ? "bg-[#FF5555] hover:bg-[#FF6B6B] text-black" : "bg-[#FF5555] hover:bg-[#FF6B6B] text-black"
-                  )}
-                >
-                  Log out
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
-    </>
   );
 };
 
@@ -1806,10 +2702,48 @@ const Preloader = ({ onComplete }: { onComplete: () => void }) => {
   );
 };
 
+const AccountSwitchPreloader = ({ email }: { email: string }) => {
+  const { isDark } = useTheme();
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+      className={cn(
+        "fixed inset-0 z-[120] flex items-center justify-center",
+        isDark ? "bg-[#050507]" : "bg-[#F9F9F9]"
+      )}
+    >
+      <div className="flex flex-col items-center gap-6 px-6">
+        <div className="flex flex-col items-center gap-2">
+          <div className={cn("text-2xl font-bold tracking-tighter", isDark ? "text-white" : "text-black")}>ArcMail</div>
+          <div className={cn("text-[12px] font-semibold tracking-wide", isDark ? "text-white/55" : "text-black/55")}>
+            Switching to {email || 'account'}
+          </div>
+        </div>
+        <div className={cn("w-56 h-[1px] relative overflow-hidden", isDark ? "bg-white/10" : "bg-black/10")}>
+          <motion.div
+            initial={{ x: "-100%" }}
+            animate={{ x: "100%" }}
+            transition={{ duration: 1.15, ease: "easeInOut", repeat: Infinity }}
+            className={cn("absolute inset-y-0 w-1/2 bg-gradient-to-r from-transparent via-current to-transparent", isDark ? "text-white" : "text-black")}
+          />
+        </div>
+        <div className={cn("flex gap-4 text-[10px] font-mono uppercase tracking-widest", isDark ? "text-[#444]" : "text-[#999]")}>
+          <span>Syncing</span>
+          <span>Switch</span>
+          <span>Ready</span>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
 // --- Main App Content ---
 
 const MailAppContent = () => {
-  const { user, isAuthenticated, isLoading, logout } = useAuth();
+  const { user, isAuthenticated, isLoading, logout, accounts, activeAccountId, addAccount, switchAccount, logoutAccount, updateAccountProfile } = useAuth();
   const navigate = useNavigate();
   const { isMobile, isDesktop } = useViewport();
   const { isDark } = useTheme();
@@ -1827,6 +2761,7 @@ const MailAppContent = () => {
   const [threadDetail, setThreadDetail] = useState<MailThreadDetail | null>(null);
   const [threadDetailLoading, setThreadDetailLoading] = useState(false);
   const [folderCounts, setFolderCounts] = useState<Partial<Record<MailFolder, number>>>({});
+  const [folderUnreadCounts, setFolderUnreadCounts] = useState<Partial<Record<MailFolder, number>>>({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [composeState, setComposeState] = useState<{ open: boolean; key: number; draft?: ComposeDraft }>({
     open: false,
@@ -1855,6 +2790,110 @@ const MailAppContent = () => {
     return raw ? Number(raw) || 0 : 0;
   });
   const unreadLocalCount = useMemo(() => threads.reduce((n, t) => n + (t.unread ? 1 : 0), 0), [threads]);
+  const [accountSwitching, setAccountSwitching] = useState(false);
+  const accountSwitchSawLoadingRef = useRef(false);
+  const accountSwitchEmailRef = useRef<string>('');
+  const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [switchConfirm, setSwitchConfirm] = useState<{ id: string; email: string; name: string } | null>(null);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const pendingWelcomeEmailRef = useRef<string | null>(null);
+
+  const requestLogoutCurrent = useCallback(() => setLogoutConfirmOpen(true), []);
+
+  const requestSwitchAccount = useCallback(
+    (accountId: string) => {
+      if (!accountId || accountId === activeAccountId) return;
+      const target = accounts.find((a) => a.id === accountId);
+      if (!target) return;
+      setSwitchConfirm({ id: target.id, email: target.email, name: target.name });
+    },
+    [accounts, activeAccountId]
+  );
+
+  const confirmSwitchAccount = useCallback(() => {
+    if (!switchConfirm) return;
+    const target = switchConfirm;
+    setSwitchConfirm(null);
+    setMobileProfileOpen(false);
+    setActiveFolder('inbox');
+    setSelectedId(null);
+    accountSwitchEmailRef.current = target.email || '';
+    pendingWelcomeEmailRef.current = (target.email || '').trim().toLowerCase();
+    accountSwitchSawLoadingRef.current = false;
+    setAccountSwitching(true);
+    switchAccount(target.id);
+  }, [switchAccount, switchConfirm]);
+
+  const confirmLogoutCurrent = useCallback(() => {
+    setLogoutConfirmOpen(false);
+    if (!activeAccountId) {
+      logout();
+      return;
+    }
+    if (accounts.length <= 1) {
+      logout();
+      return;
+    }
+    const nextEmail = accounts.find((a) => a.id !== activeAccountId)?.email || '';
+    accountSwitchEmailRef.current = nextEmail;
+    pendingWelcomeEmailRef.current = nextEmail.trim().toLowerCase();
+    accountSwitchSawLoadingRef.current = false;
+    setAccountSwitching(true);
+    setMobileProfileOpen(false);
+    setActiveFolder('inbox');
+    setSelectedId(null);
+    logoutAccount(activeAccountId);
+  }, [accounts, activeAccountId, logout, logoutAccount]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!contentVisible) return;
+    if (!isAuthenticated) return;
+    if (!user?.email) return;
+    const emailLower = user.email.trim().toLowerCase();
+    const force = pendingWelcomeEmailRef.current === emailLower;
+    if (force) {
+      pendingWelcomeEmailRef.current = null;
+    } else {
+      const key = `arcMailWelcomeShown:${emailLower}`;
+      if (sessionStorage.getItem(key) === '1') return;
+      sessionStorage.setItem(key, '1');
+    }
+    setWelcomeOpen(true);
+    return;
+  }, [contentVisible, isAuthenticated, loading, user?.email]);
+
+  useEffect(() => {
+    if (!user?.email) return;
+    threadsAbortRef.current?.abort();
+    threadsCursorRef.current = undefined;
+    selectedIdRef.current = null;
+    setThreads([]);
+    setThreadsCursor(undefined);
+    setThreadsError(null);
+    setThreadsLoading(false);
+    setSelectedId(null);
+    setThreadDetail(null);
+    setThreadDetailLoading(false);
+    setSearchQuery('');
+    setSearchFilters({});
+    setFiltersOpen(false);
+    setActiveFolder('inbox');
+  }, [user?.email]);
+
+  useEffect(() => {
+    if (!accountSwitching) return;
+    if (threadsLoading) accountSwitchSawLoadingRef.current = true;
+  }, [accountSwitching, threadsLoading]);
+
+  useEffect(() => {
+    if (!accountSwitching) return;
+    if (!accountSwitchSawLoadingRef.current) return;
+    if (threadsLoading) return;
+    const id = window.setTimeout(() => setAccountSwitching(false), 180);
+    return () => window.clearTimeout(id);
+  }, [accountSwitching, threadsLoading, threadsError, threads.length]);
 
   // Handle Loading
   useEffect(() => {
@@ -2232,12 +3271,12 @@ const MailAppContent = () => {
             const hasLocal = prev.some(p => p.folder === 'sent' && String(p.id).startsWith('local-sent-'));
             if (hasLocal) return prev;
             const pending = readPendingSent();
-            if (pending.length) return pending;
+            if (pending.length) return [...prev.filter(p => p.folder !== 'sent'), ...pending];
           }
           if (activeFolder === 'sent' && mapped.length > 0) clearPendingSent();
-          return mapped;
+          return [...prev.filter(p => p.folder !== activeFolder), ...mapped];
         }
-        const existingIds = new Set(prev.map(p => p.id));
+        const existingIds = new Set(prev.filter(p => p.folder === activeFolder).map(p => p.id));
         return [...prev, ...mapped.filter(i => !existingIds.has(i.id))];
       });
       threadsCursorRef.current = data.nextCursor;
@@ -2295,7 +3334,6 @@ const MailAppContent = () => {
       const hasLocalSent =
         activeFolder === 'sent' && readPendingSent().length > 0;
       if (!hasLocalSent) {
-        setThreads([]);
         setThreadsCursor(undefined);
         threadsCursorRef.current = undefined;
         setSelectedId(null);
@@ -2321,24 +3359,34 @@ const MailAppContent = () => {
 
       const updateTitle = (inboxUnseen: number) => {
         const base = 'ArcMail';
-        document.title = inboxUnseen > 0 ? `(${inboxUnseen}) ${base}` : base;
+        const folderLabel = t(activeFolder);
+        const withFolder = folderLabel ? `${folderLabel} · ${base}` : base;
+        document.title = inboxUnseen > 0 ? `(${inboxUnseen}) ${withFolder}` : withFolder;
       };
 
       const fetchStats = async () => {
         try {
           const res = await api.get('/mail/folders/stats', { signal: controller.signal });
           if (stopped) return;
-          const folders = (res.data as { folders?: Record<string, { unseen?: number }> }).folders || {};
-          const nextCounts: Partial<Record<MailFolder, number>> = {
+          const folders = (res.data as { folders?: Record<string, { unseen?: number; messages?: number }> }).folders || {};
+          const nextTotals: Partial<Record<MailFolder, number>> = {
+            inbox: Number(folders.inbox?.messages || 0),
+            sent: Number(folders.sent?.messages || 0),
+            drafts: Number(folders.drafts?.messages || 0),
+            spam: Number(folders.spam?.messages || 0),
+            trash: Number(folders.trash?.messages || 0),
+          };
+          const nextUnseen: Partial<Record<MailFolder, number>> = {
             inbox: Number(folders.inbox?.unseen || 0),
             sent: Number(folders.sent?.unseen || 0),
             drafts: Number(folders.drafts?.unseen || 0),
             spam: Number(folders.spam?.unseen || 0),
             trash: Number(folders.trash?.unseen || 0),
           };
-          setFolderCounts(nextCounts);
+          setFolderCounts(nextTotals);
+          setFolderUnreadCounts(nextUnseen);
 
-          const inboxUnseen = nextCounts.inbox || 0;
+          const inboxUnseen = nextUnseen.inbox || 0;
           updateTitle(inboxUnseen);
 
           if (inboxUnseen > prevInboxUnseenRef.current) {
@@ -2369,7 +3417,7 @@ const MailAppContent = () => {
         window.clearInterval(intervalId);
       };
     }
-  }, [isAuthenticated, isLoading, user, showToast]);
+  }, [activeFolder, isAuthenticated, isLoading, showToast, t, user]);
 
   // Load detail
   useEffect(() => {
@@ -2459,24 +3507,43 @@ const MailAppContent = () => {
       isDark ? "dark text-white" : "light text-black"
     )}>
       <Preloader onComplete={() => setLoading(false)} />
+      <AnimatePresence>
+        {accountSwitching && <AccountSwitchPreloader email={accountSwitchEmailRef.current || (user?.email || '')} />}
+      </AnimatePresence>
 
       <div className={cn("flex w-full h-full overflow-hidden transition-opacity duration-1000", contentVisible ? "opacity-100" : "opacity-0")}>
       {/* Sidebar */}
       {(isDesktop || (isMobile && !sidebarCollapsed)) && (
          <div className={cn("shrink-0 z-30 h-full", isMobile && "fixed inset-0")}>
             <MailSidebar 
-              email={user?.email || ''}
+              accounts={accounts}
+              activeAccountId={activeAccountId}
+              activeEmail={user?.email || ''}
               activeFolder={activeFolder}
               onFolderChange={(f) => {
+                if (f === activeFolder) return;
+                threadsCursorRef.current = undefined;
+                setThreadsCursor(undefined);
+                setThreadsError(null);
+                setThreadsLoading(true);
+                setSelectedId(null);
+                setThreadDetail(null);
+                setThreadDetailLoading(false);
                 setActiveFolder(f);
                 if (isMobile) setSidebarCollapsed(true);
               }}
               onCompose={() => openCompose()}
               collapsed={!isMobile && sidebarCollapsed}
               setCollapsed={setSidebarCollapsed}
-              onLogout={logout}
+              onLogoutCurrent={requestLogoutCurrent}
+              onLogoutAll={logout}
+              onAddAccount={async (email, password) => addAccount(password, email)}
+              onSwitchAccount={requestSwitchAccount}
+              onLogoutAccount={logoutAccount}
+              onUpdateAccountProfile={updateAccountProfile}
               isMobile={isMobile}
               folderCounts={folderCounts}
+              folderUnreadCounts={folderUnreadCounts}
             />
          </div>
       )}
@@ -2679,6 +3746,19 @@ const MailAppContent = () => {
         </AnimatePresence>
 
         <div className={cn("flex-1 flex min-h-0", isMobile && "pb-16")}>
+        {isMobile && mobileProfileOpen ? (
+          <MobileProfileSection
+            accounts={accounts}
+            activeAccountId={activeAccountId}
+            onClose={() => setMobileProfileOpen(false)}
+            onSwitchAccount={requestSwitchAccount}
+            onLogoutAccount={logoutAccount}
+            onUpdateAccountProfile={updateAccountProfile}
+            onAddAccount={async (email, password) => addAccount(password, email)}
+            onLogoutCurrent={requestLogoutCurrent}
+          />
+        ) : (
+          <>
           
           {/* Thread List */}
           {showList && (
@@ -2797,7 +3877,40 @@ const MailAppContent = () => {
                         }}
                       />
                     ))}
-                    {visibleThreads.length === 0 && (
+                    {visibleThreads.length === 0 && threadsLoading && !threadsError && (
+                      <div className="flex-1 flex flex-col gap-3 py-6 px-2">
+                        {Array.from({ length: 8 }).map((_, i) => (
+                          <div
+                            key={i}
+                            className={cn(
+                              "h-[76px] rounded-2xl border overflow-hidden relative",
+                              isDark ? "bg-[#181818] border-[#282828]" : "bg-white border-[#E5E5E5]"
+                            )}
+                          >
+                            <div className="absolute inset-0">
+                              <motion.div
+                                initial={{ x: "-60%" }}
+                                animate={{ x: "120%" }}
+                                transition={{ duration: 1.25, ease: "easeInOut", repeat: Infinity, delay: i * 0.06 }}
+                                className={cn(
+                                  "absolute inset-y-0 w-1/2 bg-gradient-to-r from-transparent via-current to-transparent opacity-20",
+                                  isDark ? "text-white" : "text-black"
+                                )}
+                              />
+                            </div>
+                            <div className="relative p-4 flex items-center gap-3">
+                              <div className={cn("w-11 h-11 rounded-2xl border", isDark ? "bg-[#121212] border-[#1A1A1A]" : "bg-[#F6F6F6] border-[#E5E5E5]")} />
+                              <div className="flex-1 min-w-0">
+                                <div className={cn("h-3 w-1/3 rounded-full", isDark ? "bg-white/10" : "bg-black/10")} />
+                                <div className={cn("h-3 w-2/3 rounded-full mt-3", isDark ? "bg-white/10" : "bg-black/10")} />
+                              </div>
+                              <div className={cn("h-3 w-12 rounded-full", isDark ? "bg-white/10" : "bg-black/10")} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {visibleThreads.length === 0 && !threadsLoading && (
                       <div className="flex-1 flex flex-col items-center justify-center py-20 text-center relative overflow-hidden min-h-[400px]">
                          
                          <motion.div 
@@ -2842,7 +3955,6 @@ const MailAppContent = () => {
               </div>
             </div>
           )}
-
           {/* Reading Pane */}
           {showDetail && (
             <ReadingPane 
@@ -2856,7 +3968,8 @@ const MailAppContent = () => {
               onCompose={() => openCompose()}
             />
           )}
-
+          </>
+        )}
         </div>
 
         {/* Global Footer */}
@@ -2905,11 +4018,27 @@ const MailAppContent = () => {
         <MobileNav 
           activeFolder={activeFolder}
           onFolderChange={(f) => {
+            if (f === activeFolder) return;
+            threadsCursorRef.current = undefined;
+            setThreadsCursor(undefined);
+            setThreadsError(null);
+            setThreadsLoading(true);
+            setSelectedId(null);
+            setThreadDetail(null);
+            setThreadDetailLoading(false);
             setActiveFolder(f);
+            setMobileProfileOpen(false);
             window.scrollTo(0, 0);
           }}
-          onCompose={() => openCompose()}
-          onLogout={logout}
+          onCompose={() => {
+            setMobileProfileOpen(false);
+            openCompose();
+          }}
+          profileActive={mobileProfileOpen}
+          onOpenProfile={() => {
+            setMobileProfileOpen(true);
+            window.scrollTo(0, 0);
+          }}
         />
       )}
 
@@ -2972,6 +4101,180 @@ const MailAppContent = () => {
           }}
         />
       )}
+      <AnimatePresence>
+        {welcomeOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm"
+              onClick={() => setWelcomeOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 14, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 14, scale: 0.98 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+              className="fixed inset-0 z-[75] flex items-center justify-center px-4"
+            >
+              <div className={cn("w-full max-w-md rounded-3xl border shadow-2xl overflow-hidden", isDark ? "bg-[#0B0B0B] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black")}>
+                <div className="h-[2px] bg-gradient-to-r from-transparent via-[#1DB954]/90 to-transparent" />
+                <div className="p-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-[#1DB954] to-[#1ED760] p-[2px] shrink-0">
+                        <div className={cn("w-full h-full rounded-2xl flex items-center justify-center", isDark ? "bg-[#0B0B0B]" : "bg-white")}>
+                          <img src={arcByteLogo} alt="ArcMail" className={cn("h-6 w-auto object-contain", !isDark && "brightness-0")} />
+                        </div>
+                      </div>
+                      <div className="min-w-0">
+                        <div className={cn("text-[11px] font-bold tracking-widest uppercase", isDark ? "text-white/45" : "text-black/45")}>
+                          Welcome to ArcMail
+                        </div>
+                        <div className={cn("text-xl font-bold tracking-tight truncate", isDark ? "text-white" : "text-black")}>
+                          {user?.name || 'Welcome'}
+                        </div>
+                        <div className={cn("text-sm truncate mt-0.5", isDark ? "text-white/55" : "text-black/55")}>
+                          {user?.email || ''}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setWelcomeOpen(false)}
+                      className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-[#1A1A1A]" : "text-black/55 hover:text-black hover:bg-[#F0F0F0]")}
+                      title="Close"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                </div>
+                <div className="px-6 pb-6">
+                  <button
+                    onClick={() => setWelcomeOpen(false)}
+                    className={cn(
+                      "w-full h-11 rounded-2xl font-bold text-[12px] tracking-[0.14em] transition-colors",
+                      "bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black"
+                    )}
+                  >
+                    Continue
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {switchConfirm && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm"
+              onClick={() => setSwitchConfirm(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 14, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 14, scale: 0.98 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+              className="fixed inset-0 z-[90] flex items-center justify-center px-4"
+            >
+              <div className={cn("w-full max-w-md rounded-3xl border shadow-2xl overflow-hidden", isDark ? "bg-[#0B0B0B] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black")}>
+                <div className="h-[2px] bg-gradient-to-r from-transparent via-[#1DB954]/85 to-transparent" />
+                <div className="p-6">
+                  <div className="flex items-start gap-4">
+                    <div className={cn("w-11 h-11 rounded-2xl flex items-center justify-center border shrink-0", isDark ? "bg-[#121212] border-[#282828]" : "bg-[#F7F7F7] border-[#E5E5E5]")}>
+                      <UserRound size={18} className="text-[#1DB954]" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-lg font-bold tracking-tight">Switch account?</div>
+                      <div className={cn("text-sm mt-1", isDark ? "text-white/55" : "text-black/55")}>
+                        Switch to {switchConfirm.name || switchConfirm.email} and open Inbox.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className={cn("px-6 pb-6 flex items-center gap-3", isDark ? "bg-[#0B0B0B]" : "bg-white")}>
+                  <button
+                    onClick={() => setSwitchConfirm(null)}
+                    className={cn(
+                      "flex-1 h-11 rounded-2xl font-bold text-[12px] border transition-colors",
+                      isDark ? "bg-transparent border-[#282828] text-white/75 hover:bg-[#1A1A1A] hover:text-white" : "bg-transparent border-[#E5E5E5] text-black/70 hover:bg-[#F6F6F6] hover:text-black"
+                    )}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmSwitchAccount}
+                    className="flex-1 h-11 rounded-2xl font-bold text-[12px] bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black transition-colors"
+                  >
+                    Switch
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {logoutConfirmOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm"
+              onClick={() => setLogoutConfirmOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 14, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 14, scale: 0.98 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+              className="fixed inset-0 z-[90] flex items-center justify-center px-4"
+            >
+              <div className={cn("w-full max-w-md rounded-3xl border shadow-2xl overflow-hidden", isDark ? "bg-[#0B0B0B] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black")}>
+                <div className="h-[2px] bg-gradient-to-r from-transparent via-[#FF5555]/85 to-transparent" />
+                <div className="p-6">
+                  <div className="flex items-start gap-4">
+                    <div className={cn("w-11 h-11 rounded-2xl flex items-center justify-center border shrink-0", isDark ? "bg-[#121212] border-[#282828]" : "bg-[#F7F7F7] border-[#E5E5E5]")}>
+                      <AlertTriangle size={18} className={cn(isDark ? "text-[#FF5555]" : "text-[#FF5555]")} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-lg font-bold tracking-tight">Log out?</div>
+                      <div className={cn("text-sm mt-1", isDark ? "text-white/55" : "text-black/55")}>
+                        {accounts.length > 1
+                          ? "This logs out the active account and switches to the next account."
+                          : "This will sign you out and return to the login screen."}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className={cn("px-6 pb-6 flex items-center gap-3", isDark ? "bg-[#0B0B0B]" : "bg-white")}>
+                  <button
+                    onClick={() => setLogoutConfirmOpen(false)}
+                    className={cn(
+                      "flex-1 h-11 rounded-2xl font-bold text-[12px] border transition-colors",
+                      isDark ? "bg-transparent border-[#282828] text-white/75 hover:bg-[#1A1A1A] hover:text-white" : "bg-transparent border-[#E5E5E5] text-black/70 hover:bg-[#F6F6F6] hover:text-black"
+                    )}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmLogoutCurrent}
+                    className="flex-1 h-11 rounded-2xl font-bold text-[12px] bg-[#FF5555] hover:bg-[#FF6B6B] text-black transition-colors"
+                  >
+                    Log out
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {toast?.open && (
           <motion.div

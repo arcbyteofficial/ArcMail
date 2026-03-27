@@ -45,6 +45,28 @@ const getArcbyteLogoDataUri = () => {
   return arcbyteLogoDataUri;
 };
 
+const PROFILE_STORE_PATH = path.join(__dirname, 'account-profiles.json');
+const readProfileStore = () => {
+  try {
+    if (!fs.existsSync(PROFILE_STORE_PATH)) return {};
+    const raw = fs.readFileSync(PROFILE_STORE_PATH, 'utf8');
+    if (!raw || !raw.trim()) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+};
+const writeProfileStore = (store) => {
+  try {
+    fs.writeFileSync(PROFILE_STORE_PATH, JSON.stringify(store, null, 2), 'utf8');
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const PORT = Number(process.env.PORT || 5000);
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -663,6 +685,38 @@ app.post('/api/auth/mail-login', async (req, res) => {
 app.get('/api/auth/me', requireAuth, (req, res) => {
   const name = req.session.email.split('@')[0] || req.session.email;
   return res.json({ name, email: req.session.email, role: 'MAIL_USER', status: 'Active' });
+});
+
+app.get('/api/account/profile', requireAuth, (req, res) => {
+  const emailKey = String(req.session.email || '').trim().toLowerCase();
+  const store = readProfileStore();
+  const entry = store && typeof store === 'object' ? store[emailKey] : null;
+  const displayName = entry && typeof entry.displayName === 'string' ? entry.displayName : null;
+  const avatarDataUrl = entry && typeof entry.avatarDataUrl === 'string' ? entry.avatarDataUrl : null;
+  return res.json({ ok: true, profile: { displayName, avatarDataUrl } });
+});
+
+app.put('/api/account/profile', requireAuth, express.json({ limit: '600kb' }), (req, res) => {
+  const emailKey = String(req.session.email || '').trim().toLowerCase();
+  const displayNameRaw = typeof req.body?.displayName === 'string' ? req.body.displayName : '';
+  const avatarRaw = typeof req.body?.avatarDataUrl === 'string' ? req.body.avatarDataUrl : null;
+
+  const displayName = displayNameRaw.trim().replace(/[\r\n]+/g, ' ').slice(0, 72);
+  const avatarDataUrl =
+    avatarRaw && typeof avatarRaw === 'string' && avatarRaw.startsWith('data:image/') && avatarRaw.length <= 220_000 ? avatarRaw : null;
+
+  const store = readProfileStore();
+  if (!store || typeof store !== 'object' || Array.isArray(store)) return res.status(500).json({ error: 'profile_store_unavailable' });
+  const prev = store[emailKey] && typeof store[emailKey] === 'object' && !Array.isArray(store[emailKey]) ? store[emailKey] : {};
+  store[emailKey] = {
+    ...prev,
+    displayName: displayName || null,
+    avatarDataUrl,
+    updatedAt: new Date().toISOString(),
+  };
+  const ok = writeProfileStore(store);
+  if (!ok) return res.status(500).json({ error: 'profile_store_write_failed' });
+  return res.json({ ok: true, profile: store[emailKey] });
 });
 
 app.post('/api/auth/forgot-password', async (req, res) => {
@@ -1456,23 +1510,78 @@ app.post('/api/mail/send', requireAuth, requireCsrf, async (req, res) => {
   const subject = typeof req.body?.subject === 'string' ? req.body.subject : '';
   const htmlRaw = typeof req.body?.html === 'string' ? req.body.html : undefined;
   const textRaw = typeof req.body?.text === 'string' ? req.body.text : undefined;
-  const html = htmlRaw && htmlRaw.trim() ? htmlRaw : undefined;
-  const text = textRaw && textRaw.trim() ? textRaw : undefined;
+  const fromNameRaw = typeof req.body?.fromName === 'string' ? req.body.fromName : '';
+  const fromName = fromNameRaw.trim().replace(/[\r\n]+/g, ' ').slice(0, 72);
+  const fromAvatarRaw = typeof req.body?.fromAvatarDataUrl === 'string' ? req.body.fromAvatarDataUrl : '';
+  const fromAvatarDataUrl =
+    typeof fromAvatarRaw === 'string' && fromAvatarRaw.startsWith('data:image/') && fromAvatarRaw.length <= 220_000
+      ? fromAvatarRaw
+      : '';
+
+  const escapeHtml = (value) =>
+    String(value ?? '').replace(/[&<>"']/g, (ch) => {
+      if (ch === '&') return '&amp;';
+      if (ch === '<') return '&lt;';
+      if (ch === '>') return '&gt;';
+      if (ch === '"') return '&quot;';
+      return '&#39;';
+    });
+
+  const baseSignatureName = fromName || String(req.session.email || '').split('@')[0] || 'ArcMail';
+  const signatureHtml =
+    fromAvatarDataUrl || fromName
+      ? `<div style="margin-top:24px;padding-top:14px;border-top:1px solid rgba(127,127,127,0.25);">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+    <tr>
+      <td style="padding:0 10px 0 0;vertical-align:middle;">
+        ${
+          fromAvatarDataUrl
+            ? `<img src="${escapeHtml(fromAvatarDataUrl)}" width="36" height="36" alt="${escapeHtml(
+                baseSignatureName
+              )}" style="display:block;width:36px;height:36px;border-radius:999px;object-fit:cover;" />`
+            : `<div style="width:36px;height:36px;border-radius:999px;background:#1DB954;color:#000;font-weight:900;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${escapeHtml(
+                String(baseSignatureName || '?')[0]?.toUpperCase() || '?'
+              )}</div>`
+        }
+      </td>
+      <td style="vertical-align:middle;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+        <div style="font-weight:800;font-size:13px;line-height:1.2;color:inherit;">${escapeHtml(baseSignatureName)}</div>
+        <div style="font-weight:600;font-size:12px;line-height:1.2;color:rgba(127,127,127,0.95);">${escapeHtml(
+          req.session.email
+        )}</div>
+      </td>
+    </tr>
+  </table>
+</div>`
+      : '';
+
+  const htmlBase = htmlRaw && htmlRaw.trim() ? htmlRaw : undefined;
+  const textBase = textRaw && textRaw.trim() ? textRaw : undefined;
+  const html = htmlBase ? `${htmlBase}${signatureHtml}` : signatureHtml || undefined;
+  const text = textBase
+    ? `${textBase}${fromName || fromAvatarDataUrl ? `\n\n—\n${baseSignatureName}\n${req.session.email}` : ''}`
+    : fromName || fromAvatarDataUrl
+      ? `${baseSignatureName}\n${req.session.email}`
+      : undefined;
 
   if (!to.length || !subject.trim()) return res.status(400).json({ error: 'invalid_payload' });
 
+  const fromHeader = fromName ? `${fromName} <${req.session.email}>` : req.session.email;
+  const from = fromName ? { name: fromName, address: req.session.email } : req.session.email;
+
   const sendMailOptions = {
-    from: req.session.email,
+    from,
     to,
     cc: cc.length ? cc : undefined,
     bcc: bcc.length ? bcc : undefined,
     subject: subject.trim(),
     html,
     text,
+    headers: fromName ? { 'X-ArcMail-From-Name': fromName } : undefined,
   };
 
   const storeMailOptions = {
-    from: req.session.email,
+    from,
     to,
     cc: cc.length ? cc : undefined,
     subject: subject.trim(),
@@ -1505,7 +1614,7 @@ app.post('/api/mail/send', requireAuth, requireCsrf, async (req, res) => {
     const toHeader = to.join(', ');
     const ccHeader = cc.length ? cc.join(', ') : undefined;
     const rfc822 = buildRfc822({
-      from: fromAddr,
+      from: fromHeader || fromAddr,
       to: [toHeader].filter(Boolean),
       cc: ccHeader ? [ccHeader] : [],
       subject: subject.trim(),
@@ -1611,7 +1720,7 @@ app.post('/api/mail/send', requireAuth, requireCsrf, async (req, res) => {
             });
           } catch {}
         }
-        return res.json({ ok: true, messageId, savedTo });
+        return res.json({ ok: true, messageId, savedTo, from: fromHeader });
       } catch (err) {
         if (isSmtpAuthFailure(err)) return res.status(401).json({ error: 'invalid_credentials' });
         lastErr = err;
