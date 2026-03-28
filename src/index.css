@@ -111,6 +111,11 @@
 }
 
 @layer base {
+  html {
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+  }
+
   body {
     @apply bg-background text-text-main font-sans antialiased selection:bg-accent/30 selection:text-white overflow-x-hidden transition-colors duration-300;
   }

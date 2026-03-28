@@ -885,10 +885,17 @@ setInterval(() => {
   }
 }, Math.min(60_000, Math.max(5_000, Math.floor(SESSION_TTL_MS / 20))));
 
-const signToken = ({ sessionId, email, ttlMs, encPassword, csrfToken, sessionVersion }) => {
+const signToken = ({ sessionId, email, ttlMs, encPassword, csrfToken, sessionVersion, twoFactorVerified }) => {
   const ttl = typeof ttlMs === 'number' && Number.isFinite(ttlMs) ? ttlMs : SESSION_TTL_MS;
   return jwt.sign(
-    { role: 'MAIL_USER', email, ep: encPassword, csrf: csrfToken, sv: typeof sessionVersion === 'number' ? sessionVersion : 0 },
+    {
+      role: 'MAIL_USER',
+      email,
+      ep: encPassword,
+      csrf: csrfToken,
+      sv: typeof sessionVersion === 'number' ? sessionVersion : 0,
+      tfa: twoFactorVerified ? 1 : 0,
+    },
     JWT_SECRET,
     { subject: sessionId, expiresIn: Math.floor(ttl / 1000) }
   );
@@ -906,6 +913,7 @@ const parseAuth = (req) => {
     const email = typeof decoded.email === 'string' ? decoded.email : null;
     const role = typeof decoded.role === 'string' ? decoded.role : null;
     const sessionVersion = typeof decoded.sv === 'number' && Number.isFinite(decoded.sv) ? decoded.sv : 0;
+    const twoFactorVerified = decoded.tfa === 1;
     const encPassword =
       decoded.ep &&
       typeof decoded.ep === 'object' &&
@@ -917,7 +925,7 @@ const parseAuth = (req) => {
     const csrfToken = typeof decoded.csrf === 'string' ? decoded.csrf : null;
     if (!email || role !== 'MAIL_USER') return null;
     if (!sessionId && !(encPassword && csrfToken)) return null;
-    return { sessionId, email, role, encPassword, csrfToken, sessionVersion };
+    return { sessionId, email, role, encPassword, csrfToken, sessionVersion, twoFactorVerified };
   } catch {
     return null;
   }
@@ -926,6 +934,7 @@ const parseAuth = (req) => {
 const requireAuth = async (req, res, next) => {
   const auth = parseAuth(req);
   if (!auth) return res.status(401).json({ error: 'unauthorized' });
+  if (REQUIRE_2FA_ON_LOGIN && !auth.twoFactorVerified) return res.status(401).json({ error: 'twofa_required' });
   const emailKey = normalizeEmailKey(auth.email);
   const svOk = await storeCheckSessionVersion(emailKey, auth.sessionVersion);
   if (!svOk) return res.status(401).json({ error: 'session_revoked' });
@@ -1284,7 +1293,7 @@ app.get('/api/login', (_req, res) => res.status(405).json({ error: 'method_not_a
 app.get('/api/auth/mail-login', (_req, res) => res.status(405).json({ error: 'method_not_allowed' }));
 app.get('/api/auth/login', (_req, res) => res.status(405).json({ error: 'method_not_allowed' }));
 
-const finishLogin = async ({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion }) => {
+const finishLogin = async ({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion, twoFactorVerified }) => {
   const createdAt = nowMs();
   sessions.set(sessionId, {
     id: sessionId,
@@ -1295,7 +1304,7 @@ const finishLogin = async ({ email, encPassword, csrfToken, sessionId, ttlMs, se
     lastUsedAt: createdAt,
     ttlMs,
   });
-  const token = signToken({ sessionId, email, ttlMs, encPassword, csrfToken, sessionVersion });
+  const token = signToken({ sessionId, email, ttlMs, encPassword, csrfToken, sessionVersion, twoFactorVerified });
   const name = email.split('@')[0] || email;
   return { token, csrfToken, sessionId, user: { name, email, role: 'MAIL_USER', status: 'Active' } };
 };
@@ -1344,7 +1353,7 @@ const handleAuthLogin = async (req, res) => {
   if (!REQUIRE_2FA_ON_LOGIN) {
     const sessionId = crypto.randomUUID();
     const csrfToken = crypto.randomBytes(32).toString('hex');
-    const result = await finishLogin({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion });
+    const result = await finishLogin({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion, twoFactorVerified: false });
     return res.json(result);
   }
 
@@ -1443,7 +1452,7 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
   const svOk = await storeCheckSessionVersion(emailKey, sessionVersion);
   if (!svOk) return res.status(401).json({ error: 'session_revoked' });
 
-  const result = await finishLogin({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion });
+  const result = await finishLogin({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion, twoFactorVerified: true });
   return res.json({ ...result, usedBackup });
 });
 
@@ -1509,7 +1518,7 @@ app.post('/api/auth/confirm-2fa-preauth', async (req, res) => {
   const nextSv = await storeEnable2fa({ emailKey, secretEnc: user.temp_twofa_secret_enc, backupCodesHashed: hashed, logoutAllSessions });
   if (nextSv === null) return res.status(500).json({ error: 'twofa_enable_failed' });
 
-  const result = await finishLogin({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion: nextSv });
+  const result = await finishLogin({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion: nextSv, twoFactorVerified: true });
   return res.json({ ...result, backupCodes: rawCodes });
 });
 
@@ -1574,6 +1583,7 @@ app.post('/api/auth/confirm-2fa', requireAuth, requireCsrf, async (req, res) => 
         encPassword: req.session.encPassword,
         csrfToken: req.session.csrfToken,
         sessionVersion: nextSv,
+        twoFactorVerified: true,
       })
     : null;
 
@@ -1621,6 +1631,7 @@ app.post('/api/auth/disable-2fa', requireAuth, requireCsrf, async (req, res) => 
     encPassword: req.session.encPassword,
     csrfToken: req.session.csrfToken,
     sessionVersion: nextSv,
+    twoFactorVerified: true,
   });
   return res.json({ ok: true, token, sessionVersion: nextSv });
 });
