@@ -8,6 +8,7 @@ import jwt from 'jsonwebtoken';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import nodemailer from 'nodemailer';
+import webpush from 'web-push';
 import { URL, fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -68,6 +69,19 @@ const writeProfileStore = (store) => {
   }
 };
 
+let profileStore = readProfileStore();
+const getProfileEntry = (emailKey) => {
+  const store = profileStore && typeof profileStore === 'object' && !Array.isArray(profileStore) ? profileStore : {};
+  const entry = store && typeof store === 'object' ? store[emailKey] : null;
+  return entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : null;
+};
+const setProfileEntry = (emailKey, value) => {
+  const store = profileStore && typeof profileStore === 'object' && !Array.isArray(profileStore) ? profileStore : {};
+  const next = { ...store, [emailKey]: value };
+  profileStore = next;
+  return writeProfileStore(next);
+};
+
 const PORT = Number(process.env.PORT || 5000);
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -91,6 +105,17 @@ const allowedOrigins = rawCorsOrigin
   .map((s) => s.trim())
   .filter(Boolean);
 const DEFAULT_CORS_ORIGIN = allowedOrigins[0] || 'https://mail.arcbyte.co';
+
+const VAPID_PUBLIC_KEY = typeof process.env.VAPID_PUBLIC_KEY === 'string' ? process.env.VAPID_PUBLIC_KEY.trim() : '';
+const VAPID_PRIVATE_KEY = typeof process.env.VAPID_PRIVATE_KEY === 'string' ? process.env.VAPID_PRIVATE_KEY.trim() : '';
+const VAPID_SUBJECT = typeof process.env.VAPID_SUBJECT === 'string' ? process.env.VAPID_SUBJECT.trim() : 'mailto:sysadmin@mail.arcbyte.co';
+const PUSH_ENABLED = Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+if (PUSH_ENABLED) {
+  try {
+    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  } catch {
+  }
+}
 
 const DEV_FALLBACK_SECRET = 'arcbyte-dev-secret';
 const JWT_SECRET =
@@ -221,6 +246,7 @@ const REMEMBER_ME_TTL_MS = Number(
 const sessions = new Map();
 const attachmentCache = new Map();
 const forgotPasswordRate = new Map();
+const pushStateByEmail = new Map();
 const FORGOT_PASSWORD_RATE_WINDOW_MS = Number(process.env.FORGOT_PASSWORD_RATE_WINDOW_MS || 60 * 60 * 1000);
 const FORGOT_PASSWORD_RATE_MAX = Number(process.env.FORGOT_PASSWORD_RATE_MAX || 5);
 const ATTACHMENT_CACHE_TTL_MS = Number(process.env.ATTACHMENT_CACHE_TTL_MS || 10 * 60 * 1000);
@@ -247,6 +273,82 @@ const cleanupAttachmentCache = () => {
 };
 
 setInterval(cleanupAttachmentCache, 30_000);
+setInterval(async () => {
+  if (!PUSH_ENABLED) return;
+  const now = nowMs();
+  const targets = Array.from(pushStateByEmail.entries());
+  if (targets.length === 0) return;
+
+  const sendToSubs = async (subs, payload) => {
+    const body = JSON.stringify(payload);
+    for (const [endpoint, sub] of subs.entries()) {
+      try {
+        await webpush.sendNotification(sub, body, { TTL: 120 });
+      } catch (err) {
+        const statusCode =
+          err && typeof err === 'object' && 'statusCode' in err && typeof err.statusCode === 'number'
+            ? err.statusCode
+            : null;
+        if (statusCode === 404 || statusCode === 410) {
+          subs.delete(endpoint);
+        }
+      }
+    }
+  };
+
+  for (const [emailKey, entry] of targets) {
+    if (!entry || typeof entry !== 'object') {
+      pushStateByEmail.delete(emailKey);
+      continue;
+    }
+    const subs = entry.subs instanceof Map ? entry.subs : null;
+    if (!subs || subs.size === 0) {
+      pushStateByEmail.delete(emailKey);
+      continue;
+    }
+    if (!entry.encPassword) continue;
+    if (typeof entry.lastCheckedAt === 'number' && now - entry.lastCheckedAt < 7000) continue;
+    entry.lastCheckedAt = now;
+
+    let password = '';
+    try {
+      password = decryptString(entry.encPassword);
+    } catch {
+      continue;
+    }
+
+    let unseen = null;
+    try {
+      const loginEmail = typeof entry.email === 'string' && entry.email.trim() ? entry.email.trim() : emailKey;
+      unseen = await withImap({ email: loginEmail, password, folder: 'INBOX' }, async (client) => {
+        try {
+          const s = await client.status('INBOX', { unseen: true });
+          return Number(s.unseen || 0);
+        } catch {
+          return 0;
+        }
+      });
+    } catch {
+      continue;
+    }
+
+    if (!Number.isFinite(unseen)) continue;
+    const prev = typeof entry.lastUnseen === 'number' ? entry.lastUnseen : null;
+    entry.lastUnseen = unseen;
+    if (prev === null) continue;
+    if (unseen <= prev) continue;
+    const diff = unseen - prev;
+
+    await sendToSubs(subs, {
+      title: 'New mail',
+      body: diff > 1 ? `+${diff} new in Inbox` : '1 new in Inbox',
+      url: '/',
+      tag: 'arcmail-inbox',
+    });
+
+    if (subs.size === 0) pushStateByEmail.delete(emailKey);
+  }
+}, 10_000);
 setInterval(() => {
   const now = nowMs();
   for (const [ip, entry] of forgotPasswordRate.entries()) {
@@ -676,6 +778,11 @@ app.get('/api/health', (_req, res) =>
   })
 );
 
+app.get('/api/notifications/vapid-public-key', (_req, res) => {
+  if (!PUSH_ENABLED || !VAPID_PUBLIC_KEY) return res.status(501).json({ error: 'push_unconfigured' });
+  return res.json({ publicKey: VAPID_PUBLIC_KEY });
+});
+
 // Alias to support clients using /api/login
 app.post('/api/login', (req, res) => {
   return res.status(404).json({ error: 'use_/api/auth/mail-login' });
@@ -732,8 +839,7 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 
 app.get('/api/account/profile', requireAuth, (req, res) => {
   const emailKey = String(req.session.email || '').trim().toLowerCase();
-  const store = readProfileStore();
-  const entry = store && typeof store === 'object' ? store[emailKey] : null;
+  const entry = getProfileEntry(emailKey);
   const displayName = entry && typeof entry.displayName === 'string' ? entry.displayName : null;
   const avatarDataUrl = entry && typeof entry.avatarDataUrl === 'string' ? entry.avatarDataUrl : null;
   return res.json({ ok: true, profile: { displayName, avatarDataUrl } });
@@ -748,18 +854,65 @@ app.put('/api/account/profile', requireAuth, express.json({ limit: '600kb' }), (
   const avatarDataUrl =
     avatarRaw && typeof avatarRaw === 'string' && avatarRaw.startsWith('data:image/') && avatarRaw.length <= 220_000 ? avatarRaw : null;
 
-  const store = readProfileStore();
-  if (!store || typeof store !== 'object' || Array.isArray(store)) return res.status(500).json({ error: 'profile_store_unavailable' });
-  const prev = store[emailKey] && typeof store[emailKey] === 'object' && !Array.isArray(store[emailKey]) ? store[emailKey] : {};
-  store[emailKey] = {
+  const prev = getProfileEntry(emailKey) || {};
+  const nextEntry = {
     ...prev,
     displayName: displayName || null,
     avatarDataUrl,
     updatedAt: new Date().toISOString(),
   };
-  const ok = writeProfileStore(store);
-  if (!ok) return res.status(500).json({ error: 'profile_store_write_failed' });
-  return res.json({ ok: true, profile: store[emailKey] });
+  const persisted = setProfileEntry(emailKey, nextEntry);
+  return res.json({ ok: true, persisted, profile: nextEntry });
+});
+
+app.post('/api/notifications/subscribe', requireAuth, requireCsrf, async (req, res) => {
+  if (!PUSH_ENABLED) return res.status(501).json({ error: 'push_unconfigured' });
+  const emailKey = String(req.session.email || '').trim().toLowerCase();
+  const subscription = req.body?.subscription;
+  if (!subscription || typeof subscription !== 'object') return res.status(400).json({ error: 'invalid_payload' });
+  const endpoint = 'endpoint' in subscription && typeof subscription.endpoint === 'string' ? subscription.endpoint : '';
+  const keys = 'keys' in subscription && subscription.keys && typeof subscription.keys === 'object' ? subscription.keys : null;
+  const p256dh = keys && 'p256dh' in keys && typeof keys.p256dh === 'string' ? keys.p256dh : '';
+  const auth = keys && 'auth' in keys && typeof keys.auth === 'string' ? keys.auth : '';
+  if (!endpoint || !p256dh || !auth) return res.status(400).json({ error: 'invalid_subscription' });
+
+  const entry = pushStateByEmail.get(emailKey) || { email: '', encPassword: null, subs: new Map(), lastUnseen: null, lastCheckedAt: 0 };
+  entry.email = String(req.session.email || '').trim();
+  entry.encPassword = req.session.encPassword;
+  entry.subs.set(endpoint, { endpoint, keys: { p256dh, auth } });
+  pushStateByEmail.set(emailKey, entry);
+
+  if (typeof entry.lastUnseen !== 'number') {
+    try {
+      const password = decryptString(req.session.encPassword);
+      const unseen = await withImap({ email: req.session.email, password, folder: 'INBOX' }, async (client) => {
+        try {
+          const s = await client.status('INBOX', { unseen: true });
+          return Number(s.unseen || 0);
+        } catch {
+          return 0;
+        }
+      });
+      entry.lastUnseen = unseen;
+      entry.lastCheckedAt = nowMs();
+      pushStateByEmail.set(emailKey, entry);
+    } catch {
+    }
+  }
+
+  return res.json({ ok: true });
+});
+
+app.post('/api/notifications/unsubscribe', requireAuth, requireCsrf, (req, res) => {
+  const emailKey = String(req.session.email || '').trim().toLowerCase();
+  const endpoint = typeof req.body?.endpoint === 'string' ? req.body.endpoint : '';
+  if (!endpoint) return res.status(400).json({ error: 'invalid_payload' });
+  const entry = pushStateByEmail.get(emailKey);
+  if (entry && entry.subs instanceof Map) {
+    entry.subs.delete(endpoint);
+    if (entry.subs.size === 0) pushStateByEmail.delete(emailKey);
+  }
+  return res.json({ ok: true });
 });
 
 app.post('/api/auth/forgot-password', async (req, res) => {

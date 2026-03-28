@@ -402,10 +402,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               ? (p.data.profile as { displayName?: unknown; avatarDataUrl?: unknown })
               : null;
           if (profile) {
-            applyProfileToLocal(active.id, {
-              displayName: typeof profile.displayName === 'string' ? profile.displayName : null,
-              avatarDataUrl: typeof profile.avatarDataUrl === 'string' ? profile.avatarDataUrl : null,
-            });
+            const localProfile = profiles[active.id] || {};
+            const hasLocalProfile = Boolean(
+              (typeof localProfile.displayName === 'string' && localProfile.displayName.trim()) ||
+                (typeof localProfile.avatarDataUrl === 'string' && localProfile.avatarDataUrl.startsWith('data:image/'))
+            );
+            if (!hasLocalProfile) {
+              applyProfileToLocal(active.id, {
+                displayName: typeof profile.displayName === 'string' ? profile.displayName : null,
+                avatarDataUrl: typeof profile.avatarDataUrl === 'string' ? profile.avatarDataUrl : null,
+              });
+            }
           }
         } catch {
           void 0;
@@ -459,10 +466,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               ? (p.data.profile as { displayName?: unknown; avatarDataUrl?: unknown })
               : null;
           if (profile) {
-            applyProfileToLocal(id, {
-              displayName: typeof profile.displayName === 'string' ? profile.displayName : null,
-              avatarDataUrl: typeof profile.avatarDataUrl === 'string' ? profile.avatarDataUrl : null,
-            });
+            const localProfiles = safeParseProfiles(localStorage.getItem(PROFILE_KEY));
+            const localProfile = localProfiles[id] || {};
+            const hasLocalProfile = Boolean(
+              (typeof localProfile.displayName === 'string' && localProfile.displayName.trim()) ||
+                (typeof localProfile.avatarDataUrl === 'string' && localProfile.avatarDataUrl.startsWith('data:image/'))
+            );
+            if (!hasLocalProfile) {
+              applyProfileToLocal(id, {
+                displayName: typeof profile.displayName === 'string' ? profile.displayName : null,
+                avatarDataUrl: typeof profile.avatarDataUrl === 'string' ? profile.avatarDataUrl : null,
+              });
+            }
           }
         } catch {
           void 0;

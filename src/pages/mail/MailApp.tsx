@@ -2787,6 +2787,7 @@ const MailAppContent = () => {
   const prevInboxUnseenRef = useRef<number>(0);
   const notifPromptedRef = useRef(false);
   const notificationsEnabledRef = useRef(false);
+  const pushRegisteredRef = useRef(false);
   const replySnoozeKey = 'replyReminderSnoozeUntil';
   const [replySnoozeUntil, setReplySnoozeUntil] = useState<number>(() => {
     const raw = localStorage.getItem(replySnoozeKey);
@@ -2804,11 +2805,57 @@ const MailAppContent = () => {
 
   useEffect(() => {
     try {
-      notificationsEnabledRef.current = localStorage.getItem('arcMailNotificationsEnabled') === '1';
+      const raw = localStorage.getItem('arcMailNotificationsEnabled');
+      notificationsEnabledRef.current = raw ? raw === '1' : true;
     } catch {
-      return;
+      notificationsEnabledRef.current = true;
     }
   }, []);
+
+  useEffect(() => {
+    if (isLoading) return;
+    if (!isAuthenticated || user?.role !== 'MAIL_USER') return;
+    if (!notificationsEnabledRef.current) return;
+    if (typeof Notification === 'undefined') return;
+    if (Notification.permission !== 'granted') return;
+    if (!('serviceWorker' in navigator)) return;
+    if (!('PushManager' in window)) return;
+
+    const urlBase64ToUint8Array = (base64String: string) => {
+      const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+      const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+      const rawData = window.atob(base64);
+      const outputArray = new Uint8Array(rawData.length);
+      for (let i = 0; i < rawData.length; i += 1) {
+        outputArray[i] = rawData.charCodeAt(i);
+      }
+      return outputArray;
+    };
+
+    const run = async () => {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const existing = await reg.pushManager.getSubscription();
+        const keyRes = await api.get('/notifications/vapid-public-key');
+        const publicKey =
+          keyRes.data && typeof keyRes.data === 'object' && 'publicKey' in keyRes.data && typeof (keyRes.data as { publicKey?: unknown }).publicKey === 'string'
+            ? (keyRes.data as { publicKey: string }).publicKey
+            : '';
+        if (!publicKey) return;
+        const sub =
+          existing ||
+          (await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(publicKey),
+          }));
+        await api.post('/notifications/subscribe', { subscription: sub.toJSON() });
+        pushRegisteredRef.current = true;
+      } catch {
+        return;
+      }
+    };
+    void run();
+  }, [isAuthenticated, isLoading, user?.role]);
 
   const requestLogoutCurrent = useCallback(() => setLogoutConfirmOpen(true), []);
 
@@ -3227,6 +3274,96 @@ const MailAppContent = () => {
   }, [playToastSound]);
 
   useEffect(() => {
+    if (isLoading) return;
+    if (!isAuthenticated || user?.role !== 'MAIL_USER') return;
+    if (typeof Notification === 'undefined') return;
+    if (!notificationsEnabledRef.current) return;
+    if (Notification.permission !== 'default') return;
+    if (notifPromptedRef.current) return;
+
+    const urlBase64ToUint8Array = (base64String: string) => {
+      const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+      const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+      const rawData = window.atob(base64);
+      const outputArray = new Uint8Array(rawData.length);
+      for (let i = 0; i < rawData.length; i += 1) {
+        outputArray[i] = rawData.charCodeAt(i);
+      }
+      return outputArray;
+    };
+
+    const ensurePushSubscription = async () => {
+      if (!('serviceWorker' in navigator)) return false;
+      if (!('PushManager' in window)) return false;
+      if (Notification.permission !== 'granted') return false;
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const existing = await reg.pushManager.getSubscription();
+        const sub = existing;
+        const keyRes = await api.get('/notifications/vapid-public-key');
+        const publicKey =
+          keyRes.data && typeof keyRes.data === 'object' && 'publicKey' in keyRes.data && typeof (keyRes.data as { publicKey?: unknown }).publicKey === 'string'
+            ? (keyRes.data as { publicKey: string }).publicKey
+            : '';
+        if (!publicKey) return false;
+        const finalSub =
+          sub ||
+          (await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(publicKey),
+          }));
+        await api.post('/notifications/subscribe', { subscription: finalSub.toJSON() });
+        pushRegisteredRef.current = true;
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const request = async () => {
+      try {
+        const perm = await Notification.requestPermission();
+        if (perm === 'granted') {
+          try {
+            localStorage.setItem('arcMailNotificationsEnabled', '1');
+          } catch {
+            void 0;
+          }
+          notificationsEnabledRef.current = true;
+          showToast({ variant: 'success', title: 'Notifications enabled', subtitle: 'You’ll get alerts for new Inbox mail.' });
+          void ensurePushSubscription();
+          return;
+        }
+        try {
+          localStorage.setItem('arcMailNotificationsEnabled', '0');
+        } catch {
+          void 0;
+        }
+        notificationsEnabledRef.current = false;
+      } catch {
+        return;
+      }
+    };
+
+    notifPromptedRef.current = true;
+    showToast({
+      variant: 'info',
+      title: 'Enable notifications',
+      subtitle: 'Allow notifications to get alerts for new Inbox mail.',
+      actionLabel: 'Enable',
+      onAction: () => void request(),
+    });
+
+    const onGesture = () => void request();
+    window.addEventListener('pointerdown', onGesture, { once: true });
+    window.addEventListener('keydown', onGesture, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', onGesture);
+      window.removeEventListener('keydown', onGesture);
+    };
+  }, [isAuthenticated, isLoading, showToast, user?.role]);
+
+  useEffect(() => {
     if (!mobileSearchOpen) return;
     const id = window.setTimeout(() => mobileSearchInputRef.current?.focus(), 0);
     const onKeyDown = (e: KeyboardEvent) => {
@@ -3410,7 +3547,7 @@ const MailAppContent = () => {
               onAction: () => setActiveFolder('inbox'),
               soundCount: diff,
             });
-            if (typeof Notification !== 'undefined') {
+            if (!pushRegisteredRef.current && typeof Notification !== 'undefined') {
               const notify = async (title: string, body: string) => {
                 const data = { url: '/' };
                 try {
@@ -3444,31 +3581,7 @@ const MailAppContent = () => {
                 }
               };
 
-              if (Notification.permission === 'default' && !notifPromptedRef.current && !notificationsEnabledRef.current) {
-                notifPromptedRef.current = true;
-                showToast({
-                  variant: 'info',
-                  title: 'Enable notifications',
-                  subtitle: 'Get alerts for new email while you’re away.',
-                  actionLabel: 'Enable',
-                  onAction: async () => {
-                    try {
-                      const perm = await Notification.requestPermission();
-                      if (perm === 'granted') {
-                        try {
-                          localStorage.setItem('arcMailNotificationsEnabled', '1');
-                        } catch {
-                          return;
-                        }
-                        notificationsEnabledRef.current = true;
-                        await notify('Notifications enabled', 'ArcMail will notify you about new email.');
-                      }
-                    } catch {
-                      return;
-                    }
-                  },
-                });
-              } else if (document.hidden && Notification.permission === 'granted' && notificationsEnabledRef.current) {
+              if (Notification.permission === 'granted' && notificationsEnabledRef.current) {
                 try {
                   await notify('New mail', diff > 1 ? `+${diff} new in Inbox` : '1 new in Inbox');
                 } catch {
@@ -3484,7 +3597,7 @@ const MailAppContent = () => {
       };
 
       fetchStats();
-      const intervalId = window.setInterval(fetchStats, 20000);
+      const intervalId = window.setInterval(fetchStats, 10000);
       return () => {
         stopped = true;
         controller.abort();
