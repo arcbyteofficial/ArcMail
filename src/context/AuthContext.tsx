@@ -70,9 +70,15 @@ const safeParseProfiles = (raw: string | null): Record<string, StoredProfile> =>
       const pv = v as Record<string, unknown>;
       const displayName = typeof pv.displayName === 'string' ? pv.displayName : undefined;
       const avatarDataUrl = typeof pv.avatarDataUrl === 'string' ? pv.avatarDataUrl : undefined;
+      const safeAvatar =
+        avatarDataUrl &&
+        ((avatarDataUrl.startsWith('data:image/') && avatarDataUrl.length <= 350_000) ||
+          (/^https?:\/\//i.test(avatarDataUrl) && avatarDataUrl.length <= 5000))
+          ? avatarDataUrl
+          : undefined;
       out[k] = {
         displayName: displayName && displayName.trim() ? displayName.trim() : undefined,
-        avatarDataUrl: avatarDataUrl && avatarDataUrl.startsWith('data:image/') ? avatarDataUrl : undefined,
+        avatarDataUrl: safeAvatar,
       };
     }
     return out;
@@ -171,7 +177,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const displayName = typeof profile.displayName === 'string' ? profile.displayName : '';
       const avatarDataUrl = typeof profile.avatarDataUrl === 'string' ? profile.avatarDataUrl : null;
       const safeAvatar =
-        avatarDataUrl && avatarDataUrl.startsWith('data:image/') && avatarDataUrl.length <= 200_000 ? avatarDataUrl : undefined;
+        avatarDataUrl &&
+        ((avatarDataUrl.startsWith('data:image/') && avatarDataUrl.length <= 350_000) ||
+          (/^https?:\/\//i.test(avatarDataUrl) && avatarDataUrl.length <= 5000))
+          ? avatarDataUrl
+          : undefined;
 
       const profiles = safeParseProfiles(localStorage.getItem(PROFILE_KEY));
       profiles[accountId] = {
@@ -402,12 +412,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               ? (p.data.profile as { displayName?: unknown; avatarDataUrl?: unknown })
               : null;
           if (profile) {
-            const localProfile = profiles[active.id] || {};
-            const hasLocalProfile = Boolean(
-              (typeof localProfile.displayName === 'string' && localProfile.displayName.trim()) ||
-                (typeof localProfile.avatarDataUrl === 'string' && localProfile.avatarDataUrl.startsWith('data:image/'))
+            const serverHasProfile = Boolean(
+              (typeof profile.displayName === 'string' && profile.displayName.trim()) ||
+                (typeof profile.avatarDataUrl === 'string' && profile.avatarDataUrl.trim())
             );
-            if (!hasLocalProfile) {
+            if (serverHasProfile) {
               applyProfileToLocal(active.id, {
                 displayName: typeof profile.displayName === 'string' ? profile.displayName : null,
                 avatarDataUrl: typeof profile.avatarDataUrl === 'string' ? profile.avatarDataUrl : null,
@@ -466,13 +475,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               ? (p.data.profile as { displayName?: unknown; avatarDataUrl?: unknown })
               : null;
           if (profile) {
-            const localProfiles = safeParseProfiles(localStorage.getItem(PROFILE_KEY));
-            const localProfile = localProfiles[id] || {};
-            const hasLocalProfile = Boolean(
-              (typeof localProfile.displayName === 'string' && localProfile.displayName.trim()) ||
-                (typeof localProfile.avatarDataUrl === 'string' && localProfile.avatarDataUrl.startsWith('data:image/'))
+            const serverHasProfile = Boolean(
+              (typeof profile.displayName === 'string' && profile.displayName.trim()) ||
+                (typeof profile.avatarDataUrl === 'string' && profile.avatarDataUrl.trim())
             );
-            if (!hasLocalProfile) {
+            if (serverHasProfile) {
               applyProfileToLocal(id, {
                 displayName: typeof profile.displayName === 'string' ? profile.displayName : null,
                 avatarDataUrl: typeof profile.avatarDataUrl === 'string' ? profile.avatarDataUrl : null,
@@ -600,7 +607,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const displayName = typeof updates.displayName === 'string' ? updates.displayName : prev.displayName;
       const avatarDataUrl =
         updates.avatarDataUrl === null ? undefined : typeof updates.avatarDataUrl === 'string' ? updates.avatarDataUrl : prev.avatarDataUrl;
-      const safeAvatar = avatarDataUrl && avatarDataUrl.length <= 200_000 ? avatarDataUrl : undefined;
+      const safeAvatar =
+        avatarDataUrl &&
+        ((avatarDataUrl.startsWith('data:image/') && avatarDataUrl.length <= 350_000) ||
+          (/^https?:\/\//i.test(avatarDataUrl) && avatarDataUrl.length <= 5000))
+          ? avatarDataUrl
+          : undefined;
       profiles[accountId] = {
         displayName: displayName && displayName.trim() ? displayName.trim() : undefined,
         avatarDataUrl: safeAvatar,
@@ -630,10 +642,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const payload: { displayName?: string; avatarDataUrl?: string | null } = {};
         if (typeof updates.displayName === 'string') payload.displayName = updates.displayName;
         if (updates.avatarDataUrl !== undefined) payload.avatarDataUrl = updates.avatarDataUrl;
-        void api.put('/account/profile', payload).catch(() => null);
+        void api
+          .put('/account/profile', payload)
+          .then((res) => {
+            const p =
+              res.data && typeof res.data === 'object' && 'profile' in res.data && res.data.profile && typeof res.data.profile === 'object'
+                ? (res.data.profile as { displayName?: unknown; avatarDataUrl?: unknown })
+                : null;
+            if (!p) return;
+            applyProfileToLocal(accountId, {
+              displayName: typeof p.displayName === 'string' ? p.displayName : null,
+              avatarDataUrl: typeof p.avatarDataUrl === 'string' ? p.avatarDataUrl : null,
+            });
+          })
+          .catch(() => null);
       }
     },
-    [persistAccounts, syncLegacyFromAccount]
+    [applyProfileToLocal, persistAccounts, syncLegacyFromAccount]
   );
 
   return (

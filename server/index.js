@@ -9,6 +9,7 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import nodemailer from 'nodemailer';
 import webpush from 'web-push';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { URL, fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -82,6 +83,81 @@ const setProfileEntry = (emailKey, value) => {
   return writeProfileStore(next);
 };
 
+const streamToBuffer = async (body) => {
+  if (!body) return Buffer.from([]);
+  if (Buffer.isBuffer(body)) return body;
+  const chunks = [];
+  for await (const chunk of body) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return Buffer.concat(chunks);
+};
+
+const parseImageDataUrl = (dataUrl) => {
+  if (!dataUrl || typeof dataUrl !== 'string') return null;
+  const match = dataUrl.match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i);
+  if (!match) return null;
+  const contentType = match[1];
+  const base64 = match[2];
+  try {
+    const buf = Buffer.from(base64, 'base64');
+    return { contentType, buf };
+  } catch {
+    return null;
+  }
+};
+
+const emailKeyHash = (emailKey) => crypto.createHash('sha256').update(String(emailKey || '').trim().toLowerCase()).digest('hex');
+const profileObjectKey = (emailKey) => `profiles/${emailKeyHash(emailKey).slice(0, 32)}/profile.json`;
+const avatarObjectKey = (emailKey, extension) => {
+  const safeExt = typeof extension === 'string' && extension ? extension.replace(/[^a-z0-9]/gi, '').slice(0, 8) : 'img';
+  const rand = crypto.randomBytes(8).toString('hex');
+  return `avatars/${emailKeyHash(emailKey).slice(0, 32)}/${Date.now()}-${rand}.${safeExt}`;
+};
+
+const getStoredProfile = async (emailKey) => {
+  if (!s3) return null;
+  try {
+    const out = await s3.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: profileObjectKey(emailKey) }));
+    const buf = await streamToBuffer(out.Body);
+    const raw = buf.toString('utf8');
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const displayName = typeof parsed.displayName === 'string' ? parsed.displayName : null;
+    const avatarUrl = typeof parsed.avatarUrl === 'string' ? parsed.avatarUrl : null;
+    return { displayName, avatarUrl };
+  } catch {
+    return null;
+  }
+};
+
+const putStoredProfile = async (emailKey, profile) => {
+  if (!s3) return false;
+  try {
+    const body = JSON.stringify(profile, null, 2);
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: S3_BUCKET,
+        Key: profileObjectKey(emailKey),
+        Body: body,
+        ContentType: 'application/json; charset=utf-8',
+        CacheControl: 'no-store',
+      })
+    );
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const deleteStoredProfile = async (emailKey) => {
+  if (!s3) return false;
+  try {
+    await s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: profileObjectKey(emailKey) }));
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const PORT = Number(process.env.PORT || 5000);
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -116,6 +192,23 @@ if (PUSH_ENABLED) {
   } catch {
   }
 }
+
+const S3_BUCKET = typeof process.env.S3_BUCKET === 'string' ? process.env.S3_BUCKET.trim() : '';
+const S3_REGION = typeof process.env.S3_REGION === 'string' ? process.env.S3_REGION.trim() : '';
+const S3_ENDPOINT = typeof process.env.S3_ENDPOINT === 'string' ? process.env.S3_ENDPOINT.trim() : '';
+const S3_ACCESS_KEY_ID = typeof process.env.S3_ACCESS_KEY_ID === 'string' ? process.env.S3_ACCESS_KEY_ID.trim() : '';
+const S3_SECRET_ACCESS_KEY = typeof process.env.S3_SECRET_ACCESS_KEY === 'string' ? process.env.S3_SECRET_ACCESS_KEY.trim() : '';
+const S3_PUBLIC_BASE_URL = typeof process.env.S3_PUBLIC_BASE_URL === 'string' ? process.env.S3_PUBLIC_BASE_URL.trim().replace(/\/+$/, '') : '';
+const S3_FORCE_PATH_STYLE = process.env.S3_FORCE_PATH_STYLE === '1' || process.env.S3_FORCE_PATH_STYLE === 'true';
+const S3_ENABLED = Boolean(S3_BUCKET && S3_ACCESS_KEY_ID && S3_SECRET_ACCESS_KEY);
+const s3 = S3_ENABLED
+  ? new S3Client({
+      region: S3_REGION || 'auto',
+      endpoint: S3_ENDPOINT || undefined,
+      forcePathStyle: S3_FORCE_PATH_STYLE,
+      credentials: { accessKeyId: S3_ACCESS_KEY_ID, secretAccessKey: S3_SECRET_ACCESS_KEY },
+    })
+  : null;
 
 const DEV_FALLBACK_SECRET = 'arcbyte-dev-secret';
 const JWT_SECRET =
@@ -837,32 +930,87 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   return res.json({ name, email: req.session.email, role: 'MAIL_USER', status: 'Active' });
 });
 
-app.get('/api/account/profile', requireAuth, (req, res) => {
+app.get('/api/account/profile', requireAuth, async (req, res) => {
   const emailKey = String(req.session.email || '').trim().toLowerCase();
+  const stored = await getStoredProfile(emailKey);
+  if (stored) {
+    const displayName = typeof stored.displayName === 'string' ? stored.displayName : null;
+    const avatarDataUrl = typeof stored.avatarUrl === 'string' ? stored.avatarUrl : null;
+    return res.json({ ok: true, profile: { displayName, avatarDataUrl }, storage: 'object' });
+  }
   const entry = getProfileEntry(emailKey);
   const displayName = entry && typeof entry.displayName === 'string' ? entry.displayName : null;
   const avatarDataUrl = entry && typeof entry.avatarDataUrl === 'string' ? entry.avatarDataUrl : null;
-  return res.json({ ok: true, profile: { displayName, avatarDataUrl } });
+  return res.json({ ok: true, profile: { displayName, avatarDataUrl }, storage: 'local' });
 });
 
-app.put('/api/account/profile', requireAuth, express.json({ limit: '600kb' }), (req, res) => {
+app.put('/api/account/profile', requireAuth, express.json({ limit: '600kb' }), async (req, res) => {
   const emailKey = String(req.session.email || '').trim().toLowerCase();
   const displayNameRaw = typeof req.body?.displayName === 'string' ? req.body.displayName : '';
   const avatarRaw = typeof req.body?.avatarDataUrl === 'string' ? req.body.avatarDataUrl : null;
 
   const displayName = displayNameRaw.trim().replace(/[\r\n]+/g, ' ').slice(0, 72);
-  const avatarDataUrl =
-    avatarRaw && typeof avatarRaw === 'string' && avatarRaw.startsWith('data:image/') && avatarRaw.length <= 220_000 ? avatarRaw : null;
+  const isUrl = typeof avatarRaw === 'string' && /^https?:\/\//i.test(avatarRaw) && avatarRaw.length <= 5000;
+  const parsed = typeof avatarRaw === 'string' ? parseImageDataUrl(avatarRaw) : null;
+
+  let avatarUrl = isUrl ? avatarRaw : null;
+  let storage = 'local';
+  let persisted = false;
+
+  if (parsed) {
+    if (!s3 || !S3_PUBLIC_BASE_URL) return res.status(501).json({ error: 'storage_unconfigured' });
+    if (parsed.buf.length > 350_000) return res.status(400).json({ error: 'image_too_large' });
+    const extension =
+      parsed.contentType === 'image/png'
+        ? 'png'
+        : parsed.contentType === 'image/jpeg'
+          ? 'jpg'
+          : parsed.contentType === 'image/webp'
+            ? 'webp'
+            : parsed.contentType === 'image/gif'
+              ? 'gif'
+              : 'img';
+    const key = avatarObjectKey(emailKey, extension);
+    try {
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: S3_BUCKET,
+          Key: key,
+          Body: parsed.buf,
+          ContentType: parsed.contentType,
+          CacheControl: 'public, max-age=31536000, immutable',
+        })
+      );
+    } catch {
+      return res.status(502).json({ error: 'storage_upload_failed' });
+    }
+    avatarUrl = `${S3_PUBLIC_BASE_URL}/${key}`;
+    storage = 'object';
+  } else if (avatarRaw !== null && avatarRaw !== undefined && avatarRaw !== '' && !isUrl) {
+    return res.status(400).json({ error: 'invalid_avatar' });
+  }
 
   const prev = getProfileEntry(emailKey) || {};
   const nextEntry = {
     ...prev,
     displayName: displayName || null,
-    avatarDataUrl,
+    avatarDataUrl: avatarRaw === null ? null : avatarUrl,
     updatedAt: new Date().toISOString(),
   };
-  const persisted = setProfileEntry(emailKey, nextEntry);
-  return res.json({ ok: true, persisted, profile: nextEntry });
+
+  if (s3) {
+    const ok = avatarRaw === null && !displayName
+      ? await deleteStoredProfile(emailKey)
+      : await putStoredProfile(emailKey, { displayName: displayName || null, avatarUrl: avatarRaw === null ? null : avatarUrl, updatedAt: nextEntry.updatedAt });
+    persisted = ok;
+    storage = 'object';
+  } else {
+    persisted = setProfileEntry(emailKey, nextEntry);
+    storage = 'local';
+  }
+
+  setProfileEntry(emailKey, nextEntry);
+  return res.json({ ok: true, persisted, storage, profile: nextEntry });
 });
 
 app.post('/api/notifications/subscribe', requireAuth, requireCsrf, async (req, res) => {
