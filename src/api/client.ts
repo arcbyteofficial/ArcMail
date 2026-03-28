@@ -1,6 +1,23 @@
 import axios from 'axios';
 
 const envApiUrl = import.meta.env.VITE_API_URL as string | undefined;
+const allowRemoteApiOnLocalhost = String(import.meta.env.VITE_ALLOW_REMOTE_API_ON_LOCALHOST || '').trim().toLowerCase();
+const allowRemoteEnv = allowRemoteApiOnLocalhost === '1' || allowRemoteApiOnLocalhost === 'true' || allowRemoteApiOnLocalhost === 'yes';
+const allowRemoteStorage = (() => {
+  try {
+    const v = localStorage.getItem('arcmailAllowRemoteApi');
+    if (v === null) {
+      const host = window.location.hostname;
+      const isLocal = host === 'localhost' || host === '127.0.0.1';
+      if (import.meta.env.DEV && isLocal) return true;
+      return false;
+    }
+    return v === '1';
+  } catch {
+    return false;
+  }
+})();
+const allowRemote = allowRemoteEnv || allowRemoteStorage;
 
 const cleanEnvUrl = (value: string) => {
   const trimmed = value.trim();
@@ -45,7 +62,12 @@ const isLocalHost = () => {
 
 const API_URL = (() => {
   if (import.meta.env.DEV && isLocalHost()) {
-    return inferApiBase() || 'http://localhost:5050/api';
+    if (!allowRemote) return inferApiBase() || 'http://localhost:5050/api';
+    if (envApiUrl) {
+      const cleaned = cleanEnvUrl(envApiUrl);
+      if (/^https?:\/\//i.test(cleaned) && !isLocalBaseUrl(cleaned)) return normalizeBase(cleaned);
+    }
+    return 'https://api.arcbyte.co/api';
   }
   if (envApiUrl) {
     const cleaned = cleanEnvUrl(envApiUrl);

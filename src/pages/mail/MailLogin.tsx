@@ -113,6 +113,47 @@ const MailLogin = () => {
   const [fpSending, setFpSending] = useState(false);
   const { login, verify2FA, confirm2FASetup } = useAuth();
   const navigate = useNavigate();
+  const [apiInfo, setApiInfo] = useState<string>('');
+  const [healthInfo, setHealthInfo] = useState<string>('');
+  const isLocal = (() => {
+    try {
+      const host = window.location.hostname;
+      return host === 'localhost' || host === '127.0.0.1';
+    } catch {
+      return false;
+    }
+  })();
+  const allowRemote = (() => {
+    try {
+      return (localStorage.getItem('arcmailAllowRemoteApi') || '') === '1';
+    } catch {
+      return false;
+    }
+  })();
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const base = typeof api.defaults.baseURL === 'string' ? api.defaults.baseURL : '';
+    setApiInfo(base);
+    if (!base) return;
+    void api
+      .get('/health')
+      .then((r) => {
+        const a =
+          r.data && typeof r.data === 'object' && 'auth' in r.data && r.data.auth && typeof r.data.auth === 'object'
+            ? (r.data.auth as { require2FAOnLogin?: unknown; storage?: unknown; nodeEnv?: unknown })
+            : null;
+        const require2FA = a && typeof a.require2FAOnLogin === 'boolean' ? a.require2FAOnLogin : null;
+        const storage = a && typeof a.storage === 'string' ? a.storage : '';
+        const nodeEnv = a && typeof a.nodeEnv === 'string' ? a.nodeEnv : '';
+        setHealthInfo(
+          [nodeEnv ? `env=${nodeEnv}` : null, storage ? `store=${storage}` : null, require2FA === null ? null : `require2FA=${require2FA}`]
+            .filter(Boolean)
+            .join(' ')
+        );
+      })
+      .catch(() => setHealthInfo(''));
+  }, []);
 
   const secondsLeft = 30 - (Math.floor(Date.now() / 1000) % 30);
   useEffect(() => {
@@ -368,6 +409,28 @@ const MailLogin = () => {
               <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-mono flex items-center gap-2">
                 <Lock size={14} />
                 {error}
+              </div>
+            )}
+
+            {import.meta.env.DEV && isLocal && (
+              <div className="mb-6 text-[11px] font-mono text-white/35 flex items-center justify-between gap-4">
+                <div className="min-w-0 truncate">
+                  <span className="text-white/55">API</span>: {apiInfo || '(none)'} {healthInfo ? `· ${healthInfo}` : ''}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      localStorage.setItem('arcmailAllowRemoteApi', allowRemote ? '0' : '1');
+                    } catch {
+                      void 0;
+                    }
+                    window.location.reload();
+                  }}
+                  className="shrink-0 text-white/60 hover:text-white transition-colors"
+                >
+                  {allowRemote ? 'Use local API' : 'Use prod API'}
+                </button>
               </div>
             )}
 
