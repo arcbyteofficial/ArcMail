@@ -2479,8 +2479,24 @@ const MobileProfileSection = ({
           )}
         </AnimatePresence>
 
-        <button onClick={onLogoutCurrent} className="w-full h-12 rounded-2xl font-bold tracking-[0.14em] text-xs bg-[#FF5555] hover:bg-[#FF6B6B] text-black transition-colors">
-          Log out
+        <button
+          onClick={onLogoutCurrent}
+          className={cn(
+            "group relative w-full h-12 rounded-2xl font-extrabold tracking-[0.18em] text-[11px] uppercase overflow-hidden transition-all duration-300 active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+            isDark
+              ? "bg-gradient-to-r from-[#FF3B3B] via-[#FF4D6D] to-[#FF7A59] text-black shadow-[0_18px_55px_rgba(255,85,85,0.22)] hover:shadow-[0_24px_75px_rgba(255,85,85,0.32)] focus-visible:ring-[#FF6B6B]/70 focus-visible:ring-offset-[#0A0A0A]"
+              : "bg-gradient-to-r from-[#FF3B3B] via-[#FF4D6D] to-[#FF7A59] text-white shadow-[0_14px_44px_rgba(255,60,60,0.18)] hover:shadow-[0_20px_64px_rgba(255,60,60,0.26)] focus-visible:ring-[#FF3B3B]/55 focus-visible:ring-offset-white"
+          )}
+        >
+          <span className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+            <span className="absolute -inset-8 bg-white/20 blur-2xl" />
+            <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/25 to-white/0 translate-x-[-120%] group-hover:translate-x-[120%] transition-transform duration-700" />
+          </span>
+          <span className="absolute inset-[1px] rounded-[15px] bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+          <span className="relative z-10 flex items-center justify-center gap-2">
+            <LogOut size={16} strokeWidth={2.6} />
+            Log out
+          </span>
         </button>
       </div>
     </div>
@@ -2775,7 +2791,7 @@ const MailAppContent = () => {
   const [voiceActive, setVoiceActive] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const mobileSearchInputRef = useRef<HTMLInputElement | null>(null);
-  const [toast, setToast] = useState<{ open: boolean; variant: 'success' | 'info' | 'error'; title: string; subtitle?: string; actionLabel?: string; onAction?: () => void } | null>(null);
+  const [toast, setToast] = useState<{ id: number; open: boolean; variant: 'success' | 'info' | 'error'; title: string; subtitle?: string; actionLabel?: string; onAction?: () => void } | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
   const audioUnlockedRef = useRef(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -3269,7 +3285,7 @@ const MailAppContent = () => {
     if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current);
     const variant = next.variant || 'success';
     playToastSound(variant, next.soundCount);
-    setToast({ open: true, variant, title: next.title, subtitle: next.subtitle, actionLabel: next.actionLabel, onAction: next.onAction });
+    setToast({ id: Date.now(), open: true, variant, title: next.title, subtitle: next.subtitle, actionLabel: next.actionLabel, onAction: next.onAction });
     toastTimeoutRef.current = window.setTimeout(() => setToast((t) => (t ? { ...t, open: false } : t)), 3200);
   }, [playToastSound]);
 
@@ -4019,126 +4035,125 @@ const MailAppContent = () => {
                   </div>
                 )}
                 {threadsLoading && visibleThreads.length === 0 ? (
-                  <div className="space-y-2 mt-2">
-                     {[1,2,3,4,5].map(i => (
-                       <div key={i} className={cn("h-24 rounded-md animate-pulse", isDark ? "bg-[#181818]" : "bg-[#F0F0F0]")} />
-                     ))}
-                  </div>
-                ) : threadsError ? (
-                  <div className="px-4 py-6">
-                    <div className={cn(
-                      "rounded-2xl border p-5 flex items-center justify-between gap-4",
-                      isDark ? "bg-[#181818] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black"
-                    )}>
-                      <div className="text-sm font-medium">{threadsError}</div>
-                      <button
-                        onClick={() => {
-                          threadsCursorRef.current = undefined;
-                          setThreadsCursor(undefined);
-                          if (isSearching) {
-                            searchThreads({ reset: true });
-                          } else {
-                            loadThreads({ reset: true });
-                          }
-                        }}
-                        className={cn(
-                          "px-4 py-2 rounded-full border text-xs font-bold tracking-wide transition-colors",
-                          isDark ? "bg-[#1A1A1A] border-[#333] hover:border-[#1DB954]/40 hover:text-[#1DB954]" : "bg-white border-[#E5E5E5] hover:border-[#1DB954]/40 hover:text-[#1DB954]"
-                        )}
-                      >
-                        Retry
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-1 pb-4">
-                    {visibleThreads.map(t => (
-                      <MailListItem 
-                        key={t.id} 
-                        thread={t} 
-                        selected={selectedId === t.id}
-                        onClick={() => {
-                          setSelectedId(t.id);
-                          setThreads(prev => prev.map(p => p.id === t.id ? { ...p, unread: false } : p));
-                          markThreadRead(t.id);
-                        }}
-                      />
-                    ))}
-                    {visibleThreads.length === 0 && threadsLoading && !threadsError && (
-                      <div className="flex-1 flex flex-col gap-3 py-6 px-2">
-                        {Array.from({ length: 8 }).map((_, i) => (
-                          <div
-                            key={i}
+                      <div className="space-y-2 mt-2">
+                         {[1,2,3,4,5].map(i => (
+                           <div key={i} className={cn("h-24 rounded-md animate-pulse", isDark ? "bg-[#181818]" : "bg-[#F0F0F0]")} />
+                         ))}
+                      </div>
+                    ) : threadsError ? (
+                      <div className="px-4 py-6">
+                        <div className={cn(
+                          "rounded-2xl border p-5 flex items-center justify-between gap-4",
+                          isDark ? "bg-[#181818] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black"
+                        )}>
+                          <div className="text-sm font-medium">{threadsError}</div>
+                          <button
+                            onClick={() => {
+                              threadsCursorRef.current = undefined;
+                              setThreadsCursor(undefined);
+                              if (isSearching) {
+                                searchThreads({ reset: true });
+                              } else {
+                                loadThreads({ reset: true });
+                              }
+                            }}
                             className={cn(
-                              "h-[76px] rounded-2xl border overflow-hidden relative",
-                              isDark ? "bg-[#181818] border-[#282828]" : "bg-white border-[#E5E5E5]"
+                              "px-4 py-2 rounded-full border text-xs font-bold tracking-wide transition-colors",
+                              isDark ? "bg-[#1A1A1A] border-[#333] hover:border-[#1DB954]/40 hover:text-[#1DB954]" : "bg-white border-[#E5E5E5] hover:border-[#1DB954]/40 hover:text-[#1DB954]"
                             )}
                           >
-                            <div className="absolute inset-0">
-                              <motion.div
-                                initial={{ x: "-60%" }}
-                                animate={{ x: "120%" }}
-                                transition={{ duration: 1.25, ease: "easeInOut", repeat: Infinity, delay: i * 0.06 }}
-                                className={cn(
-                                  "absolute inset-y-0 w-1/2 bg-gradient-to-r from-transparent via-current to-transparent opacity-20",
-                                  isDark ? "text-white" : "text-black"
-                                )}
-                              />
-                            </div>
-                            <div className="relative p-4 flex items-center gap-3">
-                              <div className={cn("w-11 h-11 rounded-2xl border", isDark ? "bg-[#121212] border-[#1A1A1A]" : "bg-[#F6F6F6] border-[#E5E5E5]")} />
-                              <div className="flex-1 min-w-0">
-                                <div className={cn("h-3 w-1/3 rounded-full", isDark ? "bg-white/10" : "bg-black/10")} />
-                                <div className={cn("h-3 w-2/3 rounded-full mt-3", isDark ? "bg-white/10" : "bg-black/10")} />
-                              </div>
-                              <div className={cn("h-3 w-12 rounded-full", isDark ? "bg-white/10" : "bg-black/10")} />
-                            </div>
-                          </div>
+                            Retry
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-1 pb-4">
+                        {visibleThreads.map(t => (
+                          <MailListItem 
+                            key={t.id} 
+                            thread={t} 
+                            selected={selectedId === t.id}
+                            onClick={() => {
+                              setSelectedId(t.id);
+                              setThreads(prev => prev.map(p => p.id === t.id ? { ...p, unread: false } : p));
+                              markThreadRead(t.id);
+                            }}
+                          />
                         ))}
-                      </div>
-                    )}
-                    {visibleThreads.length === 0 && !threadsLoading && (
-                      <div className="flex-1 flex flex-col items-center justify-center py-20 text-center relative overflow-hidden min-h-[400px]">
-                         
-                         <motion.div 
-                             initial={{ scale: 0.8, opacity: 0 }}
-                             animate={{ scale: 1, opacity: 1 }}
-                             transition={{ type: "spring", duration: 0.8 }}
-                             className="relative mb-8 group"
-                         >
-                             <div className="absolute -inset-4 bg-[#1DB954]/20 rounded-full blur-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
-                             <div className={cn(
-                               "relative w-24 h-24 rounded-[2rem] flex items-center justify-center border group-hover:border-[#1DB954]/50 transition-colors duration-500",
-                               isDark ? "bg-[#181818] border-[#282828] shadow-[0_8px_30px_rgba(0,0,0,0.5)]" : "bg-white border-[#E5E5E5] shadow-lg"
-                             )}>
-                                  <Inbox size={40} className={cn("group-hover:text-[#1DB954] transition-colors duration-500", isDark ? "text-[#5E5E5E]" : "text-[#949494]")} />
-                                  
-                                  {/* Decor elements */}
-                                  <div className={cn("absolute top-0 right-0 w-3 h-3 bg-[#1DB954] rounded-full border-2 translate-x-1 -translate-y-1 opacity-0 group-hover:opacity-100 transition-all duration-500 delay-100", isDark ? "border-[#121212]" : "border-white")} />
-                             </div>
-                         </motion.div>
-
-                         <motion.div
-                             initial={{ y: 20, opacity: 0 }}
-                             animate={{ y: 0, opacity: 1 }}
-                             transition={{ delay: 0.2, duration: 0.5 }}
-                         >
-                             <h3 className={cn("text-2xl font-bold mb-3 tracking-tight", isDark ? "text-white" : "text-black")}>{t('all_caught_up')}</h3>
-                             <p className={cn("max-w-[240px] mx-auto leading-relaxed", isDark ? "text-[#787878]" : "text-[#5E5E5E]")}>
-                               {t('empty_folder', { folder: t(activeFolder) })} <br/>{t('relax_message')}
-                             </p>
+                        {visibleThreads.length === 0 && threadsLoading && !threadsError && (
+                          <div className="flex-1 flex flex-col gap-3 py-6 px-2">
+                            {Array.from({ length: 8 }).map((_, i) => (
+                              <div
+                                key={i}
+                                className={cn(
+                                  "h-[76px] rounded-2xl border overflow-hidden relative",
+                                  isDark ? "bg-[#181818] border-[#282828]" : "bg-white border-[#E5E5E5]"
+                                )}
+                              >
+                                <div className="absolute inset-0">
+                                  <motion.div
+                                    initial={{ x: "-60%" }}
+                                    animate={{ x: "120%" }}
+                                    transition={{ duration: 1.25, ease: "easeInOut", repeat: Infinity, delay: i * 0.06 }}
+                                    className={cn(
+                                      "absolute inset-y-0 w-1/2 bg-gradient-to-r from-transparent via-current to-transparent opacity-20",
+                                      isDark ? "text-white" : "text-black"
+                                    )}
+                                  />
+                                </div>
+                                <div className="relative p-4 flex items-center gap-3">
+                                  <div className={cn("w-11 h-11 rounded-2xl border", isDark ? "bg-[#121212] border-[#1A1A1A]" : "bg-[#F6F6F6] border-[#E5E5E5]")} />
+                                  <div className="flex-1 min-w-0">
+                                    <div className={cn("h-3 w-1/3 rounded-full", isDark ? "bg-white/10" : "bg-black/10")} />
+                                    <div className={cn("h-3 w-2/3 rounded-full mt-3", isDark ? "bg-white/10" : "bg-black/10")} />
+                                  </div>
+                                  <div className={cn("h-3 w-12 rounded-full", isDark ? "bg-white/10" : "bg-black/10")} />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {visibleThreads.length === 0 && !threadsLoading && (
+                          <div className="flex-1 flex flex-col items-center justify-center py-20 text-center relative overflow-hidden min-h-[400px]">
                              
-                             <button className={cn(
-                               "mt-8 px-6 py-2.5 rounded-full border text-sm font-medium transition-all hover:scale-105 active:scale-95 shadow-lg",
-                               isDark ? "bg-[#1A1A1A] hover:bg-[#222] border-[#282828] text-white hover:text-[#1DB954]" : "bg-white hover:bg-[#F9F9F9] border-[#E5E5E5] text-black hover:text-[#1DB954]"
-                             )}>
-                                {t('refresh_inbox')}
-                             </button>
-                         </motion.div>
+                             <motion.div 
+                                 initial={{ scale: 0.8, opacity: 0 }}
+                                 animate={{ scale: 1, opacity: 1 }}
+                                 transition={{ type: "spring", duration: 0.8 }}
+                                 className="relative mb-8 group"
+                             >
+                                 <div className="absolute -inset-4 bg-[#1DB954]/20 rounded-full blur-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
+                                 <div className={cn(
+                                   "relative w-24 h-24 rounded-[2rem] flex items-center justify-center border group-hover:border-[#1DB954]/50 transition-colors duration-500",
+                                   isDark ? "bg-[#181818] border-[#282828] shadow-[0_8px_30px_rgba(0,0,0,0.5)]" : "bg-white border-[#E5E5E5] shadow-lg"
+                                 )}>
+                                      <Inbox size={40} className={cn("group-hover:text-[#1DB954] transition-colors duration-500", isDark ? "text-[#5E5E5E]" : "text-[#949494]")} />
+                                      
+                                      <div className={cn("absolute top-0 right-0 w-3 h-3 bg-[#1DB954] rounded-full border-2 translate-x-1 -translate-y-1 opacity-0 group-hover:opacity-100 transition-all duration-500 delay-100", isDark ? "border-[#121212]" : "border-white")} />
+                                 </div>
+                             </motion.div>
+
+                             <motion.div
+                                 initial={{ y: 20, opacity: 0 }}
+                                 animate={{ y: 0, opacity: 1 }}
+                                 transition={{ delay: 0.2, duration: 0.5 }}
+                             >
+                                 <h3 className={cn("text-2xl font-bold mb-3 tracking-tight", isDark ? "text-white" : "text-black")}>{t('all_caught_up')}</h3>
+                                 <p className={cn("max-w-[240px] mx-auto leading-relaxed", isDark ? "text-[#787878]" : "text-[#5E5E5E]")}>
+                                   {t('empty_folder', { folder: t(activeFolder) })} <br/>{t('relax_message')}
+                                 </p>
+                                 
+                                 <button className={cn(
+                                   "mt-8 px-6 py-2.5 rounded-full border text-sm font-medium transition-all hover:scale-105 active:scale-95 shadow-lg",
+                                   isDark ? "bg-[#1A1A1A] hover:bg-[#222] border-[#282828] text-white hover:text-[#1DB954]" : "bg-white hover:bg-[#F9F9F9] border-[#E5E5E5] text-black hover:text-[#1DB954]"
+                                 )}>
+                                    {t('refresh_inbox')}
+                                 </button>
+                             </motion.div>
+                          </div>
+                        )}
                       </div>
                     )}
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -4205,7 +4220,11 @@ const MailAppContent = () => {
         <MobileNav 
           activeFolder={activeFolder}
           onFolderChange={(f) => {
-            if (f === activeFolder) return;
+            if (f === activeFolder) {
+              setMobileProfileOpen(false);
+              window.scrollTo(0, 0);
+              return;
+            }
             threadsCursorRef.current = undefined;
             setThreadsCursor(undefined);
             setThreadsError(null);
@@ -4471,64 +4490,62 @@ const MailAppContent = () => {
             transition={{ type: 'spring', stiffness: 420, damping: 32 }}
             className={cn(
               "fixed z-[60] px-4",
-              isMobile ? "left-0 right-0 bottom-[calc(6.25rem+env(safe-area-inset-bottom))]" : "right-6 bottom-6"
+              isMobile
+                ? "left-0 right-0 top-[calc(4rem+env(safe-area-inset-top)+0.75rem)]"
+                : "right-6 top-24"
             )}
           >
-            <div
-              className={cn(
-                "w-full max-w-[520px] rounded-full border backdrop-blur-md shadow-[0_18px_60px_rgba(0,0,0,0.45)] px-4 py-3 flex items-center gap-3",
-                isDark ? "bg-[#121212]/95 border-[#1F1F1F] text-white" : "bg-white/95 border-[#E5E5E5] text-black"
-              )}
-            >
-              <div
-                className={cn(
-                  "w-9 h-9 rounded-full flex items-center justify-center shrink-0 border",
-                  toast.variant === 'error'
-                    ? "bg-red-500/10 border-red-500/25"
-                    : "bg-[#1DB954]/15 border-[#1DB954]/30"
-                )}
-              >
-                {toast.variant === 'success' ? (
-                  <Check size={18} className="text-[#1DB954]" strokeWidth={2.5} />
-                ) : toast.variant === 'info' ? (
-                  <Inbox size={18} className="text-[#1DB954]" strokeWidth={2.5} />
-                ) : (
-                  <AlertTriangle size={18} className="text-red-400" strokeWidth={2.5} />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-semibold tracking-tight">{toast.title}</div>
-                {toast.subtitle && (
-                  <div className={cn("text-xs truncate max-w-[420px]", isDark ? "text-white/50" : "text-black/50")}>
-                    {toast.subtitle}
+            <div className="w-full max-w-[520px] mx-auto">
+              <div className="relative rounded-2xl bg-[#121212]/95 border border-white/10 shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl overflow-hidden">
+                <div className="flex items-start gap-3 px-4 py-3">
+                  <div className={cn("w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border border-white/10 bg-[#0F0F0F]")}>
+                    {toast.variant === 'success' ? (
+                      <Check size={18} className="text-[#1DB954]" strokeWidth={2.6} />
+                    ) : toast.variant === 'info' ? (
+                      <Inbox size={18} className="text-[#1DB954]" strokeWidth={2.6} />
+                    ) : (
+                      <AlertTriangle size={18} className="text-[#FF7777]" strokeWidth={2.6} />
+                    )}
                   </div>
-                )}
-              </div>
-              {toast.actionLabel && toast.onAction && (
-                <button
-                  onClick={() => {
-                    toast.onAction?.();
-                    setToast((t) => (t ? { ...t, open: false } : t));
-                  }}
-                  className={cn(
-                    "px-4 h-9 rounded-full text-xs font-semibold border transition-colors whitespace-nowrap",
-                    toast.variant === 'error'
-                      ? (isDark ? "bg-transparent border-red-500/30 text-red-300 hover:bg-red-500/10" : "bg-transparent border-red-200 text-red-700 hover:bg-red-50")
-                      : (isDark ? "bg-transparent border-[#2A2A2A] text-white/80 hover:bg-[#1A1A1A]" : "bg-transparent border-[#E5E5E5] text-black/70 hover:bg-[#F7F7F7]")
+                  <div className="min-w-0 flex-1 pt-0.5">
+                    <div className="text-[13px] font-semibold tracking-tight leading-tight text-white">{toast.title}</div>
+                    {toast.subtitle && (
+                      <div className="mt-1 text-[12px] leading-snug truncate text-white/55">{toast.subtitle}</div>
+                    )}
+                  </div>
+                  {toast.actionLabel && toast.onAction && (
+                    <button
+                      onClick={() => {
+                        toast.onAction?.();
+                        setToast((t) => (t ? { ...t, open: false } : t));
+                      }}
+                      className={cn(
+                        "h-10 px-3 rounded-2xl text-[11px] font-semibold tracking-wide whitespace-nowrap transition-colors border",
+                        toast.variant === 'error'
+                          ? "border-white/10 text-white/80 hover:bg-white/5"
+                          : "border-white/10 text-white/80 hover:bg-white/5"
+                      )}
+                    >
+                      {toast.actionLabel}
+                    </button>
                   )}
-                >
-                  {toast.actionLabel}
-                </button>
-              )}
-              <button
-                onClick={() => setToast((t) => (t ? { ...t, open: false } : t))}
-                className={cn(
-                  "p-2 rounded-full transition-colors",
-                  isDark ? "text-white/60 hover:text-white hover:bg-[#1A1A1A]" : "text-black/50 hover:text-black hover:bg-[#F2F2F2]"
-                )}
-              >
-                <X size={16} />
-              </button>
+                  <button
+                    onClick={() => setToast((t) => (t ? { ...t, open: false } : t))}
+                    className="w-10 h-10 rounded-2xl flex items-center justify-center transition-colors border border-white/10 text-white/65 hover:text-white hover:bg-white/5"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+                <div className="h-[2px] w-full bg-white/10">
+                  <motion.div
+                    key={toast.id}
+                    initial={{ width: '100%' }}
+                    animate={{ width: '0%' }}
+                    transition={{ duration: 3.2, ease: 'linear' }}
+                    className={cn("h-full", toast.variant === 'error' ? "bg-[#FF5555]" : "bg-[#1DB954]")}
+                  />
+                </div>
+              </div>
             </div>
           </motion.div>
         )}
