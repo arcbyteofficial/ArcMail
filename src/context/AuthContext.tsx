@@ -31,7 +31,10 @@ interface AuthContextType {
   addAccount: (password: string, email: string) => Promise<{ ok: boolean; error?: string }>;
   switchAccount: (accountId: string) => void;
   logoutAccount: (accountId: string) => void;
-  updateAccountProfile: (accountId: string, updates: { displayName?: string; avatarDataUrl?: string | null }) => void;
+  updateAccountProfile: (
+    accountId: string,
+    updates: { displayName?: string; avatarDataUrl?: string | null }
+  ) => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
   isLoading: boolean;
 }
@@ -585,7 +588,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   );
 
   const updateAccountProfile = useCallback(
-    (accountId: string, updates: { displayName?: string; avatarDataUrl?: string | null }) => {
+    async (accountId: string, updates: { displayName?: string; avatarDataUrl?: string | null }) => {
       const existing = safeParseAccounts(localStorage.getItem('mailAccounts'));
       const next = existing.map((a) => {
         if (a.id !== accountId) return a;
@@ -642,24 +645,89 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const payload: { displayName?: string; avatarDataUrl?: string | null } = {};
         if (typeof updates.displayName === 'string') payload.displayName = updates.displayName;
         if (updates.avatarDataUrl !== undefined) payload.avatarDataUrl = updates.avatarDataUrl;
-        void api
-          .put('/account/profile', payload)
-          .then((res) => {
-            const p =
-              res.data && typeof res.data === 'object' && 'profile' in res.data && res.data.profile && typeof res.data.profile === 'object'
-                ? (res.data.profile as { displayName?: unknown; avatarDataUrl?: unknown })
-                : null;
-            if (!p) return;
+        try {
+          const res = await api.put('/account/profile', payload);
+          const persisted =
+            res.data && typeof res.data === 'object' && 'persisted' in res.data && typeof (res.data as { persisted?: unknown }).persisted === 'boolean'
+              ? Boolean((res.data as { persisted: boolean }).persisted)
+              : true;
+          const p =
+            res.data && typeof res.data === 'object' && 'profile' in res.data && res.data.profile && typeof res.data.profile === 'object'
+              ? (res.data.profile as { displayName?: unknown; avatarDataUrl?: unknown })
+              : null;
+          if (!persisted) return { ok: false, error: 'Save did not persist on the server. Check object storage configuration.' };
+          if (p) {
             applyProfileToLocal(accountId, {
               displayName: typeof p.displayName === 'string' ? p.displayName : null,
               avatarDataUrl: typeof p.avatarDataUrl === 'string' ? p.avatarDataUrl : null,
             });
-          })
-          .catch(() => null);
+          }
+          return { ok: true };
+        } catch (err) {
+          const status =
+            err && typeof err === 'object' && 'response' in err ? (err as { response?: { status?: unknown } }).response?.status : null;
+          const data =
+            err && typeof err === 'object' && 'response' in err ? (err as { response?: { data?: unknown } }).response?.data : null;
+          const code =
+            data && typeof data === 'object' && 'error' in data && typeof (data as { error?: unknown }).error === 'string'
+              ? String((data as { error: string }).error)
+              : null;
+          if (status === 501 && code === 'storage_unconfigured') return { ok: false, error: 'Object storage is not configured on the server.' };
+          if (status === 502 && code === 'storage_upload_failed') return { ok: false, error: 'Image upload failed. Please try again.' };
+          if (status === 400 && code === 'image_too_large') return { ok: false, error: 'Image is too large. Use a smaller image.' };
+          if (status === 400 && code === 'invalid_avatar') return { ok: false, error: 'Invalid image. Please select a valid image file.' };
+          return { ok: false, error: 'Save failed. Please try again.' };
+        }
       }
+      return { ok: true };
     },
     [applyProfileToLocal, persistAccounts, syncLegacyFromAccount]
   );
+
+  useEffect(() => {
+    if (isLoading) return;
+    if (!isAuthenticated) return;
+    if (!activeAccountId) return;
+    const accountId = activeAccountId;
+
+    let stopped = false;
+    const syncOnce = async () => {
+      try {
+        const p = await api.get('/account/profile');
+        const profile =
+          p.data && typeof p.data === 'object' && 'profile' in p.data && p.data.profile && typeof p.data.profile === 'object'
+            ? (p.data.profile as { displayName?: unknown; avatarDataUrl?: unknown })
+            : null;
+        if (!profile) return;
+        const serverHasProfile = Boolean(
+          (typeof profile.displayName === 'string' && profile.displayName.trim()) ||
+            (typeof profile.avatarDataUrl === 'string' && profile.avatarDataUrl.trim())
+        );
+        if (!serverHasProfile) return;
+        if (stopped) return;
+        applyProfileToLocal(accountId, {
+          displayName: typeof profile.displayName === 'string' ? profile.displayName : null,
+          avatarDataUrl: typeof profile.avatarDataUrl === 'string' ? profile.avatarDataUrl : null,
+        });
+      } catch {
+        return;
+      }
+    };
+
+    void syncOnce();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void syncOnce();
+    };
+    window.addEventListener('focus', syncOnce);
+    document.addEventListener('visibilitychange', onVisible);
+    const intervalId = window.setInterval(() => void syncOnce(), 30_000);
+    return () => {
+      stopped = true;
+      window.removeEventListener('focus', syncOnce);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(intervalId);
+    };
+  }, [activeAccountId, applyProfileToLocal, isAuthenticated, isLoading]);
 
   return (
     <AuthContext.Provider value={{ isAuthenticated, user, accounts, activeAccountId, login, addAccount, switchAccount, logoutAccount, updateAccountProfile, logout, isLoading }}>

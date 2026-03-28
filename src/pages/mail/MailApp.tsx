@@ -2118,14 +2118,17 @@ const MobileProfileSection = ({
   onClose: () => void;
   onSwitchAccount: (id: string) => void;
   onLogoutAccount: (id: string) => void;
-  onUpdateAccountProfile: (id: string, updates: { displayName?: string; avatarDataUrl?: string | null }) => void;
+  onUpdateAccountProfile: (id: string, updates: { displayName?: string; avatarDataUrl?: string | null }) => Promise<{ ok: boolean; error?: string }>;
   onAddAccount: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   onLogoutCurrent: () => void;
 }) => {
   const { isDark } = useTheme();
   const active = accounts.find((a) => a.id === activeAccountId) || accounts[0] || null;
   const [displayName, setDisplayName] = useState(active?.name || '');
+  const [draftAvatar, setDraftAvatar] = useState<string | null | undefined>(undefined);
   const [photoError, setPhotoError] = useState<string | null>(null);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [addEmail, setAddEmail] = useState('');
   const [addPassword, setAddPassword] = useState('');
   const [addShow, setAddShow] = useState(false);
@@ -2135,10 +2138,22 @@ const MobileProfileSection = ({
   const [removeConfirm, setRemoveConfirm] = useState<{ id: string; email: string } | null>(null);
   const addSectionRef = useRef<HTMLDivElement | null>(null);
   const addEmailRef = useRef<HTMLInputElement | null>(null);
+  const prevActiveIdRef = useRef<string | null>(null);
 
   useEffect(() => {
+    const nextId = active?.id || null;
+    if (prevActiveIdRef.current === nextId) return;
+    prevActiveIdRef.current = nextId;
     setDisplayName(active?.name || '');
+    setDraftAvatar(undefined);
+    setSaveError(null);
+    setPhotoError(null);
   }, [active?.id, active?.name]);
+
+  const effectiveAvatar = draftAvatar === undefined ? (active?.avatarDataUrl || null) : draftAvatar;
+  const hasUnsaved =
+    Boolean(activeAccountId) &&
+    ((displayName || '').trim() !== (active?.name || '').trim() || draftAvatar !== undefined);
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-[calc(7.5rem+env(safe-area-inset-bottom))]">
@@ -2167,8 +2182,8 @@ const MobileProfileSection = ({
             <div className="flex items-center gap-4">
               <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-[#1DB954] to-[#1ED760] p-[2px] shrink-0">
                 <div className={cn("w-full h-full rounded-full overflow-hidden flex items-center justify-center", isDark ? "bg-[#0B0B0B]" : "bg-white")}>
-                  {active?.avatarDataUrl ? (
-                    <img src={active.avatarDataUrl} alt={active?.name} className="w-full h-full object-cover" />
+                  {effectiveAvatar ? (
+                    <img src={effectiveAvatar} alt={active?.name} className="w-full h-full object-cover" />
                   ) : (
                     <span className={cn("font-bold text-xl", isDark ? "text-white" : "text-black")}>{(active?.email || '?')[0].toUpperCase()}</span>
                   )}
@@ -2183,6 +2198,11 @@ const MobileProfileSection = ({
             {photoError && (
               <div className="mt-4 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">
                 {photoError}
+              </div>
+            )}
+            {saveError && (
+              <div className="mt-4 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                {saveError}
               </div>
             )}
 
@@ -2203,6 +2223,7 @@ const MobileProfileSection = ({
                     const file = e.target.files?.[0];
                     e.target.value = '';
                     setPhotoError(null);
+                    setSaveError(null);
                     if (!file || !activeAccountId) return;
                     if (!file.type.startsWith('image/')) return setPhotoError('Choose an image file.');
                     if (file.size > 200_000) return setPhotoError('Image is too large. Use a smaller image.');
@@ -2210,14 +2231,19 @@ const MobileProfileSection = ({
                     reader.onload = () => {
                       const result = typeof reader.result === 'string' ? reader.result : '';
                       if (!result) return;
-                      onUpdateAccountProfile(activeAccountId, { avatarDataUrl: result });
+                      setDraftAvatar(result);
                     };
                     reader.readAsDataURL(file);
                   }}
                 />
               </label>
               <button
-                onClick={() => activeAccountId && onUpdateAccountProfile(activeAccountId, { avatarDataUrl: null })}
+                onClick={() => {
+                  setPhotoError(null);
+                  setSaveError(null);
+                  if (!activeAccountId) return;
+                  setDraftAvatar(null);
+                }}
                 className={cn(
                   "px-3 h-10 rounded-xl font-bold text-[12px] flex items-center justify-center gap-2 transition-colors border",
                   isDark ? "bg-transparent border-[#282828] text-white/70 hover:bg-[#1A1A1A] hover:text-white" : "bg-transparent border-[#E5E5E5] text-black/70 hover:bg-[#F6F6F6] hover:text-black"
@@ -2239,12 +2265,40 @@ const MobileProfileSection = ({
                   onChange={(e) => {
                     const v = e.target.value;
                     setDisplayName(v);
-                    if (activeAccountId) onUpdateAccountProfile(activeAccountId, { displayName: v });
                   }}
                   className={cn("flex-1 min-w-0 bg-transparent outline-none text-base", isDark ? "text-white placeholder-white/20" : "text-black placeholder-black/30")}
                   placeholder="Your name"
                 />
               </div>
+              <button
+                disabled={!hasUnsaved || saveBusy || !activeAccountId}
+                onClick={async () => {
+                  if (!activeAccountId) return;
+                  setSaveBusy(true);
+                  setSaveError(null);
+                  try {
+                    const payload: { displayName?: string; avatarDataUrl?: string | null } = {};
+                    payload.displayName = displayName;
+                    if (draftAvatar !== undefined) payload.avatarDataUrl = draftAvatar;
+                    const res = await onUpdateAccountProfile(activeAccountId, payload);
+                    if (!res.ok) {
+                      setSaveError(res.error || 'Save failed. Please try again.');
+                      return;
+                    }
+                    setDraftAvatar(undefined);
+                  } finally {
+                    setSaveBusy(false);
+                  }
+                }}
+                className={cn(
+                  "mt-3 w-full h-11 rounded-2xl text-[11px] font-extrabold tracking-[0.18em] uppercase border transition-colors disabled:opacity-60 disabled:cursor-not-allowed",
+                  isDark
+                    ? "bg-[#1DB954] text-black border-transparent hover:bg-[#1ED760]"
+                    : "bg-[#1DB954] text-black border-transparent hover:bg-[#1ED760]"
+                )}
+              >
+                {saveBusy ? 'Saving' : hasUnsaved ? 'Save changes' : 'Saved'}
+              </button>
             </div>
           </div>
         </div>
