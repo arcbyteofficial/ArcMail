@@ -165,7 +165,12 @@ const PORT = Number(process.env.PORT || 5000);
 const IS_PROD = process.env.NODE_ENV === 'production';
 const DEV_ADMIN_TOKEN = typeof process.env.DEV_ADMIN_TOKEN === 'string' ? process.env.DEV_ADMIN_TOKEN.trim() : '';
 const ADMIN_RESET_2FA_TOKEN = typeof process.env.ADMIN_RESET_2FA_TOKEN === 'string' ? process.env.ADMIN_RESET_2FA_TOKEN.trim() : '';
-const REQUIRE_2FA_ON_LOGIN = process.env.REQUIRE_2FA_ON_LOGIN === '1' || process.env.REQUIRE_2FA_ON_LOGIN === 'true';
+const REQUIRE_2FA_ON_LOGIN = (() => {
+  const raw = typeof process.env.REQUIRE_2FA_ON_LOGIN === 'string' ? process.env.REQUIRE_2FA_ON_LOGIN.trim().toLowerCase() : '';
+  if (!raw) return true;
+  if (raw === '0' || raw === 'false' || raw === 'no' || raw === 'off') return false;
+  return true;
+})();
 
 const IMAP_HOST = process.env.IMAP_HOST || 'imap.hostinger.com';
 const IMAP_PORT = Number(process.env.IMAP_PORT || 993);
@@ -1261,6 +1266,11 @@ app.get('/api/health', (_req, res) =>
   res.json({
     ok: true,
     routes: { forgotPassword: true },
+    auth: {
+      require2FAOnLogin: REQUIRE_2FA_ON_LOGIN,
+      storage: db ? 'db' : 'file',
+      nodeEnv: process.env.NODE_ENV || 'development',
+    },
   })
 );
 

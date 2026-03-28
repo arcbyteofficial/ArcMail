@@ -1,14 +1,14 @@
 {
   "ceo@arcbyte.co": {
-    "encrypted_email_password": "{\"iv\":\"Wh18FwV8OTKmz3T0\",\"tag\":\"8fh0idDfroEqG7h6hYkiJA==\",\"ciphertext\":\"XEO03VHpfJ9FHymVxbchx2jx3ieApcP+In5S\"}",
+    "encrypted_email_password": "{\"iv\":\"WaV1cyZR6CMtARL1\",\"tag\":\"eOC+BNyRK7BwF8rCEbutWQ==\",\"ciphertext\":\"4U6a9RqjqjDH2i2QqLIE7CfeencoJs7Kg6BS\"}",
     "session_version": 0,
     "twofa_enabled": false,
     "twofa_secret_enc": null,
-    "temp_twofa_secret_enc": null,
+    "temp_twofa_secret_enc": "{\"iv\":\"1RukAfslv03JBNBH\",\"tag\":\"PWGB9qaiEqOpLRz0qQ4Ykw==\",\"ciphertext\":\"6YGq0y6yJM2SzgafgmBVA//Z1j5zNzAWwOg12oD+cPQ=\"}",
     "backup_codes": [],
     "failed_2fa_attempts": 0,
     "lockout_until": null,
     "last_2fa_verified_at": null,
-    "updated_at": "2026-03-28T20:46:10.885Z"
+    "updated_at": "2026-03-28T20:54:18.586Z"
   }
 }
