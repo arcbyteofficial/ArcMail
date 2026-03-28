@@ -14,6 +14,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const envRoot = path.join(__dirname, '..');
 const envMode = process.env.NODE_ENV || 'development';
+const envIsProd = envMode === 'production';
 const envFiles = [
   path.join(envRoot, '.env'),
   path.join(envRoot, '.env.local'),
@@ -22,7 +23,7 @@ const envFiles = [
 ];
 for (const p of envFiles) {
   try {
-    if (fs.existsSync(p)) dotenv.config({ path: p, override: true });
+    if (fs.existsSync(p)) dotenv.config({ path: p, override: !envIsProd });
   } catch {}
 }
 
