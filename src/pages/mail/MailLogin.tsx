@@ -185,7 +185,24 @@ const MailLogin = () => {
       }
       const res = await confirm2FASetup({ preAuthToken, token: code, logoutAllSessions: true });
       if (!res.ok) {
-        setError(res.error || 'Failed to enable 2FA.');
+        try {
+          const retry = await login(password, email, rememberMe);
+          if (retry.ok) {
+            navigate('/');
+            return;
+          }
+          if (retry.require2FA && typeof retry.preAuthToken === 'string' && retry.preAuthToken) {
+            setStep('otp');
+            setPreAuthToken(retry.preAuthToken);
+            setOtp('');
+            setUseBackup(false);
+            setError('');
+            return;
+          }
+        } catch {
+          void 0;
+        }
+        setError(res.error || 'Failed to enable 2FA. Try again.');
         return;
       }
       if (res.backupCodes && res.backupCodes.length) {

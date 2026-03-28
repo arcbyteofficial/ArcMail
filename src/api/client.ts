@@ -44,6 +44,9 @@ const isLocalHost = () => {
 };
 
 const API_URL = (() => {
+  if (import.meta.env.DEV && isLocalHost()) {
+    return inferApiBase() || 'http://localhost:5050/api';
+  }
   if (envApiUrl) {
     const cleaned = cleanEnvUrl(envApiUrl);
     if (/^https?:\/\//i.test(cleaned)) {

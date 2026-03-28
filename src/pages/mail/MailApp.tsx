@@ -2610,7 +2610,22 @@ const MobileProfileSection = ({
                         setAddBusy(true);
                         try {
                           const res = await onConfirm2FASetupAddAccount({ preAuthToken: addPreAuthToken, token: code });
-                          if (!res.ok) return setAddError(res.error || 'Sign in failed.');
+                          if (!res.ok) {
+                            const retry = await onAddAccount(addEmail.trim(), addPassword);
+                            if (retry.require2FA && retry.preAuthToken) {
+                              setAddStep('otp');
+                              setAddPreAuthToken(retry.preAuthToken);
+                              setAddOtp('');
+                              setAddUseBackup(false);
+                              return;
+                            }
+                            if (!retry.ok) return setAddError(res.error || retry.error || 'Sign in failed.');
+                            setAddEmail('');
+                            setAddPassword('');
+                            setAddOpen(false);
+                            resetAddFlow();
+                            return;
+                          }
                           if (res.backupCodes && res.backupCodes.length) {
                             setAddBackupCodes(res.backupCodes);
                             setAddStep('backupCodes');

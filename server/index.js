@@ -163,6 +163,9 @@ const deleteStoredProfile = async (emailKey) => {
 
 const PORT = Number(process.env.PORT || 5000);
 const IS_PROD = process.env.NODE_ENV === 'production';
+const DEV_ADMIN_TOKEN = typeof process.env.DEV_ADMIN_TOKEN === 'string' ? process.env.DEV_ADMIN_TOKEN.trim() : '';
+const ADMIN_RESET_2FA_TOKEN = typeof process.env.ADMIN_RESET_2FA_TOKEN === 'string' ? process.env.ADMIN_RESET_2FA_TOKEN.trim() : '';
+const REQUIRE_2FA_ON_LOGIN = process.env.REQUIRE_2FA_ON_LOGIN === '1' || process.env.REQUIRE_2FA_ON_LOGIN === 'true';
 
 const IMAP_HOST = process.env.IMAP_HOST || 'imap.hostinger.com';
 const IMAP_PORT = Number(process.env.IMAP_PORT || 993);
@@ -1328,6 +1331,13 @@ const handleAuthLogin = async (req, res) => {
     return res.json({ ok: true, require2FA: true, preAuthToken, user: { email, role: 'MAIL_USER' } });
   }
 
+  if (!REQUIRE_2FA_ON_LOGIN) {
+    const sessionId = crypto.randomUUID();
+    const csrfToken = crypto.randomBytes(32).toString('hex');
+    const result = await finishLogin({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion });
+    return res.json(result);
+  }
+
   const sessionId = crypto.randomUUID();
   const csrfToken = crypto.randomBytes(32).toString('hex');
   const preAuthToken = jwt.sign(
@@ -1460,6 +1470,9 @@ app.post('/api/auth/confirm-2fa-preauth', async (req, res) => {
   const sessionVersion = typeof decoded.sv === 'number' && Number.isFinite(decoded.sv) ? decoded.sv : 0;
   if (!emailKey || !sessionId || !encPassword || !csrfToken) return res.status(401).json({ error: 'preauth_expired' });
 
+  const svOkBefore = await storeCheckSessionVersion(emailKey, sessionVersion);
+  if (!svOkBefore) return res.status(401).json({ error: 'session_revoked' });
+
   const user = await storeGetUser(emailKey);
   if (!user || typeof user.temp_twofa_secret_enc !== 'string') return res.status(400).json({ error: 'twofa_setup_required' });
   if (user.twofa_enabled) return res.status(400).json({ error: 'twofa_already_enabled' });
@@ -1485,8 +1498,6 @@ app.post('/api/auth/confirm-2fa-preauth', async (req, res) => {
   const hashed = rawCodes.map((c) => hashBackupCode(c));
   const nextSv = await storeEnable2fa({ emailKey, secretEnc: user.temp_twofa_secret_enc, backupCodesHashed: hashed, logoutAllSessions });
   if (nextSv === null) return res.status(500).json({ error: 'twofa_enable_failed' });
-  const svOk = await storeCheckSessionVersion(emailKey, sessionVersion);
-  if (!svOk) return res.status(401).json({ error: 'session_revoked' });
 
   const result = await finishLogin({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion: nextSv });
   return res.json({ ...result, backupCodes: rawCodes });
@@ -1602,6 +1613,75 @@ app.post('/api/auth/disable-2fa', requireAuth, requireCsrf, async (req, res) => 
     sessionVersion: nextSv,
   });
   return res.json({ ok: true, token, sessionVersion: nextSv });
+});
+
+const resetAll2fa = async () => {
+  if (db) {
+    const r = await db.query(
+      `UPDATE arcmail_users
+       SET twofa_enabled = FALSE,
+           twofa_secret_enc = NULL,
+           temp_twofa_secret_enc = NULL,
+           backup_codes = '[]'::jsonb,
+           failed_2fa_attempts = 0,
+           lockout_until = NULL,
+           last_2fa_verified_at = NULL,
+           session_version = session_version + 1,
+           updated_at = now()`
+    );
+    return { reset: r.rowCount || 0, storage: 'db' };
+  }
+
+  const store = authStore && typeof authStore === 'object' && !Array.isArray(authStore) ? authStore : {};
+  const entries = Object.entries(store);
+  const nextStore = {};
+  for (const [emailKey, entry] of entries) {
+    const prev = entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : {};
+    const currentSv = typeof prev.session_version === 'number' ? prev.session_version : 0;
+    nextStore[emailKey] = {
+      ...prev,
+      twofa_enabled: false,
+      twofa_secret_enc: null,
+      temp_twofa_secret_enc: null,
+      backup_codes: [],
+      failed_2fa_attempts: 0,
+      lockout_until: null,
+      last_2fa_verified_at: null,
+      session_version: currentSv + 1,
+      updated_at: new Date().toISOString(),
+    };
+  }
+  authStore = nextStore;
+  writeAuthStore(nextStore);
+  return { reset: entries.length, storage: 'file' };
+};
+
+app.post('/api/auth/dev/reset-2fa', express.json({ limit: '50kb' }), async (req, res) => {
+  if (IS_PROD) return res.status(404).json({ error: 'not_found' });
+  const tokenHeader = typeof req.headers['x-dev-admin-token'] === 'string' ? req.headers['x-dev-admin-token'] : '';
+  const tokenBody = typeof req.body?.token === 'string' ? req.body.token : '';
+  const token = String(tokenHeader || tokenBody || '').trim();
+  const host = String(req.hostname || '').toLowerCase();
+  const ip = String(req.ip || '').toLowerCase();
+  const isLocal = host === 'localhost' || host === '127.0.0.1' || ip.includes('127.0.0.1') || ip.includes('::1');
+  if (DEV_ADMIN_TOKEN) {
+    if (!token || token !== DEV_ADMIN_TOKEN) return res.status(401).json({ error: 'unauthorized' });
+  } else if (!isLocal) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+
+  const result = await resetAll2fa();
+  return res.json({ ok: true, ...result });
+});
+
+app.post('/api/auth/admin/reset-2fa', express.json({ limit: '50kb' }), async (req, res) => {
+  if (!ADMIN_RESET_2FA_TOKEN) return res.status(404).json({ error: 'not_found' });
+  const tokenHeader = typeof req.headers['x-admin-token'] === 'string' ? req.headers['x-admin-token'] : '';
+  const tokenBody = typeof req.body?.token === 'string' ? req.body.token : '';
+  const token = String(tokenHeader || tokenBody || '').trim();
+  if (!token || token !== ADMIN_RESET_2FA_TOKEN) return res.status(401).json({ error: 'unauthorized' });
+  const result = await resetAll2fa();
+  return res.json({ ok: true, ...result });
 });
 
 app.get('/api/account/profile', requireAuth, async (req, res) => {

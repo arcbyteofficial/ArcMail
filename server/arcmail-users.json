@@ -1,0 +1,14 @@
+{
+  "ceo@arcbyte.co": {
+    "encrypted_email_password": "{\"iv\":\"Wh18FwV8OTKmz3T0\",\"tag\":\"8fh0idDfroEqG7h6hYkiJA==\",\"ciphertext\":\"XEO03VHpfJ9FHymVxbchx2jx3ieApcP+In5S\"}",
+    "session_version": 0,
+    "twofa_enabled": false,
+    "twofa_secret_enc": null,
+    "temp_twofa_secret_enc": null,
+    "backup_codes": [],
+    "failed_2fa_attempts": 0,
+    "lockout_until": null,
+    "last_2fa_verified_at": null,
+    "updated_at": "2026-03-28T20:46:10.885Z"
+  }
+}
