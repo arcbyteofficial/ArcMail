@@ -35,6 +35,7 @@ import {
   Moon,
   Sun,
   Globe,
+  Smartphone,
   MessageSquare,
   type LucideIcon
 } from 'lucide-react';
@@ -2586,9 +2587,284 @@ const TypingGreeting = () => {
   );
 };
 
+const TwoFactorModal = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
+  const { isDark } = useTheme();
+  const { setActiveAuthToken } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState<'idle' | 'setup' | 'enabled'>('idle');
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [manualKey, setManualKey] = useState('');
+  const [otp, setOtp] = useState('');
+  const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
+  const [logoutAllSessions, setLogoutAllSessions] = useState(true);
+  const [disableMode, setDisableMode] = useState<'totp' | 'backup'>('totp');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let stopped = false;
+    const run = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await api.get('/auth/2fa/status');
+        const enabled =
+          res.data && typeof res.data === 'object' && 'enabled' in res.data && typeof (res.data as { enabled?: unknown }).enabled === 'boolean'
+            ? Boolean((res.data as { enabled: boolean }).enabled)
+            : false;
+        if (stopped) return;
+        setStep(enabled ? 'enabled' : 'idle');
+        setQrDataUrl('');
+        setManualKey('');
+        setBackupCodes(null);
+        setOtp('');
+      } catch {
+        if (stopped) return;
+        setError('Failed to load 2FA status.');
+      } finally {
+        if (!stopped) setLoading(false);
+      }
+    };
+    void run();
+    return () => {
+      stopped = true;
+    };
+  }, [open]);
+
+  const startSetup = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await api.post('/auth/enable-2fa', {});
+      const nextQr =
+        res.data && typeof res.data === 'object' && 'qrDataUrl' in res.data && typeof (res.data as { qrDataUrl?: unknown }).qrDataUrl === 'string'
+          ? String((res.data as { qrDataUrl: string }).qrDataUrl)
+          : '';
+      const nextKey =
+        res.data && typeof res.data === 'object' && 'manualKey' in res.data && typeof (res.data as { manualKey?: unknown }).manualKey === 'string'
+          ? String((res.data as { manualKey: string }).manualKey)
+          : '';
+      if (!nextQr || !nextKey) throw new Error('invalid');
+      setQrDataUrl(nextQr);
+      setManualKey(nextKey);
+      setStep('setup');
+    } catch {
+      setError('Failed to start 2FA setup.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const confirmSetup = async () => {
+    const code = otp.trim().replace(/\s+/g, '');
+    if (!code) return setError('Enter the 6-digit code.');
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await api.post('/auth/confirm-2fa', { token: code, logoutAllSessions });
+      const codes =
+        res.data && typeof res.data === 'object' && 'backupCodes' in res.data && Array.isArray((res.data as { backupCodes?: unknown }).backupCodes)
+          ? ((res.data as { backupCodes: unknown[] }).backupCodes.filter((c) => typeof c === 'string') as string[])
+          : [];
+      const token =
+        res.data && typeof res.data === 'object' && 'token' in res.data && typeof (res.data as { token?: unknown }).token === 'string'
+          ? String((res.data as { token: string }).token)
+          : null;
+      if (token) setActiveAuthToken(token);
+      setBackupCodes(codes.length ? codes : null);
+      setStep('enabled');
+      setOtp('');
+    } catch (err) {
+      const status =
+        err && typeof err === 'object' && 'response' in err ? (err as { response?: { status?: unknown; data?: unknown } }).response?.status : null;
+      const data = err && typeof err === 'object' && 'response' in err ? (err as { response?: { data?: unknown } }).response?.data : null;
+      const code =
+        data && typeof data === 'object' && 'error' in data && typeof (data as { error?: unknown }).error === 'string'
+          ? String((data as { error: string }).error)
+          : null;
+      if (status === 401 && code === 'invalid_2fa_code') setError('Invalid code. Try again.');
+      else setError('Failed to enable 2FA.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const disable2fa = async () => {
+    const code = otp.trim().replace(/\s+/g, '');
+    if (!code) return setError(disableMode === 'backup' ? 'Enter a backup code.' : 'Enter the 6-digit code.');
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await api.post('/auth/disable-2fa', disableMode === 'backup' ? { backupCode: code } : { token: code });
+      const token =
+        res.data && typeof res.data === 'object' && 'token' in res.data && typeof (res.data as { token?: unknown }).token === 'string'
+          ? String((res.data as { token: string }).token)
+          : null;
+      if (token) setActiveAuthToken(token);
+      setStep('idle');
+      setQrDataUrl('');
+      setManualKey('');
+      setBackupCodes(null);
+      setOtp('');
+    } catch (err) {
+      const status =
+        err && typeof err === 'object' && 'response' in err ? (err as { response?: { status?: unknown; data?: unknown } }).response?.status : null;
+      const data = err && typeof err === 'object' && 'response' in err ? (err as { response?: { data?: unknown } }).response?.data : null;
+      const code =
+        data && typeof data === 'object' && 'error' in data && typeof (data as { error?: unknown }).error === 'string'
+          ? String((data as { error: string }).error)
+          : null;
+      if (status === 401 && code === 'invalid_2fa_code') setError('Invalid code. Try again.');
+      else setError('Failed to disable 2FA.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-[70]" onClick={onClose} />
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.98 }}
+            transition={{ type: "spring", stiffness: 420, damping: 34 }}
+            className="fixed inset-0 z-[80] flex items-center justify-center px-4"
+          >
+            <div className={cn("w-full max-w-md rounded-3xl border shadow-2xl overflow-hidden", isDark ? "bg-[#0B0B0B] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black")}>
+              <div className={cn("px-6 py-5 flex items-start justify-between gap-4 border-b", isDark ? "border-[#1A1A1A]" : "border-[#E5E5E5]")}>
+                <div className="min-w-0">
+                  <div className={cn("text-lg font-bold tracking-tight", isDark ? "text-white" : "text-black")}>Two‑Factor Authentication</div>
+                  <div className={cn("text-sm mt-0.5", isDark ? "text-white/55" : "text-black/55")}>
+                    Protect your ArcMail session with a 6‑digit authenticator code.
+                  </div>
+                </div>
+                <button onClick={onClose} className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-[#1A1A1A]" : "text-black/55 hover:text-black hover:bg-[#F0F0F0]")}>
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="px-6 py-5 space-y-4">
+                {error && (
+                  <div className="rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                    {error}
+                  </div>
+                )}
+
+                {loading && (
+                  <div className={cn("text-sm", isDark ? "text-white/60" : "text-black/60")}>Loading…</div>
+                )}
+
+                {!loading && step === 'idle' && (
+                  <button
+                    onClick={() => void startSetup()}
+                    className={cn(
+                      "w-full h-12 rounded-2xl font-extrabold tracking-[0.14em] text-xs transition-colors border",
+                      "bg-[#1DB954] text-black border-transparent hover:bg-[#1ED760]"
+                    )}
+                  >
+                    Enable 2FA
+                  </button>
+                )}
+
+                {!loading && step === 'setup' && (
+                  <div className="space-y-4">
+                    <div className={cn("rounded-2xl border p-4 flex items-center justify-center", isDark ? "bg-[#111111] border-white/10" : "bg-[#F9F9F9] border-black/10")}>
+                      {qrDataUrl ? <img src={qrDataUrl} alt="2FA QR" className="w-44 h-44" /> : null}
+                    </div>
+                    <div className={cn("text-xs font-mono tracking-widest uppercase", isDark ? "text-white/45" : "text-black/45")}>Manual key</div>
+                    <button
+                      onClick={() => void navigator.clipboard?.writeText(manualKey)}
+                      className={cn("w-full rounded-2xl border px-4 py-3 text-left font-mono text-xs break-all transition-colors", isDark ? "bg-[#111111] border-white/10 hover:bg-[#1A1A1A] text-white/80" : "bg-white border-black/10 hover:bg-[#F6F6F6] text-black/80")}
+                    >
+                      {manualKey}
+                    </button>
+                    <input
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      inputMode="numeric"
+                      className={cn("w-full h-12 rounded-2xl border px-4 bg-transparent outline-none", isDark ? "border-white/10 text-white placeholder-white/20" : "border-black/10 text-black placeholder-black/30")}
+                      placeholder="123456"
+                    />
+                    <label className={cn("flex items-center gap-2 text-sm cursor-pointer", isDark ? "text-white/60" : "text-black/60")}>
+                      <input type="checkbox" checked={logoutAllSessions} onChange={(e) => setLogoutAllSessions(e.target.checked)} />
+                      Logout all sessions after enabling
+                    </label>
+                    <button
+                      onClick={() => void confirmSetup()}
+                      className={cn(
+                        "w-full h-12 rounded-2xl font-extrabold tracking-[0.14em] text-xs transition-colors border",
+                        "bg-[#1DB954] text-black border-transparent hover:bg-[#1ED760]"
+                      )}
+                    >
+                      Verify & Enable
+                    </button>
+                  </div>
+                )}
+
+                {!loading && step === 'enabled' && (
+                  <div className="space-y-4">
+                    {backupCodes && backupCodes.length > 0 && (
+                      <div className={cn("rounded-2xl border p-4", isDark ? "bg-[#111111] border-white/10" : "bg-[#F9F9F9] border-black/10")}>
+                        <div className={cn("text-xs font-bold tracking-widest uppercase mb-2", isDark ? "text-white/45" : "text-black/45")}>Backup codes</div>
+                        <div className={cn("text-sm whitespace-pre-wrap", isDark ? "text-white/80" : "text-black/80")}>
+                          {backupCodes.join('\n')}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => { setDisableMode('totp'); setOtp(''); }}
+                        className={cn("flex-1 h-10 rounded-2xl border text-xs font-bold tracking-wide transition-colors", disableMode === 'totp' ? (isDark ? "bg-white/10 border-white/15 text-white" : "bg-black/5 border-black/15 text-black") : (isDark ? "bg-transparent border-white/10 text-white/60 hover:bg-white/5" : "bg-transparent border-black/10 text-black/60 hover:bg-black/5"))}
+                      >
+                        Authenticator
+                      </button>
+                      <button
+                        onClick={() => { setDisableMode('backup'); setOtp(''); }}
+                        className={cn("flex-1 h-10 rounded-2xl border text-xs font-bold tracking-wide transition-colors", disableMode === 'backup' ? (isDark ? "bg-white/10 border-white/15 text-white" : "bg-black/5 border-black/15 text-black") : (isDark ? "bg-transparent border-white/10 text-white/60 hover:bg-white/5" : "bg-transparent border-black/10 text-black/60 hover:bg-black/5"))}
+                      >
+                        Backup code
+                      </button>
+                    </div>
+
+                    <input
+                      value={otp}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setOtp(disableMode === 'backup' ? v : v.replace(/\D/g, '').slice(0, 6));
+                      }}
+                      inputMode={disableMode === 'backup' ? 'text' : 'numeric'}
+                      className={cn("w-full h-12 rounded-2xl border px-4 bg-transparent outline-none", isDark ? "border-white/10 text-white placeholder-white/20" : "border-black/10 text-black placeholder-black/30")}
+                      placeholder={disableMode === 'backup' ? 'XXXX-XXXX-XXXX' : '123456'}
+                    />
+
+                    <button
+                      onClick={() => void disable2fa()}
+                      className={cn(
+                        "w-full h-12 rounded-2xl font-extrabold tracking-[0.14em] text-xs transition-colors border",
+                        "bg-[#FF5555] text-black border-transparent hover:bg-[#FF6B6B]"
+                      )}
+                    >
+                      Disable 2FA
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+};
+
 const SettingsDropdown = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const [twoFAOpen, setTwoFAOpen] = useState(false);
   const { isDark, toggleTheme } = useTheme();
   const { language, setLanguage, t } = useLanguage();
 
@@ -2702,6 +2978,21 @@ const SettingsDropdown = () => {
 
                 <div className={cn("h-[1px] my-1 mx-2", isDark ? "bg-[#282828]" : "bg-[#E5E5E5]")} />
 
+                <button
+                  onClick={() => {
+                    setTwoFAOpen(true);
+                    setIsOpen(false);
+                    setLangMenuOpen(false);
+                  }}
+                  className={cn(
+                    "w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-xl transition-colors group",
+                    isDark ? "text-[#EAEAEA] hover:bg-[#282828]" : "text-[#121212] hover:bg-[#F5F5F5]"
+                  )}
+                >
+                  <Smartphone size={18} className={cn("group-hover:text-[#1DB954]", isDark ? "text-[#787878]" : "text-[#949494]")} />
+                  <span>Two‑Factor Auth</span>
+                </button>
+
                 {/* Feedback */}
                 <a 
                   href="mailto:feedbacks@arcbyte.co?subject=ArcMail Feedback"
@@ -2718,6 +3009,7 @@ const SettingsDropdown = () => {
           </>
         )}
       </AnimatePresence>
+      <TwoFactorModal open={twoFAOpen} onClose={() => setTwoFAOpen(false)} />
     </div>
   );
 };

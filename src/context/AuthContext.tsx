@@ -27,14 +27,16 @@ interface AuthContextType {
   user: AuthUser | null;
   accounts: { id: string; email: string; name: string; avatarDataUrl?: string }[];
   activeAccountId: string | null;
-  login: (password: string, email?: string, rememberMe?: boolean) => Promise<{ ok: boolean; error?: string }>;
-  addAccount: (password: string, email: string) => Promise<{ ok: boolean; error?: string }>;
+  login: (password: string, email?: string, rememberMe?: boolean) => Promise<{ ok: boolean; error?: string; require2FA?: boolean; preAuthToken?: string }>;
+  verify2FA: (preAuthToken: string, params: { token?: string; backupCode?: string }) => Promise<{ ok: boolean; error?: string }>;
+  addAccount: (password: string, email: string) => Promise<{ ok: boolean; error?: string; require2FA?: boolean }>;
   switchAccount: (accountId: string) => void;
   logoutAccount: (accountId: string) => void;
   updateAccountProfile: (
     accountId: string,
     updates: { displayName?: string; avatarDataUrl?: string | null }
   ) => Promise<{ ok: boolean; error?: string }>;
+  setActiveAuthToken: (token: string) => void;
   logout: () => void;
   isLoading: boolean;
 }
@@ -447,54 +449,70 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     initializeAuth();
   }, [applyProfileToLocal, logout, persistAccounts, removeAccount, syncLegacyFromAccount, upsertAccount]);
 
-  const login = useCallback(async (password: string, email?: string, rememberMe?: boolean): Promise<{ ok: boolean; error?: string }> => {
-    try {
-      const res = await api.post('/auth/mail-login', { email, password, rememberMe: Boolean(rememberMe) });
-
-      if (res.data && typeof res.data === 'object' && 'token' in res.data && (res.data as { token?: unknown }).token) {
-        const { token, user: userData } = res.data;
-        
-        const emailValue = String(userData.email || email || '').trim();
-        const id = accountIdFromEmail(emailValue);
-        const next: StoredAccount = {
-          id,
-          email: emailValue,
-          name: String(userData.name || emailValue),
-          role: userData.role || undefined,
-          status: userData.status || undefined,
-          userId: userData.id || undefined,
-          clientId: userData.clientId || undefined,
-          token: String(token),
-          csrfToken: typeof res.data.csrfToken === 'string' ? res.data.csrfToken : undefined,
-          sessionId: typeof res.data.sessionId === 'string' ? res.data.sessionId : undefined,
-          createdAt: Date.now(),
-          lastUsedAt: Date.now(),
-        };
-        upsertAccount(next, { setActive: true });
-        try {
-          const p = await api.get('/account/profile');
-          const profile =
-            p.data && typeof p.data === 'object' && 'profile' in p.data && p.data.profile && typeof p.data.profile === 'object'
-              ? (p.data.profile as { displayName?: unknown; avatarDataUrl?: unknown })
-              : null;
-          if (profile) {
-            const serverHasProfile = Boolean(
-              (typeof profile.displayName === 'string' && profile.displayName.trim()) ||
-                (typeof profile.avatarDataUrl === 'string' && profile.avatarDataUrl.trim())
-            );
-            if (serverHasProfile) {
-              applyProfileToLocal(id, {
-                displayName: typeof profile.displayName === 'string' ? profile.displayName : null,
-                avatarDataUrl: typeof profile.avatarDataUrl === 'string' ? profile.avatarDataUrl : null,
-              });
-            }
+  const consumeAuthResponse = useCallback(async (data: unknown, fallbackEmail?: string): Promise<{ ok: boolean; error?: string }> => {
+    if (data && typeof data === 'object' && 'token' in data && (data as { token?: unknown }).token) {
+      const d = data as { token: string; csrfToken?: unknown; sessionId?: unknown; user?: unknown };
+      const userData = d.user && typeof d.user === 'object' ? (d.user as { email?: unknown; name?: unknown; role?: unknown; status?: unknown; id?: unknown; clientId?: unknown }) : {};
+      const emailValue = String(userData.email || fallbackEmail || '').trim();
+      const id = accountIdFromEmail(emailValue);
+      const next: StoredAccount = {
+        id,
+        email: emailValue,
+        name: String(userData.name || emailValue),
+        role: typeof userData.role === 'string' ? userData.role : undefined,
+        status: typeof userData.status === 'string' ? userData.status : undefined,
+        userId: typeof userData.id === 'string' ? userData.id : undefined,
+        clientId: typeof userData.clientId === 'string' ? userData.clientId : undefined,
+        token: String(d.token),
+        csrfToken: typeof d.csrfToken === 'string' ? d.csrfToken : undefined,
+        sessionId: typeof d.sessionId === 'string' ? d.sessionId : undefined,
+        createdAt: Date.now(),
+        lastUsedAt: Date.now(),
+      };
+      upsertAccount(next, { setActive: true });
+      try {
+        const p = await api.get('/account/profile');
+        const profile =
+          p.data && typeof p.data === 'object' && 'profile' in p.data && p.data.profile && typeof p.data.profile === 'object'
+            ? (p.data.profile as { displayName?: unknown; avatarDataUrl?: unknown })
+            : null;
+        if (profile) {
+          const serverHasProfile = Boolean(
+            (typeof profile.displayName === 'string' && profile.displayName.trim()) ||
+              (typeof profile.avatarDataUrl === 'string' && profile.avatarDataUrl.trim())
+          );
+          if (serverHasProfile) {
+            applyProfileToLocal(id, {
+              displayName: typeof profile.displayName === 'string' ? profile.displayName : null,
+              avatarDataUrl: typeof profile.avatarDataUrl === 'string' ? profile.avatarDataUrl : null,
+            });
           }
-        } catch {
-          void 0;
         }
-        
-        return { ok: true };
+      } catch {
+        void 0;
       }
+      return { ok: true };
+    }
+    return { ok: false, error: 'Sign in failed. Please try again.' };
+  }, [applyProfileToLocal, upsertAccount]);
+
+  const login = useCallback(async (password: string, email?: string, rememberMe?: boolean): Promise<{ ok: boolean; error?: string; require2FA?: boolean; preAuthToken?: string }> => {
+    try {
+      const payload = { email, password, rememberMe: Boolean(rememberMe) };
+      const postWithFallback = async () => {
+        try {
+          return await api.post('/auth/login', payload);
+        } catch (err) {
+          const status =
+            err && typeof err === 'object' && 'response' in err
+              ? (err as { response?: { status?: unknown } }).response?.status
+              : null;
+          if (status === 404) return await api.post('/auth/mail-login', payload);
+          throw err;
+        }
+      };
+
+      const res = await postWithFallback();
       const contentType =
         res.headers && typeof res.headers === 'object' && 'content-type' in res.headers
           ? String((res.headers as { 'content-type'?: unknown })['content-type'] || '')
@@ -506,7 +524,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             'API is misconfigured. Rebuild the frontend with VITE_API_URL=https://api.arcbyte.co (or https://api.arcbyte.co/api).',
         };
       }
-      return { ok: false, error: 'Sign in failed. Please try again.' };
+      if (res.data && typeof res.data === 'object' && 'require2FA' in res.data && (res.data as { require2FA?: unknown }).require2FA) {
+        const preAuthToken = (res.data as { preAuthToken?: unknown }).preAuthToken;
+        if (typeof preAuthToken === 'string' && preAuthToken) return { ok: false, require2FA: true, preAuthToken };
+        return { ok: false, error: '2FA required but preauth token missing.' };
+      }
+      const applied = await consumeAuthResponse(res.data, email);
+      return applied;
     } catch (err) {
       const status =
         err && typeof err === 'object' && 'response' in err
@@ -535,19 +559,69 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return {
           ok: false,
           error:
-            `API endpoint not found. Confirm VITE_API_URL points to https://api.arcbyte.co (or https://api.arcbyte.co/api). Current baseURL: ${base || '(empty)'}`,
+            `API endpoint not found. Your backend may be on an older version (missing /api/auth/login). Current baseURL: ${base || '(empty)'}`,
         };
       }
       return { ok: false, error: 'Connection error. Please try again.' };
     }
-  }, [applyProfileToLocal, upsertAccount]);
+  }, [consumeAuthResponse]);
+
+  const verify2FA = useCallback(async (preAuthToken: string, params: { token?: string; backupCode?: string }): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const res = await api.post('/auth/verify-2fa', { preAuthToken, token: params.token, backupCode: params.backupCode });
+      const applied = await consumeAuthResponse(res.data);
+      return applied;
+    } catch (err) {
+      const status =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { status?: unknown; data?: unknown } }).response?.status
+          : null;
+      const data =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { data?: unknown } }).response?.data
+          : null;
+      const errorCode =
+        data && typeof data === 'object' && 'error' in data && typeof (data as { error?: unknown }).error === 'string'
+          ? String((data as { error: string }).error)
+          : null;
+      if (status === 404) return { ok: false, error: '2FA is not available on the backend yet. Deploy the updated API.' };
+      if (status === 401 && errorCode === 'invalid_2fa_code') return { ok: false, error: 'Invalid code. Try again.' };
+      if (status === 401 && errorCode === 'preauth_expired') return { ok: false, error: 'Code session expired. Sign in again.' };
+      if (status === 429 && errorCode === 'twofa_locked') return { ok: false, error: 'Too many attempts. Try again later.' };
+      return { ok: false, error: 'Verification failed. Try again.' };
+    }
+  }, [consumeAuthResponse]);
 
   const addAccount = useCallback(
-    async (password: string, email: string): Promise<{ ok: boolean; error?: string }> => {
+    async (password: string, email: string): Promise<{ ok: boolean; error?: string; require2FA?: boolean }> => {
       const res = await login(password, email, true);
       return res;
     },
     [login]
+  );
+
+  const setActiveAuthToken = useCallback(
+    (token: string) => {
+      const activeId = localStorage.getItem('activeMailAccountId') || null;
+      if (!activeId) return;
+      const existing = safeParseAccounts(localStorage.getItem('mailAccounts'));
+      const target = existing.find((a) => a.id === activeId) || null;
+      if (!target) return;
+      const updated = { ...target, token: String(token), lastUsedAt: Date.now() };
+      const next = [updated, ...existing.filter((a) => a.id !== activeId)];
+      persistAccounts(next, activeId);
+      syncLegacyFromAccount(updated);
+      setIsAuthenticated(true);
+      setUser({
+        name: (updated.displayName || updated.name || updated.email).trim(),
+        email: updated.email,
+        role: updated.role,
+        status: updated.status,
+        id: updated.userId,
+        clientId: updated.clientId,
+      });
+    },
+    [persistAccounts, syncLegacyFromAccount]
   );
 
   const switchAccount = useCallback(
@@ -730,7 +804,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [activeAccountId, applyProfileToLocal, isAuthenticated, isLoading]);
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, accounts, activeAccountId, login, addAccount, switchAccount, logoutAccount, updateAccountProfile, logout, isLoading }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, accounts, activeAccountId, login, verify2FA, addAccount, switchAccount, logoutAccount, updateAccountProfile, setActiveAuthToken, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

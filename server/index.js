@@ -10,6 +10,9 @@ import { simpleParser } from 'mailparser';
 import nodemailer from 'nodemailer';
 import webpush from 'web-push';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { Pool } from 'pg';
+import speakeasy from 'speakeasy';
+import QRCode from 'qrcode';
 import { URL, fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -210,6 +213,9 @@ const s3 = S3_ENABLED
     })
   : null;
 
+const DATABASE_URL = typeof process.env.DATABASE_URL === 'string' ? process.env.DATABASE_URL.trim() : '';
+const db = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL, ssl: process.env.PGSSLMODE === 'disable' ? false : undefined }) : null;
+
 const DEV_FALLBACK_SECRET = 'arcbyte-dev-secret';
 const JWT_SECRET =
   process.env.JWT_SECRET ||
@@ -335,6 +341,386 @@ const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 8 * 60 * 60 * 1000);
 const REMEMBER_ME_TTL_MS = Number(
   process.env.REMEMBER_ME_TTL_MS || 30 * 24 * 60 * 60 * 1000
 );
+
+const TWOFA_STEP_SECONDS = 30;
+const TWOFA_WINDOW = 1;
+const TWOFA_MAX_FAILED = Number(process.env.TWOFA_MAX_FAILED || 5);
+const TWOFA_LOCKOUT_MS = Number(process.env.TWOFA_LOCKOUT_MS || 10 * 60 * 1000);
+const PREAUTH_TTL_MS = Number(process.env.PREAUTH_TTL_MS || 5 * 60 * 1000);
+const PREAUTH_JWT_SECRET = `${String(JWT_SECRET)}:preauth`;
+
+const encryptToString = (plain) => JSON.stringify(encryptString(plain));
+const decryptFromString = (cipherJson) => {
+  const parsed = typeof cipherJson === 'string' ? JSON.parse(cipherJson) : null;
+  if (!parsed || typeof parsed !== 'object') throw new Error('invalid_cipher');
+  return decryptString(parsed);
+};
+
+const normalizeEmailKey = (email) => String(email || '').trim().toLowerCase();
+
+const hashBackupCode = (code) => {
+  const salt = crypto.randomBytes(16).toString('base64');
+  const key = crypto.scryptSync(String(code), salt, 32);
+  return { salt, hash: key.toString('base64') };
+};
+const verifyBackupCode = (code, entry) => {
+  if (!entry || typeof entry !== 'object') return false;
+  const salt = typeof entry.salt === 'string' ? entry.salt : '';
+  const hash = typeof entry.hash === 'string' ? entry.hash : '';
+  if (!salt || !hash) return false;
+  try {
+    const key = crypto.scryptSync(String(code), salt, 32).toString('base64');
+    const a = Buffer.from(key, 'base64');
+    const b = Buffer.from(hash, 'base64');
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+};
+const generateBackupCodes = (count = 10) => {
+  const out = [];
+  for (let i = 0; i < count; i += 1) {
+    const raw = crypto.randomBytes(10).toString('base64').replace(/[^a-z0-9]/gi, '').toUpperCase();
+    const code = `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}`;
+    out.push(code);
+  }
+  return out;
+};
+
+const ensureAuthSchema = async () => {
+  if (!db) return;
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS arcmail_users (
+      email TEXT PRIMARY KEY,
+      encrypted_email_password TEXT,
+      session_version INTEGER NOT NULL DEFAULT 0,
+      twofa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      twofa_secret_enc TEXT,
+      temp_twofa_secret_enc TEXT,
+      backup_codes JSONB NOT NULL DEFAULT '[]'::jsonb,
+      failed_2fa_attempts INTEGER NOT NULL DEFAULT 0,
+      lockout_until TIMESTAMPTZ,
+      last_2fa_verified_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_arcmail_users_twofa_enabled ON arcmail_users(twofa_enabled);`);
+};
+
+const dbGetUser = async (emailKey) => {
+  if (!db) return null;
+  const r = await db.query(
+    `SELECT email, encrypted_email_password, session_version, twofa_enabled, twofa_secret_enc, temp_twofa_secret_enc, backup_codes, failed_2fa_attempts, lockout_until, last_2fa_verified_at
+     FROM arcmail_users WHERE email = $1`,
+    [emailKey]
+  );
+  return r.rows && r.rows[0] ? r.rows[0] : null;
+};
+
+const dbUpsertLoginPassword = async (emailKey, encPasswordObj) => {
+  if (!db) return null;
+  const encString = encPasswordObj ? JSON.stringify(encPasswordObj) : null;
+  const r = await db.query(
+    `INSERT INTO arcmail_users (email, encrypted_email_password, updated_at)
+     VALUES ($1, $2, now())
+     ON CONFLICT (email) DO UPDATE
+     SET encrypted_email_password = EXCLUDED.encrypted_email_password,
+         updated_at = now()
+     RETURNING email, encrypted_email_password, session_version, twofa_enabled, twofa_secret_enc, temp_twofa_secret_enc, backup_codes, failed_2fa_attempts, lockout_until, last_2fa_verified_at`,
+    [emailKey, encString]
+  );
+  return r.rows && r.rows[0] ? r.rows[0] : null;
+};
+
+const dbSetTemp2faSecret = async (emailKey, tempEnc) => {
+  if (!db) return false;
+  await db.query(
+    `UPDATE arcmail_users SET temp_twofa_secret_enc = $2, updated_at = now() WHERE email = $1`,
+    [emailKey, tempEnc]
+  );
+  return true;
+};
+
+const dbEnable2fa = async ({ emailKey, secretEnc, backupCodesHashed, logoutAllSessions }) => {
+  if (!db) return null;
+  const bump = logoutAllSessions ? 1 : 0;
+  const r = await db.query(
+    `UPDATE arcmail_users
+     SET twofa_enabled = TRUE,
+         twofa_secret_enc = $2,
+         temp_twofa_secret_enc = NULL,
+         backup_codes = $3::jsonb,
+         failed_2fa_attempts = 0,
+         lockout_until = NULL,
+         last_2fa_verified_at = now(),
+         session_version = session_version + $4,
+         updated_at = now()
+     WHERE email = $1
+     RETURNING session_version`,
+    [emailKey, secretEnc, JSON.stringify(backupCodesHashed), bump]
+  );
+  return r.rows && r.rows[0] ? Number(r.rows[0].session_version || 0) : null;
+};
+
+const dbDisable2fa = async (emailKey) => {
+  if (!db) return null;
+  const r = await db.query(
+    `UPDATE arcmail_users
+     SET twofa_enabled = FALSE,
+         twofa_secret_enc = NULL,
+         temp_twofa_secret_enc = NULL,
+         backup_codes = '[]'::jsonb,
+         failed_2fa_attempts = 0,
+         lockout_until = NULL,
+         session_version = session_version + 1,
+         updated_at = now()
+     WHERE email = $1
+     RETURNING session_version`,
+    [emailKey]
+  );
+  return r.rows && r.rows[0] ? Number(r.rows[0].session_version || 0) : null;
+};
+
+const dbConsumeBackupCode = async (emailKey, code) => {
+  if (!db) return { ok: false, used: false };
+  const user = await dbGetUser(emailKey);
+  if (!user) return { ok: false, used: false };
+  const list = Array.isArray(user.backup_codes) ? user.backup_codes : [];
+  let used = false;
+  const remaining = [];
+  for (const entry of list) {
+    if (!used && verifyBackupCode(code, entry)) {
+      used = true;
+      continue;
+    }
+    remaining.push(entry);
+  }
+  if (!used) return { ok: true, used: false };
+  await db.query(`UPDATE arcmail_users SET backup_codes = $2::jsonb, updated_at = now() WHERE email = $1`, [emailKey, JSON.stringify(remaining)]);
+  return { ok: true, used: true };
+};
+
+const dbCheckSessionVersion = async (emailKey, tokenSv) => {
+  if (!db) return true;
+  const user = await dbGetUser(emailKey);
+  if (!user) return true;
+  const current = Number(user.session_version || 0);
+  const sv = typeof tokenSv === 'number' && Number.isFinite(tokenSv) ? tokenSv : 0;
+  return current === sv;
+};
+
+const dbRecord2faFailure = async (emailKey) => {
+  if (!db) return { locked: false };
+  const user = await dbGetUser(emailKey);
+  if (!user) return { locked: false };
+  const now = Date.now();
+  const lockUntil = user.lockout_until ? new Date(user.lockout_until).getTime() : null;
+  if (lockUntil && lockUntil > now) return { locked: true, until: lockUntil };
+  const next = Number(user.failed_2fa_attempts || 0) + 1;
+  if (next >= TWOFA_MAX_FAILED) {
+    const until = new Date(now + TWOFA_LOCKOUT_MS).toISOString();
+    await db.query(
+      `UPDATE arcmail_users SET failed_2fa_attempts = 0, lockout_until = $2, updated_at = now() WHERE email = $1`,
+      [emailKey, until]
+    );
+    return { locked: true, until: new Date(until).getTime() };
+  }
+  await db.query(`UPDATE arcmail_users SET failed_2fa_attempts = $2, updated_at = now() WHERE email = $1`, [emailKey, next]);
+  return { locked: false };
+};
+
+const dbRecord2faSuccess = async (emailKey) => {
+  if (!db) return;
+  await db.query(
+    `UPDATE arcmail_users SET failed_2fa_attempts = 0, lockout_until = NULL, last_2fa_verified_at = now(), updated_at = now() WHERE email = $1`,
+    [emailKey]
+  );
+};
+
+const AUTH_STORE_PATH = path.join(__dirname, 'arcmail-users.json');
+const readAuthStore = () => {
+  try {
+    if (!fs.existsSync(AUTH_STORE_PATH)) return {};
+    const raw = fs.readFileSync(AUTH_STORE_PATH, 'utf8');
+    if (!raw || !raw.trim()) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+};
+const writeAuthStore = (store) => {
+  try {
+    fs.writeFileSync(AUTH_STORE_PATH, JSON.stringify(store, null, 2), 'utf8');
+    return true;
+  } catch {
+    return false;
+  }
+};
+let authStore = readAuthStore();
+const getAuthEntry = (emailKey) => {
+  const store = authStore && typeof authStore === 'object' && !Array.isArray(authStore) ? authStore : {};
+  const entry = store && typeof store === 'object' ? store[emailKey] : null;
+  return entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : null;
+};
+const setAuthEntry = (emailKey, entry) => {
+  const store = authStore && typeof authStore === 'object' && !Array.isArray(authStore) ? authStore : {};
+  const next = { ...store, [emailKey]: entry };
+  authStore = next;
+  return writeAuthStore(next);
+};
+
+const storeGetUser = async (emailKey) => {
+  if (db) return await dbGetUser(emailKey);
+  const entry = getAuthEntry(emailKey);
+  if (!entry) return null;
+  return {
+    email: emailKey,
+    encrypted_email_password: typeof entry.encrypted_email_password === 'string' ? entry.encrypted_email_password : null,
+    session_version: typeof entry.session_version === 'number' ? entry.session_version : 0,
+    twofa_enabled: Boolean(entry.twofa_enabled),
+    twofa_secret_enc: typeof entry.twofa_secret_enc === 'string' ? entry.twofa_secret_enc : null,
+    temp_twofa_secret_enc: typeof entry.temp_twofa_secret_enc === 'string' ? entry.temp_twofa_secret_enc : null,
+    backup_codes: Array.isArray(entry.backup_codes) ? entry.backup_codes : [],
+    failed_2fa_attempts: typeof entry.failed_2fa_attempts === 'number' ? entry.failed_2fa_attempts : 0,
+    lockout_until: typeof entry.lockout_until === 'string' ? entry.lockout_until : null,
+    last_2fa_verified_at: typeof entry.last_2fa_verified_at === 'string' ? entry.last_2fa_verified_at : null,
+  };
+};
+
+const storeUpsertLoginPassword = async (emailKey, encPasswordObj) => {
+  if (db) return await dbUpsertLoginPassword(emailKey, encPasswordObj);
+  const prev = getAuthEntry(emailKey) || {};
+  const encString = encPasswordObj ? JSON.stringify(encPasswordObj) : null;
+  const next = {
+    ...prev,
+    encrypted_email_password: encString,
+    session_version: typeof prev.session_version === 'number' ? prev.session_version : 0,
+    twofa_enabled: Boolean(prev.twofa_enabled),
+    twofa_secret_enc: typeof prev.twofa_secret_enc === 'string' ? prev.twofa_secret_enc : null,
+    temp_twofa_secret_enc: typeof prev.temp_twofa_secret_enc === 'string' ? prev.temp_twofa_secret_enc : null,
+    backup_codes: Array.isArray(prev.backup_codes) ? prev.backup_codes : [],
+    failed_2fa_attempts: typeof prev.failed_2fa_attempts === 'number' ? prev.failed_2fa_attempts : 0,
+    lockout_until: typeof prev.lockout_until === 'string' ? prev.lockout_until : null,
+    last_2fa_verified_at: typeof prev.last_2fa_verified_at === 'string' ? prev.last_2fa_verified_at : null,
+    updated_at: new Date().toISOString(),
+  };
+  setAuthEntry(emailKey, next);
+  return await storeGetUser(emailKey);
+};
+
+const storeSetTemp2faSecret = async (emailKey, tempEnc) => {
+  if (db) return await dbSetTemp2faSecret(emailKey, tempEnc);
+  const prev = getAuthEntry(emailKey) || {};
+  const next = { ...prev, temp_twofa_secret_enc: tempEnc, updated_at: new Date().toISOString() };
+  return setAuthEntry(emailKey, next);
+};
+
+const storeEnable2fa = async ({ emailKey, secretEnc, backupCodesHashed, logoutAllSessions }) => {
+  if (db) return await dbEnable2fa({ emailKey, secretEnc, backupCodesHashed, logoutAllSessions });
+  const prev = getAuthEntry(emailKey) || {};
+  const bump = logoutAllSessions ? 1 : 0;
+  const currentSv = typeof prev.session_version === 'number' ? prev.session_version : 0;
+  const nextSv = currentSv + bump;
+  const next = {
+    ...prev,
+    twofa_enabled: true,
+    twofa_secret_enc: secretEnc,
+    temp_twofa_secret_enc: null,
+    backup_codes: backupCodesHashed,
+    failed_2fa_attempts: 0,
+    lockout_until: null,
+    last_2fa_verified_at: new Date().toISOString(),
+    session_version: nextSv,
+    updated_at: new Date().toISOString(),
+  };
+  setAuthEntry(emailKey, next);
+  return nextSv;
+};
+
+const storeDisable2fa = async (emailKey) => {
+  if (db) return await dbDisable2fa(emailKey);
+  const prev = getAuthEntry(emailKey) || {};
+  const currentSv = typeof prev.session_version === 'number' ? prev.session_version : 0;
+  const nextSv = currentSv + 1;
+  const next = {
+    ...prev,
+    twofa_enabled: false,
+    twofa_secret_enc: null,
+    temp_twofa_secret_enc: null,
+    backup_codes: [],
+    failed_2fa_attempts: 0,
+    lockout_until: null,
+    session_version: nextSv,
+    updated_at: new Date().toISOString(),
+  };
+  setAuthEntry(emailKey, next);
+  return nextSv;
+};
+
+const storeConsumeBackupCode = async (emailKey, code) => {
+  if (db) return await dbConsumeBackupCode(emailKey, code);
+  const user = await storeGetUser(emailKey);
+  if (!user) return { ok: false, used: false };
+  const list = Array.isArray(user.backup_codes) ? user.backup_codes : [];
+  let used = false;
+  const remaining = [];
+  for (const entry of list) {
+    if (!used && verifyBackupCode(code, entry)) {
+      used = true;
+      continue;
+    }
+    remaining.push(entry);
+  }
+  if (!used) return { ok: true, used: false };
+  const prev = getAuthEntry(emailKey) || {};
+  const next = { ...prev, backup_codes: remaining, updated_at: new Date().toISOString() };
+  setAuthEntry(emailKey, next);
+  return { ok: true, used: true };
+};
+
+const storeCheckSessionVersion = async (emailKey, tokenSv) => {
+  if (db) return await dbCheckSessionVersion(emailKey, tokenSv);
+  const user = await storeGetUser(emailKey);
+  if (!user) return true;
+  const current = Number(user.session_version || 0);
+  const sv = typeof tokenSv === 'number' && Number.isFinite(tokenSv) ? tokenSv : 0;
+  return current === sv;
+};
+
+const storeRecord2faFailure = async (emailKey) => {
+  if (db) return await dbRecord2faFailure(emailKey);
+  const user = await storeGetUser(emailKey);
+  if (!user) return { locked: false };
+  const now = Date.now();
+  const lockUntil = user.lockout_until ? new Date(user.lockout_until).getTime() : null;
+  if (lockUntil && lockUntil > now) return { locked: true, until: lockUntil };
+  const nextAttempts = Number(user.failed_2fa_attempts || 0) + 1;
+  if (nextAttempts >= TWOFA_MAX_FAILED) {
+    const until = new Date(now + TWOFA_LOCKOUT_MS).toISOString();
+    const prev = getAuthEntry(emailKey) || {};
+    setAuthEntry(emailKey, { ...prev, failed_2fa_attempts: 0, lockout_until: until, updated_at: new Date().toISOString() });
+    return { locked: true, until: new Date(until).getTime() };
+  }
+  const prev = getAuthEntry(emailKey) || {};
+  setAuthEntry(emailKey, { ...prev, failed_2fa_attempts: nextAttempts, updated_at: new Date().toISOString() });
+  return { locked: false };
+};
+
+const storeRecord2faSuccess = async (emailKey) => {
+  if (db) return await dbRecord2faSuccess(emailKey);
+  const prev = getAuthEntry(emailKey) || {};
+  setAuthEntry(emailKey, {
+    ...prev,
+    failed_2fa_attempts: 0,
+    lockout_until: null,
+    last_2fa_verified_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+};
 
 const sessions = new Map();
 const attachmentCache = new Map();
@@ -491,10 +877,10 @@ setInterval(() => {
   }
 }, Math.min(60_000, Math.max(5_000, Math.floor(SESSION_TTL_MS / 20))));
 
-const signToken = ({ sessionId, email, ttlMs, encPassword, csrfToken }) => {
+const signToken = ({ sessionId, email, ttlMs, encPassword, csrfToken, sessionVersion }) => {
   const ttl = typeof ttlMs === 'number' && Number.isFinite(ttlMs) ? ttlMs : SESSION_TTL_MS;
   return jwt.sign(
-    { role: 'MAIL_USER', email, ep: encPassword, csrf: csrfToken },
+    { role: 'MAIL_USER', email, ep: encPassword, csrf: csrfToken, sv: typeof sessionVersion === 'number' ? sessionVersion : 0 },
     JWT_SECRET,
     { subject: sessionId, expiresIn: Math.floor(ttl / 1000) }
   );
@@ -511,6 +897,7 @@ const parseAuth = (req) => {
     const sessionId = typeof decoded.sub === 'string' ? decoded.sub : null;
     const email = typeof decoded.email === 'string' ? decoded.email : null;
     const role = typeof decoded.role === 'string' ? decoded.role : null;
+    const sessionVersion = typeof decoded.sv === 'number' && Number.isFinite(decoded.sv) ? decoded.sv : 0;
     const encPassword =
       decoded.ep &&
       typeof decoded.ep === 'object' &&
@@ -522,15 +909,18 @@ const parseAuth = (req) => {
     const csrfToken = typeof decoded.csrf === 'string' ? decoded.csrf : null;
     if (!email || role !== 'MAIL_USER') return null;
     if (!sessionId && !(encPassword && csrfToken)) return null;
-    return { sessionId, email, encPassword, csrfToken };
+    return { sessionId, email, role, encPassword, csrfToken, sessionVersion };
   } catch {
     return null;
   }
 };
 
-const requireAuth = (req, res, next) => {
+const requireAuth = async (req, res, next) => {
   const auth = parseAuth(req);
   if (!auth) return res.status(401).json({ error: 'unauthorized' });
+  const emailKey = normalizeEmailKey(auth.email);
+  const svOk = await storeCheckSessionVersion(emailKey, auth.sessionVersion);
+  if (!svOk) return res.status(401).json({ error: 'session_revoked' });
   const session = auth.sessionId ? getSession(auth.sessionId) : null;
   if (session) {
     if (session.email !== auth.email) return res.status(401).json({ error: 'unauthorized' });
@@ -876,14 +1266,28 @@ app.get('/api/notifications/vapid-public-key', (_req, res) => {
   return res.json({ publicKey: VAPID_PUBLIC_KEY });
 });
 
-// Alias to support clients using /api/login
-app.post('/api/login', (req, res) => {
-  return res.status(404).json({ error: 'use_/api/auth/mail-login' });
-});
+app.post('/api/login', (_req, res) => res.status(404).json({ error: 'use_/api/auth/login' }));
 app.get('/api/login', (_req, res) => res.status(405).json({ error: 'method_not_allowed' }));
 app.get('/api/auth/mail-login', (_req, res) => res.status(405).json({ error: 'method_not_allowed' }));
+app.get('/api/auth/login', (_req, res) => res.status(405).json({ error: 'method_not_allowed' }));
 
-app.post('/api/auth/mail-login', async (req, res) => {
+const finishLogin = async ({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion }) => {
+  const createdAt = nowMs();
+  sessions.set(sessionId, {
+    id: sessionId,
+    email,
+    encPassword,
+    csrfToken,
+    createdAt,
+    lastUsedAt: createdAt,
+    ttlMs,
+  });
+  const token = signToken({ sessionId, email, ttlMs, encPassword, csrfToken, sessionVersion });
+  const name = email.split('@')[0] || email;
+  return { token, csrfToken, sessionId, user: { name, email, role: 'MAIL_USER', status: 'Active' } };
+};
+
+const handleAuthLogin = async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
   const rememberMe = Boolean(req.body?.rememberMe);
@@ -907,27 +1311,216 @@ app.post('/api/auth/mail-login', async (req, res) => {
   }
 
   const ttlMs = rememberMe ? REMEMBER_ME_TTL_MS : SESSION_TTL_MS;
-  const session = createSession({ email, password, ttlMs });
-  const token = signToken({
-    sessionId: session.id,
-    email: session.email,
-    ttlMs,
-    encPassword: session.encPassword,
-    csrfToken: session.csrfToken,
-  });
-  const name = email.split('@')[0] || email;
+  const encPassword = encryptString(password);
+  const emailKey = normalizeEmailKey(email);
+  const userRow = await storeUpsertLoginPassword(emailKey, encPassword);
+  const twofaEnabled = Boolean(userRow && userRow.twofa_enabled);
+  const sessionVersion = userRow ? Number(userRow.session_version || 0) : 0;
 
-  return res.json({
-    token,
-    csrfToken: session.csrfToken,
-    sessionId: session.id,
-    user: { name, email: session.email, role: 'MAIL_USER', status: 'Active' },
-  });
+  if (twofaEnabled) {
+    const sessionId = crypto.randomUUID();
+    const csrfToken = crypto.randomBytes(32).toString('hex');
+    const preAuthToken = jwt.sign(
+      { role: 'PREAUTH', email, ep: encPassword, csrf: csrfToken, sv: sessionVersion, rm: rememberMe ? 1 : 0, ttl: ttlMs },
+      PREAUTH_JWT_SECRET,
+      { subject: sessionId, expiresIn: Math.floor(PREAUTH_TTL_MS / 1000) }
+    );
+    return res.json({ ok: true, require2FA: true, preAuthToken, user: { email, role: 'MAIL_USER' } });
+  }
+
+  const sessionId = crypto.randomUUID();
+  const csrfToken = crypto.randomBytes(32).toString('hex');
+  const result = await finishLogin({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion });
+  return res.json(result);
+};
+
+app.post('/api/auth/login', handleAuthLogin);
+app.post('/api/auth/mail-login', handleAuthLogin);
+
+app.post('/api/auth/verify-2fa', async (req, res) => {
+  const preAuthToken = typeof req.body?.preAuthToken === 'string' ? req.body.preAuthToken : '';
+  const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+  const backupCode = typeof req.body?.backupCode === 'string' ? req.body.backupCode.trim() : '';
+  if (!preAuthToken) return res.status(400).json({ error: 'missing_preauth' });
+  if (!token && !backupCode) return res.status(400).json({ error: 'missing_2fa_code' });
+
+  let payload = null;
+  try {
+    payload = jwt.verify(preAuthToken, PREAUTH_JWT_SECRET);
+  } catch {
+    return res.status(401).json({ error: 'preauth_expired' });
+  }
+  if (!payload || typeof payload !== 'object') return res.status(401).json({ error: 'preauth_expired' });
+  const decoded = payload;
+  const role = typeof decoded.role === 'string' ? decoded.role : '';
+  if (role !== 'PREAUTH') return res.status(401).json({ error: 'preauth_expired' });
+  const email = typeof decoded.email === 'string' ? decoded.email : '';
+  const emailKey = normalizeEmailKey(email);
+  const sessionId = typeof decoded.sub === 'string' ? decoded.sub : '';
+  const encPassword =
+    decoded.ep &&
+    typeof decoded.ep === 'object' &&
+    typeof decoded.ep.iv === 'string' &&
+    typeof decoded.ep.tag === 'string' &&
+    typeof decoded.ep.ciphertext === 'string'
+      ? decoded.ep
+      : null;
+  const csrfToken = typeof decoded.csrf === 'string' ? decoded.csrf : null;
+  const ttlMs = typeof decoded.ttl === 'number' && Number.isFinite(decoded.ttl) ? decoded.ttl : SESSION_TTL_MS;
+  const sessionVersion = typeof decoded.sv === 'number' && Number.isFinite(decoded.sv) ? decoded.sv : 0;
+  if (!emailKey || !sessionId || !encPassword || !csrfToken) return res.status(401).json({ error: 'preauth_expired' });
+
+  const user = await storeGetUser(emailKey);
+  if (!user || !user.twofa_enabled || typeof user.twofa_secret_enc !== 'string') return res.status(403).json({ error: 'twofa_not_enabled' });
+  const lockUntil = user.lockout_until ? new Date(user.lockout_until).getTime() : null;
+  if (lockUntil && lockUntil > Date.now()) return res.status(429).json({ error: 'twofa_locked', retryAt: lockUntil });
+
+  let ok = false;
+  let usedBackup = false;
+  if (backupCode) {
+    const consumed = await storeConsumeBackupCode(emailKey, backupCode);
+    usedBackup = consumed.used;
+    ok = consumed.used;
+  } else {
+    let secret = '';
+    try {
+      secret = decryptFromString(user.twofa_secret_enc);
+    } catch {
+      return res.status(500).json({ error: 'twofa_secret_unavailable' });
+    }
+    ok = speakeasy.totp.verify({
+      secret,
+      encoding: 'base32',
+      token,
+      step: TWOFA_STEP_SECONDS,
+      window: TWOFA_WINDOW,
+    });
+  }
+
+  if (!ok) {
+    const r = await storeRecord2faFailure(emailKey);
+    if (r.locked) return res.status(429).json({ error: 'twofa_locked', retryAt: r.until });
+    return res.status(401).json({ error: 'invalid_2fa_code' });
+  }
+
+  await storeRecord2faSuccess(emailKey);
+  const svOk = await storeCheckSessionVersion(emailKey, sessionVersion);
+  if (!svOk) return res.status(401).json({ error: 'session_revoked' });
+
+  const result = await finishLogin({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion });
+  return res.json({ ...result, usedBackup });
 });
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
   const name = req.session.email.split('@')[0] || req.session.email;
   return res.json({ name, email: req.session.email, role: 'MAIL_USER', status: 'Active' });
+});
+
+app.get('/api/auth/2fa/status', requireAuth, async (req, res) => {
+  const emailKey = normalizeEmailKey(req.session.email);
+  const user = await storeGetUser(emailKey);
+  return res.json({ enabled: Boolean(user && user.twofa_enabled), configured: true, storage: db ? 'db' : 'file' });
+});
+
+app.post('/api/auth/enable-2fa', requireAuth, requireCsrf, async (req, res) => {
+  const emailKey = normalizeEmailKey(req.session.email);
+  const existing = await storeGetUser(emailKey);
+  if (!existing) await storeUpsertLoginPassword(emailKey, req.session.encPassword);
+  const secret = speakeasy.generateSecret({ length: 20, name: `ArcMail:${req.session.email}`, issuer: 'ArcMail' });
+  const tempEnc = encryptToString(secret.base32);
+  await storeSetTemp2faSecret(emailKey, tempEnc);
+  const otpauthUrl = typeof secret.otpauth_url === 'string' ? secret.otpauth_url : '';
+  if (!otpauthUrl) return res.status(500).json({ error: 'twofa_setup_failed' });
+  let qrDataUrl = '';
+  try {
+    qrDataUrl = await QRCode.toDataURL(otpauthUrl, { margin: 1, scale: 6 });
+  } catch {
+    return res.status(500).json({ error: 'twofa_qr_failed' });
+  }
+  return res.json({ ok: true, qrDataUrl, manualKey: secret.base32 });
+});
+
+app.post('/api/auth/confirm-2fa', requireAuth, requireCsrf, async (req, res) => {
+  const otp = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+  const logoutAllSessions = Boolean(req.body?.logoutAllSessions);
+  if (!otp) return res.status(400).json({ error: 'missing_2fa_code' });
+
+  const emailKey = normalizeEmailKey(req.session.email);
+  const user = await storeGetUser(emailKey);
+  if (!user || typeof user.temp_twofa_secret_enc !== 'string') return res.status(400).json({ error: 'twofa_setup_required' });
+
+  let secret = '';
+  try {
+    secret = decryptFromString(user.temp_twofa_secret_enc);
+  } catch {
+    return res.status(500).json({ error: 'twofa_secret_unavailable' });
+  }
+
+  const ok = speakeasy.totp.verify({ secret, encoding: 'base32', token: otp, step: TWOFA_STEP_SECONDS, window: TWOFA_WINDOW });
+  if (!ok) return res.status(401).json({ error: 'invalid_2fa_code' });
+
+  const rawCodes = generateBackupCodes(10);
+  const hashed = rawCodes.map((c) => hashBackupCode(c));
+  const nextSv = await storeEnable2fa({ emailKey, secretEnc: user.temp_twofa_secret_enc, backupCodesHashed: hashed, logoutAllSessions });
+  if (nextSv === null) return res.status(500).json({ error: 'twofa_enable_failed' });
+
+  const token = logoutAllSessions
+    ? signToken({
+        sessionId: req.session.id,
+        email: req.session.email,
+        ttlMs: req.session.ttlMs,
+        encPassword: req.session.encPassword,
+        csrfToken: req.session.csrfToken,
+        sessionVersion: nextSv,
+      })
+    : null;
+
+  return res.json({ ok: true, backupCodes: rawCodes, token, sessionVersion: nextSv });
+});
+
+app.post('/api/auth/disable-2fa', requireAuth, requireCsrf, async (req, res) => {
+  const otp = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+  const backupCode = typeof req.body?.backupCode === 'string' ? req.body.backupCode.trim() : '';
+  if (!otp && !backupCode) return res.status(400).json({ error: 'missing_2fa_code' });
+  const emailKey = normalizeEmailKey(req.session.email);
+  const user = await storeGetUser(emailKey);
+  if (!user || !user.twofa_enabled || typeof user.twofa_secret_enc !== 'string') return res.status(400).json({ error: 'twofa_not_enabled' });
+
+  const lockUntil = user.lockout_until ? new Date(user.lockout_until).getTime() : null;
+  if (lockUntil && lockUntil > Date.now()) return res.status(429).json({ error: 'twofa_locked', retryAt: lockUntil });
+
+  let ok = false;
+  if (backupCode) {
+    const consumed = await storeConsumeBackupCode(emailKey, backupCode);
+    ok = consumed.used;
+  } else {
+    let secret = '';
+    try {
+      secret = decryptFromString(user.twofa_secret_enc);
+    } catch {
+      return res.status(500).json({ error: 'twofa_secret_unavailable' });
+    }
+    ok = speakeasy.totp.verify({ secret, encoding: 'base32', token: otp, step: TWOFA_STEP_SECONDS, window: TWOFA_WINDOW });
+  }
+
+  if (!ok) {
+    const r = await storeRecord2faFailure(emailKey);
+    if (r.locked) return res.status(429).json({ error: 'twofa_locked', retryAt: r.until });
+    return res.status(401).json({ error: 'invalid_2fa_code' });
+  }
+
+  const nextSv = await storeDisable2fa(emailKey);
+  if (nextSv === null) return res.status(500).json({ error: 'twofa_disable_failed' });
+
+  const token = signToken({
+    sessionId: req.session.id,
+    email: req.session.email,
+    ttlMs: req.session.ttlMs,
+    encPassword: req.session.encPassword,
+    csrfToken: req.session.csrfToken,
+    sessionVersion: nextSv,
+  });
+  return res.json({ ok: true, token, sessionVersion: nextSv });
 });
 
 app.get('/api/account/profile', requireAuth, async (req, res) => {
@@ -2102,10 +2695,17 @@ app.use((err, _req, res, _next) => {
   return res.status(status).json({ error: 'server_error' });
 });
 
-const server = app.listen(PORT, () => {
-  const origin = allowedOrigins.length ? allowedOrigins[0] : 'unknown';
-  const apiUrl = new URL(`http://localhost:${PORT}/api/health`);
-  console.log(`API listening on ${apiUrl.toString()} (CORS: ${origin})`);
-});
+const start = async () => {
+  try {
+    await ensureAuthSchema();
+  } catch {
+  }
+  const server = app.listen(PORT, () => {
+    const origin = allowedOrigins.length ? allowedOrigins[0] : 'unknown';
+    const apiUrl = new URL(`http://localhost:${PORT}/api/health`);
+    console.log(`API listening on ${apiUrl.toString()} (CORS: ${origin})`);
+  });
+  server.ref?.();
+};
 
-server.ref?.();
+void start();

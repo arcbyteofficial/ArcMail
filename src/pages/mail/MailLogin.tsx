@@ -10,6 +10,11 @@ const MailLogin = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
+  const [require2FA, setRequire2FA] = useState(false);
+  const [preAuthToken, setPreAuthToken] = useState('');
+  const [otp, setOtp] = useState('');
+  const [useBackup, setUseBackup] = useState(false);
+  const [, setTick] = useState(0);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
@@ -21,8 +26,15 @@ const MailLogin = () => {
   const [fpAltPhone, setFpAltPhone] = useState('');
   const [fpError, setFpError] = useState('');
   const [fpSending, setFpSending] = useState(false);
-  const { login } = useAuth();
+  const { login, verify2FA } = useAuth();
   const navigate = useNavigate();
+
+  const secondsLeft = 30 - (Math.floor(Date.now() / 1000) % 30);
+  React.useEffect(() => {
+    if (!require2FA) return;
+    const id = window.setInterval(() => setTick((t) => t + 1), 500);
+    return () => window.clearInterval(id);
+  }, [require2FA]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,11 +45,37 @@ const MailLogin = () => {
       const result = await login(password, email, rememberMe);
       if (result.ok) {
         navigate('/');
+      } else if (result.require2FA && typeof result.preAuthToken === 'string' && result.preAuthToken) {
+        setRequire2FA(true);
+        setPreAuthToken(result.preAuthToken);
+        setOtp('');
+        setUseBackup(false);
       } else {
         setError(result.error || 'Sign in failed. Please try again.');
       }
     } catch {
       setError('Connection error. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVerify2fa = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
+    try {
+      const code = otp.trim();
+      if (!code) {
+        setError(useBackup ? 'Enter a backup code.' : 'Enter the 6-digit code.');
+        return;
+      }
+      const res = await verify2FA(preAuthToken, useBackup ? { backupCode: code } : { token: code });
+      if (!res.ok) {
+        setError(res.error || 'Invalid code. Try again.');
+        return;
+      }
+      navigate('/');
     } finally {
       setIsLoading(false);
     }
@@ -198,39 +236,75 @@ const MailLogin = () => {
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-8">
+            <form onSubmit={require2FA ? handleVerify2fa : handleSubmit} className="space-y-8">
               <div className="space-y-6">
-                <div className="group">
-                  <label className="block text-xs font-mono uppercase tracking-widest text-white/40 mb-2 group-focus-within:text-accent transition-colors">
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-[#141414] border border-white/5 px-4 py-4 text-base text-white placeholder-white/20 focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-all duration-300 rounded-sm"
-                    placeholder="name@arcbyte.co"
-                    autoComplete="username"
-                    required
-                  />
-                </div>
+                {require2FA ? (
+                  <>
+                    <div className="text-xs font-mono uppercase tracking-widest text-white/40">
+                      Two-factor authentication
+                    </div>
+                    <div className="group">
+                      <label className="block text-xs font-mono uppercase tracking-widest text-white/40 mb-2 group-focus-within:text-accent transition-colors">
+                        {useBackup ? 'Backup code' : '6-digit code'}
+                      </label>
+                      <input
+                        inputMode={useBackup ? 'text' : 'numeric'}
+                        pattern={useBackup ? undefined : '[0-9]*'}
+                        value={otp}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          const next = useBackup ? v : v.replace(/\D/g, '').slice(0, 6);
+                          setOtp(next);
+                        }}
+                        className="w-full bg-[#141414] border border-white/5 px-4 py-4 text-base text-white placeholder-white/20 focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-all duration-300 rounded-sm"
+                        placeholder={useBackup ? 'XXXX-XXXX-XXXX' : '123456'}
+                        autoFocus
+                        required
+                      />
+                      <div className="mt-3 flex items-center justify-between text-xs text-white/35">
+                        <button type="button" onClick={() => { setUseBackup((v) => !v); setOtp(''); }} className="hover:text-white transition-colors">
+                          {useBackup ? 'Use authenticator code' : 'Use backup code'}
+                        </button>
+                        {!useBackup && <span>Refresh in {secondsLeft}s</span>}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="group">
+                      <label className="block text-xs font-mono uppercase tracking-widest text-white/40 mb-2 group-focus-within:text-accent transition-colors">
+                        Email
+                      </label>
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full bg-[#141414] border border-white/5 px-4 py-4 text-base text-white placeholder-white/20 focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-all duration-300 rounded-sm"
+                        placeholder="name@arcbyte.co"
+                        autoComplete="username"
+                        required
+                      />
+                    </div>
 
-                <div className="group">
-                  <label className="block text-xs font-mono uppercase tracking-widest text-white/40 mb-2 group-focus-within:text-accent transition-colors">
-                    Password
-                  </label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-[#141414] border border-white/5 px-4 py-4 text-base text-white placeholder-white/20 focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-all duration-300 rounded-sm"
-                    placeholder="••••••••••••"
-                    autoComplete="current-password"
-                    required
-                  />
-                </div>
+                    <div className="group">
+                      <label className="block text-xs font-mono uppercase tracking-widest text-white/40 mb-2 group-focus-within:text-accent transition-colors">
+                        Password
+                      </label>
+                      <input
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full bg-[#141414] border border-white/5 px-4 py-4 text-base text-white placeholder-white/20 focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-all duration-300 rounded-sm"
+                        placeholder="••••••••••••"
+                        autoComplete="current-password"
+                        required
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
+              {!require2FA && (
               <div className="flex items-center justify-between text-xs text-white/40">
                 <label className="flex items-center gap-2 cursor-pointer hover:text-white transition-colors">
                   <span className="relative">
@@ -267,6 +341,7 @@ const MailLogin = () => {
                   Forgot password?
                 </button>
               </div>
+              )}
 
               <button
                 type="submit"
