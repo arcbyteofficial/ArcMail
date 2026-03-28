@@ -296,6 +296,8 @@ const MailSidebar = ({
   onLogoutCurrent,
   onLogoutAll,
   onAddAccount,
+  onVerify2FAAddAccount,
+  onConfirm2FASetupAddAccount,
   onSwitchAccount,
   onLogoutAccount,
   onUpdateAccountProfile,
@@ -313,7 +315,20 @@ const MailSidebar = ({
   setCollapsed: (v: boolean) => void;
   onLogoutCurrent: () => void;
   onLogoutAll: () => void;
-  onAddAccount: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  onAddAccount: (
+    email: string,
+    password: string
+  ) => Promise<{
+    ok: boolean;
+    error?: string;
+    require2FA?: boolean;
+    require2FASetup?: boolean;
+    preAuthToken?: string;
+    qrDataUrl?: string;
+    manualKey?: string;
+  }>;
+  onVerify2FAAddAccount: (preAuthToken: string, params: { token?: string; backupCode?: string }) => Promise<{ ok: boolean; error?: string }>;
+  onConfirm2FASetupAddAccount: (params: { preAuthToken: string; token: string }) => Promise<{ ok: boolean; error?: string; backupCodes?: string[] }>;
   onSwitchAccount: (accountId: string) => void;
   onLogoutAccount: (accountId: string) => void;
   onUpdateAccountProfile: (accountId: string, updates: { displayName?: string; avatarDataUrl?: string | null }) => void;
@@ -330,6 +345,13 @@ const MailSidebar = ({
   const [addShowPassword, setAddShowPassword] = useState(false);
   const [addBusy, setAddBusy] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [addStep, setAddStep] = useState<'form' | 'otp' | 'setup' | 'backupCodes'>('form');
+  const [addPreAuthToken, setAddPreAuthToken] = useState('');
+  const [addQrDataUrl, setAddQrDataUrl] = useState('');
+  const [addManualKey, setAddManualKey] = useState('');
+  const [addOtp, setAddOtp] = useState('');
+  const [addUseBackup, setAddUseBackup] = useState(false);
+  const [addBackupCodes, setAddBackupCodes] = useState<string[] | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileAccountId, setProfileAccountId] = useState<string | null>(null);
   const [profileName, setProfileName] = useState('');
@@ -337,6 +359,17 @@ const MailSidebar = ({
   const [removeConfirm, setRemoveConfirm] = useState<{ id: string; email: string } | null>(null);
   const activeInitial = (activeEmail || '?')[0]?.toUpperCase() || '?';
   const activeAccount = useMemo(() => accounts.find((a) => a.id === activeAccountId) || null, [accounts, activeAccountId]);
+  const resetAddFlow = () => {
+    setAddStep('form');
+    setAddPreAuthToken('');
+    setAddQrDataUrl('');
+    setAddManualKey('');
+    setAddOtp('');
+    setAddUseBackup(false);
+    setAddBackupCodes(null);
+    setAddError(null);
+    setAddBusy(false);
+  };
 
   return (
     <aside
@@ -853,7 +886,10 @@ const MailSidebar = ({
                               </div>
                             </div>
                             <button
-                              onClick={() => setAddAccountOpen(false)}
+                              onClick={() => {
+                                setAddAccountOpen(false);
+                                resetAddFlow();
+                              }}
                               className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-[#1A1A1A]" : "text-black/55 hover:text-black hover:bg-[#F0F0F0]")}
                             >
                               <X size={18} />
@@ -861,99 +897,241 @@ const MailSidebar = ({
                           </div>
                         </div>
 
-                        <form
-                          onSubmit={async (evt) => {
-                            evt.preventDefault();
-                            setAddError(null);
-                            const e = addEmail.trim();
-                            const p = addPassword;
-                            if (!e || !p) {
-                              setAddError('Enter email and password.');
-                              return;
-                            }
-                            setAddBusy(true);
-                            try {
-                              const res = await onAddAccount(e, p);
-                              if (!res.ok) {
-                                setAddError(res.error || 'Sign in failed.');
-                                return;
-                              }
-                              setAddAccountOpen(false);
-                            } finally {
-                              setAddBusy(false);
-                            }
-                          }}
-                          className="px-6 pb-6"
-                        >
+                        <div className="px-6 pb-6">
                           {addError && (
                             <div className="mb-4 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">
                               {addError}
                             </div>
                           )}
 
-                          <div className="space-y-4">
-                            <div>
-                              <div className={cn("text-[11px] font-bold tracking-widest uppercase mb-2", isDark ? "text-white/45" : "text-black/45")}>Email</div>
-                              <div className={cn(
-                                "group flex items-center gap-3 rounded-2xl px-4 h-12 border transition-all",
-                                isDark ? "bg-[#111111] border-white/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25" : "bg-white border-black/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/20"
-                              )}>
-                                <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
-                                  <Mail size={16} strokeWidth={2.2} />
-                                </div>
-                                <input
-                                  value={addEmail}
-                                  onChange={(e) => setAddEmail(e.target.value)}
-                                  className={cn("flex-1 min-w-0 bg-transparent outline-none text-base", isDark ? "text-white placeholder-white/20" : "text-black placeholder-black/30")}
-                                  placeholder="name@mail.arcbyte.co"
-                                  autoCapitalize="none"
-                                  autoCorrect="off"
-                                  spellCheck={false}
-                                />
+                          {addStep === 'backupCodes' ? (
+                            <div className="space-y-4">
+                              <div className={cn("text-[11px] font-bold tracking-widest uppercase", isDark ? "text-white/45" : "text-black/45")}>
+                                Backup codes
                               </div>
-                            </div>
-
-                            <div>
-                              <div className={cn("text-[11px] font-bold tracking-widest uppercase mb-2", isDark ? "text-white/45" : "text-black/45")}>Password</div>
-                              <div className={cn(
-                                "group flex items-center gap-3 rounded-2xl px-4 h-12 border transition-all",
-                                isDark ? "bg-[#111111] border-white/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25" : "bg-white border-black/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/20"
-                              )}>
-                                <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
-                                  <KeyRound size={16} strokeWidth={2.2} />
-                                </div>
-                                <input
-                                  value={addPassword}
-                                  onChange={(e) => setAddPassword(e.target.value)}
-                                  type={addShowPassword ? "text" : "password"}
-                                  className={cn("flex-1 min-w-0 bg-transparent outline-none text-base", isDark ? "text-white placeholder-white/20" : "text-black placeholder-black/30")}
-                                  placeholder="Mailbox password"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => setAddShowPassword((v) => !v)}
-                                  className={cn(
-                                    "w-9 h-9 rounded-xl flex items-center justify-center transition-colors",
-                                    isDark ? "text-white/55 hover:text-white hover:bg-white/5" : "text-black/55 hover:text-black hover:bg-black/5"
-                                  )}
-                                >
-                                  {addShowPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                </button>
+                              <div className={cn("rounded-2xl border p-4 font-mono text-xs whitespace-pre-wrap", isDark ? "bg-[#111111] border-white/10 text-white/80" : "bg-white border-black/10 text-black/80")}>
+                                {(addBackupCodes || []).join('\n')}
                               </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAddEmail('');
+                                  setAddPassword('');
+                                  setAddAccountOpen(false);
+                                  resetAddFlow();
+                                }}
+                                className={cn(
+                                  "w-full h-12 rounded-2xl font-bold tracking-[0.14em] text-xs transition-all duration-300 flex items-center justify-center gap-2",
+                                  "bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black shadow-[0_18px_50px_rgba(29,185,84,0.18)] hover:shadow-[0_22px_60px_rgba(29,185,84,0.28)] active:scale-[0.99]"
+                                )}
+                              >
+                                Done
+                              </button>
                             </div>
+                          ) : (
+                            <form
+                              onSubmit={async (evt) => {
+                                evt.preventDefault();
+                                setAddError(null);
+                                if (addStep === 'form') {
+                                  const e = addEmail.trim();
+                                  const p = addPassword;
+                                  if (!e || !p) return setAddError('Enter email and password.');
+                                  setAddBusy(true);
+                                  try {
+                                    const res = await onAddAccount(e, p);
+                                    if (res.require2FASetup && res.preAuthToken && res.qrDataUrl && res.manualKey) {
+                                      setAddStep('setup');
+                                      setAddPreAuthToken(res.preAuthToken);
+                                      setAddQrDataUrl(res.qrDataUrl);
+                                      setAddManualKey(res.manualKey);
+                                      setAddOtp('');
+                                      setAddUseBackup(false);
+                                      return;
+                                    }
+                                    if (res.require2FA && res.preAuthToken) {
+                                      setAddStep('otp');
+                                      setAddPreAuthToken(res.preAuthToken);
+                                      setAddOtp('');
+                                      setAddUseBackup(false);
+                                      return;
+                                    }
+                                    if (!res.ok) return setAddError(res.error || 'Sign in failed.');
+                                    setAddAccountOpen(false);
+                                    resetAddFlow();
+                                  } finally {
+                                    setAddBusy(false);
+                                  }
+                                  return;
+                                }
 
-                            <button
-                              type="submit"
-                              disabled={addBusy}
-                              className={cn(
-                                "w-full h-12 rounded-2xl font-bold tracking-[0.14em] text-xs transition-all duration-300 flex items-center justify-center gap-2",
-                                "bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black shadow-[0_18px_50px_rgba(29,185,84,0.18)] hover:shadow-[0_22px_60px_rgba(29,185,84,0.28)] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed disabled:shadow-none"
-                              )}
+                                if (addStep === 'setup') {
+                                  const code = addOtp.trim();
+                                  if (!code) return setAddError('Enter the 6-digit code.');
+                                  setAddBusy(true);
+                                  try {
+                                    const res = await onConfirm2FASetupAddAccount({ preAuthToken: addPreAuthToken, token: code });
+                                    if (!res.ok) {
+                                      const retry = await onAddAccount(addEmail.trim(), addPassword);
+                                      if (retry.require2FA && retry.preAuthToken) {
+                                        setAddStep('otp');
+                                        setAddPreAuthToken(retry.preAuthToken);
+                                        setAddOtp('');
+                                        setAddUseBackup(false);
+                                        return;
+                                      }
+                                      if (!retry.ok) return setAddError(res.error || retry.error || 'Sign in failed.');
+                                      setAddAccountOpen(false);
+                                      resetAddFlow();
+                                      return;
+                                    }
+                                    if (res.backupCodes && res.backupCodes.length) {
+                                      setAddBackupCodes(res.backupCodes);
+                                      setAddStep('backupCodes');
+                                      return;
+                                    }
+                                    setAddAccountOpen(false);
+                                    resetAddFlow();
+                                  } finally {
+                                    setAddBusy(false);
+                                  }
+                                  return;
+                                }
+
+                                if (addStep === 'otp') {
+                                  const code = addOtp.trim();
+                                  if (!code) return setAddError(addUseBackup ? 'Enter a backup code.' : 'Enter the 6-digit code.');
+                                  setAddBusy(true);
+                                  try {
+                                    const res = await onVerify2FAAddAccount(addPreAuthToken, addUseBackup ? { backupCode: code } : { token: code });
+                                    if (!res.ok) return setAddError(res.error || 'Sign in failed.');
+                                    setAddAccountOpen(false);
+                                    resetAddFlow();
+                                  } finally {
+                                    setAddBusy(false);
+                                  }
+                                }
+                              }}
+                              className="space-y-4"
                             >
-                              {addBusy ? <Loader2 className="animate-spin" size={18} /> : 'Add account'}
-                            </button>
-                          </div>
-                        </form>
+                              {addStep === 'form' && (
+                                <>
+                                  <div>
+                                    <div className={cn("text-[11px] font-bold tracking-widest uppercase mb-2", isDark ? "text-white/45" : "text-black/45")}>Email</div>
+                                    <div className={cn(
+                                      "group flex items-center gap-3 rounded-2xl px-4 h-12 border transition-all",
+                                      isDark ? "bg-[#111111] border-white/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25" : "bg-white border-black/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/20"
+                                    )}>
+                                      <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                                        <Mail size={16} strokeWidth={2.2} />
+                                      </div>
+                                      <input
+                                        value={addEmail}
+                                        onChange={(e) => setAddEmail(e.target.value)}
+                                        className={cn("flex-1 min-w-0 bg-transparent outline-none text-base", isDark ? "text-white placeholder-white/20" : "text-black placeholder-black/30")}
+                                        placeholder="name@mail.arcbyte.co"
+                                        autoCapitalize="none"
+                                        autoCorrect="off"
+                                        spellCheck={false}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <div className={cn("text-[11px] font-bold tracking-widest uppercase mb-2", isDark ? "text-white/45" : "text-black/45")}>Password</div>
+                                    <div className={cn(
+                                      "group flex items-center gap-3 rounded-2xl px-4 h-12 border transition-all",
+                                      isDark ? "bg-[#111111] border-white/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25" : "bg-white border-black/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/20"
+                                    )}>
+                                      <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                                        <KeyRound size={16} strokeWidth={2.2} />
+                                      </div>
+                                      <input
+                                        value={addPassword}
+                                        onChange={(e) => setAddPassword(e.target.value)}
+                                        type={addShowPassword ? "text" : "password"}
+                                        className={cn("flex-1 min-w-0 bg-transparent outline-none text-base", isDark ? "text-white placeholder-white/20" : "text-black placeholder-black/30")}
+                                        placeholder="Mailbox password"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => setAddShowPassword((v) => !v)}
+                                        className={cn(
+                                          "w-9 h-9 rounded-xl flex items-center justify-center transition-colors",
+                                          isDark ? "text-white/55 hover:text-white hover:bg-white/5" : "text-black/55 hover:text-black hover:bg-black/5"
+                                        )}
+                                      >
+                                        {addShowPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                      </button>
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+
+                              {addStep === 'setup' && (
+                                <>
+                                  <div className={cn("text-[11px] font-bold tracking-widest uppercase", isDark ? "text-white/45" : "text-black/45")}>
+                                    Set up two-factor authentication
+                                  </div>
+                                  <div className={cn("rounded-2xl border p-4 flex items-center justify-center", isDark ? "bg-[#111111] border-white/10" : "bg-[#F9F9F9] border-black/10")}>
+                                    {addQrDataUrl ? <img src={addQrDataUrl} alt="2FA QR" className="w-44 h-44" /> : null}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => void navigator.clipboard?.writeText(addManualKey)}
+                                    className={cn("w-full rounded-2xl border px-4 py-3 text-left font-mono text-xs break-all transition-colors", isDark ? "bg-[#111111] border-white/10 hover:bg-[#1A1A1A] text-white/80" : "bg-white border-black/10 hover:bg-[#F6F6F6] text-black/80")}
+                                  >
+                                    {addManualKey}
+                                  </button>
+                                  <SixDigitCodeInput value={addOtp} onChange={setAddOtp} disabled={addBusy} autoFocus />
+                                </>
+                              )}
+
+                              {addStep === 'otp' && (
+                                <>
+                                  <div className={cn("text-[11px] font-bold tracking-widest uppercase", isDark ? "text-white/45" : "text-black/45")}>
+                                    Two-factor authentication
+                                  </div>
+                                  {addUseBackup ? (
+                                    <input
+                                      value={addOtp}
+                                      onChange={(e) => setAddOtp(e.target.value)}
+                                      inputMode="text"
+                                      className={cn("w-full h-12 rounded-2xl border px-4 bg-transparent outline-none", isDark ? "border-white/10 text-white placeholder-white/20" : "border-black/10 text-black placeholder-black/30")}
+                                      placeholder="XXXX-XXXX-XXXX"
+                                    />
+                                  ) : (
+                                    <SixDigitCodeInput value={addOtp} onChange={setAddOtp} disabled={addBusy} autoFocus />
+                                  )}
+                                  <div className={cn("flex items-center justify-between text-xs", isDark ? "text-white/35" : "text-black/45")}>
+                                    <button type="button" onClick={() => { setAddUseBackup((v) => !v); setAddOtp(''); }} className={cn("transition-colors", isDark ? "hover:text-white" : "hover:text-black")}>
+                                      {addUseBackup ? 'Use authenticator code' : 'Use backup code'}
+                                    </button>
+                                  </div>
+                                </>
+                              )}
+
+                              <button
+                                type="submit"
+                                disabled={addBusy}
+                                className={cn(
+                                  "w-full h-12 rounded-2xl font-bold tracking-[0.14em] text-xs transition-all duration-300 flex items-center justify-center gap-2",
+                                  "bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black shadow-[0_18px_50px_rgba(29,185,84,0.18)] hover:shadow-[0_22px_60px_rgba(29,185,84,0.28)] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed disabled:shadow-none"
+                                )}
+                              >
+                                {addBusy ? (
+                                  <Loader2 className="animate-spin" size={18} />
+                                ) : addStep === 'setup' ? (
+                                  'Verify & enable'
+                                ) : addStep === 'otp' ? (
+                                  'Verify'
+                                ) : (
+                                  'Add account'
+                                )}
+                              </button>
+                            </form>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -4382,6 +4560,8 @@ const MailAppContent = () => {
               onLogoutCurrent={requestLogoutCurrent}
               onLogoutAll={logout}
               onAddAccount={async (email, password) => addAccount(password, email)}
+              onVerify2FAAddAccount={verify2FAAddAccount}
+              onConfirm2FASetupAddAccount={confirm2FASetupAddAccount}
               onSwitchAccount={requestSwitchAccount}
               onLogoutAccount={logoutAccount}
               onUpdateAccountProfile={updateAccountProfile}
