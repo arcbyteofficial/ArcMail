@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -6,12 +6,97 @@ import { api } from '../../api/client';
 import { Lock, ArrowRight, Loader2, ShieldCheck, X, User, Phone, BadgeCheck, Mail, Check } from 'lucide-react';
 import logo from '../../assets/arcbyte.co Logo_white_transparent.png';
 
+const SixDigitCodeInput = ({
+  value,
+  onChange,
+  disabled,
+  autoFocus,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  disabled?: boolean;
+  autoFocus?: boolean;
+}) => {
+  const refs = useRef<Array<HTMLInputElement | null>>([]);
+  const digits = useMemo(() => {
+    const clean = value.replace(/\D/g, '').slice(0, 6);
+    return Array.from({ length: 6 }).map((_, i) => clean[i] || '');
+  }, [value]);
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    const id = window.setTimeout(() => refs.current[0]?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [autoFocus]);
+
+  const setAt = (index: number, char: string) => {
+    const clean = value.replace(/\D/g, '').slice(0, 6);
+    const arr = clean.split('');
+    while (arr.length < 6) arr.push('');
+    arr[index] = char;
+    const next = arr.join('').replace(/\D/g, '').slice(0, 6);
+    onChange(next);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const text = e.clipboardData.getData('text');
+    const next = text.replace(/\D/g, '').slice(0, 6);
+    if (!next) return;
+    e.preventDefault();
+    onChange(next);
+    const idx = Math.min(next.length, 6) - 1;
+    refs.current[Math.max(0, idx)]?.focus();
+  };
+
+  return (
+    <div className="w-full max-w-[340px] mx-auto grid grid-cols-6 gap-2" onPaste={handlePaste}>
+      {digits.map((d, i) => (
+        <input
+          key={i}
+          ref={(el) => {
+            refs.current[i] = el;
+          }}
+          value={d}
+          inputMode="numeric"
+          pattern="[0-9]*"
+          disabled={disabled}
+          onChange={(e) => {
+            const v = e.target.value.replace(/\D/g, '');
+            const char = v ? v[v.length - 1] : '';
+            setAt(i, char);
+            if (char && i < 5) refs.current[i + 1]?.focus();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Backspace') {
+              if (digits[i]) {
+                setAt(i, '');
+                return;
+              }
+              if (i > 0) {
+                refs.current[i - 1]?.focus();
+                setAt(i - 1, '');
+              }
+            }
+            if (e.key === 'ArrowLeft' && i > 0) refs.current[i - 1]?.focus();
+            if (e.key === 'ArrowRight' && i < 5) refs.current[i + 1]?.focus();
+          }}
+          className="w-full h-12 sm:h-14 text-center text-base sm:text-lg font-mono bg-[#141414] border border-white/10 text-white placeholder-white/20 focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-all duration-200 rounded-xl"
+          aria-label={`Digit ${i + 1}`}
+        />
+      ))}
+    </div>
+  );
+};
+
 const MailLogin = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
-  const [require2FA, setRequire2FA] = useState(false);
+  const [step, setStep] = useState<'login' | 'otp' | 'setup' | 'backupCodes'>('login');
   const [preAuthToken, setPreAuthToken] = useState('');
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [manualKey, setManualKey] = useState('');
+  const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
   const [otp, setOtp] = useState('');
   const [useBackup, setUseBackup] = useState(false);
   const [, setTick] = useState(0);
@@ -26,15 +111,15 @@ const MailLogin = () => {
   const [fpAltPhone, setFpAltPhone] = useState('');
   const [fpError, setFpError] = useState('');
   const [fpSending, setFpSending] = useState(false);
-  const { login, verify2FA } = useAuth();
+  const { login, verify2FA, confirm2FASetup } = useAuth();
   const navigate = useNavigate();
 
   const secondsLeft = 30 - (Math.floor(Date.now() / 1000) % 30);
-  React.useEffect(() => {
-    if (!require2FA) return;
+  useEffect(() => {
+    if (step !== 'otp' && step !== 'setup') return;
     const id = window.setInterval(() => setTick((t) => t + 1), 500);
     return () => window.clearInterval(id);
-  }, [require2FA]);
+  }, [step]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,8 +131,15 @@ const MailLogin = () => {
       if (result.ok) {
         navigate('/');
       } else if (result.require2FA && typeof result.preAuthToken === 'string' && result.preAuthToken) {
-        setRequire2FA(true);
+        setStep('otp');
         setPreAuthToken(result.preAuthToken);
+        setOtp('');
+        setUseBackup(false);
+      } else if (result.require2FASetup && typeof result.preAuthToken === 'string' && result.preAuthToken) {
+        setStep('setup');
+        setPreAuthToken(result.preAuthToken);
+        setQrDataUrl(typeof result.qrDataUrl === 'string' ? result.qrDataUrl : '');
+        setManualKey(typeof result.manualKey === 'string' ? result.manualKey : '');
         setOtp('');
         setUseBackup(false);
       } else {
@@ -73,6 +165,32 @@ const MailLogin = () => {
       const res = await verify2FA(preAuthToken, useBackup ? { backupCode: code } : { token: code });
       if (!res.ok) {
         setError(res.error || 'Invalid code. Try again.');
+        return;
+      }
+      navigate('/');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleConfirmSetup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
+    try {
+      const code = otp.trim();
+      if (!code) {
+        setError('Enter the 6-digit code.');
+        return;
+      }
+      const res = await confirm2FASetup({ preAuthToken, token: code, logoutAllSessions: true });
+      if (!res.ok) {
+        setError(res.error || 'Failed to enable 2FA.');
+        return;
+      }
+      if (res.backupCodes && res.backupCodes.length) {
+        setBackupCodes(res.backupCodes);
+        setStep('backupCodes');
         return;
       }
       navigate('/');
@@ -236,9 +354,25 @@ const MailLogin = () => {
               </div>
             )}
 
-            <form onSubmit={require2FA ? handleVerify2fa : handleSubmit} className="space-y-8">
+            {step === 'backupCodes' ? (
               <div className="space-y-6">
-                {require2FA ? (
+                <div className="text-xs font-mono uppercase tracking-widest text-white/40">Backup codes</div>
+                <div className="p-4 rounded-2xl bg-[#141414] border border-white/10 text-white/80 font-mono text-sm whitespace-pre-wrap">
+                  {(backupCodes || []).join('\n')}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('/')}
+                  className="w-full bg-accent hover:bg-accent/90 text-black h-12 font-semibold tracking-[0.18em] text-xs flex items-center justify-center gap-2 transition-all duration-300 shadow-[0_0_18px_rgba(99,102,241,0.45)] hover:shadow-[0_0_26px_rgba(99,102,241,0.75)] disabled:opacity-50 disabled:cursor-not-allowed group"
+                >
+                  <span>CONTINUE</span>
+                  <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                </button>
+              </div>
+            ) : (
+            <form onSubmit={step === 'otp' ? handleVerify2fa : step === 'setup' ? handleConfirmSetup : handleSubmit} className="space-y-8">
+              <div className="space-y-6">
+                {step === 'otp' ? (
                   <>
                     <div className="text-xs font-mono uppercase tracking-widest text-white/40">
                       Two-factor authentication
@@ -247,25 +381,52 @@ const MailLogin = () => {
                       <label className="block text-xs font-mono uppercase tracking-widest text-white/40 mb-2 group-focus-within:text-accent transition-colors">
                         {useBackup ? 'Backup code' : '6-digit code'}
                       </label>
-                      <input
-                        inputMode={useBackup ? 'text' : 'numeric'}
-                        pattern={useBackup ? undefined : '[0-9]*'}
-                        value={otp}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          const next = useBackup ? v : v.replace(/\D/g, '').slice(0, 6);
-                          setOtp(next);
-                        }}
-                        className="w-full bg-[#141414] border border-white/5 px-4 py-4 text-base text-white placeholder-white/20 focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-all duration-300 rounded-sm"
-                        placeholder={useBackup ? 'XXXX-XXXX-XXXX' : '123456'}
-                        autoFocus
-                        required
-                      />
+                      {useBackup ? (
+                        <input
+                          inputMode="text"
+                          value={otp}
+                          onChange={(e) => setOtp(e.target.value)}
+                          className="w-full bg-[#141414] border border-white/10 px-4 py-4 text-base text-white placeholder-white/20 focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-all duration-300 rounded-xl"
+                          placeholder="XXXX-XXXX-XXXX"
+                          autoFocus
+                          required
+                        />
+                      ) : (
+                        <SixDigitCodeInput value={otp} onChange={setOtp} disabled={isLoading} autoFocus />
+                      )}
                       <div className="mt-3 flex items-center justify-between text-xs text-white/35">
                         <button type="button" onClick={() => { setUseBackup((v) => !v); setOtp(''); }} className="hover:text-white transition-colors">
                           {useBackup ? 'Use authenticator code' : 'Use backup code'}
                         </button>
                         {!useBackup && <span>Refresh in {secondsLeft}s</span>}
+                      </div>
+                    </div>
+                  </>
+                ) : step === 'setup' ? (
+                  <>
+                    <div className="text-xs font-mono uppercase tracking-widest text-white/40">
+                      Set up two-factor authentication
+                    </div>
+                    <div className="rounded-2xl bg-[#141414] border border-white/10 p-4 flex items-center justify-center">
+                      {qrDataUrl ? <img src={qrDataUrl} alt="2FA QR" className="w-44 h-44" /> : null}
+                    </div>
+                    <div>
+                      <div className="text-xs font-mono uppercase tracking-widest text-white/40 mb-2">Manual key</div>
+                      <button
+                        type="button"
+                        onClick={() => void navigator.clipboard?.writeText(manualKey)}
+                        className="w-full rounded-2xl bg-[#141414] border border-white/10 px-4 py-3 text-left font-mono text-xs break-all text-white/80 hover:border-white/15 transition-colors"
+                      >
+                        {manualKey}
+                      </button>
+                    </div>
+                    <div className="group">
+                      <label className="block text-xs font-mono uppercase tracking-widest text-white/40 mb-2 group-focus-within:text-accent transition-colors">
+                        6-digit code
+                      </label>
+                      <SixDigitCodeInput value={otp} onChange={setOtp} disabled={isLoading} autoFocus />
+                      <div className="mt-3 flex items-center justify-end text-xs text-white/35">
+                        <span>Refresh in {secondsLeft}s</span>
                       </div>
                     </div>
                   </>
@@ -304,7 +465,7 @@ const MailLogin = () => {
                 )}
               </div>
 
-              {!require2FA && (
+              {step === 'login' && (
               <div className="flex items-center justify-between text-xs text-white/40">
                 <label className="flex items-center gap-2 cursor-pointer hover:text-white transition-colors">
                   <span className="relative">
@@ -352,12 +513,13 @@ const MailLogin = () => {
                   <Loader2 className="animate-spin" size={18} />
                 ) : (
                   <>
-                    <span>ENTER ARCMAIL</span>
+                    <span>{step === 'otp' ? 'VERIFY' : step === 'setup' ? 'VERIFY & ENABLE' : 'ENTER ARCMAIL'}</span>
                     <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
                   </>
                 )}
               </button>
             </form>
+            )}
           </motion.div>
         </div>
       </main>

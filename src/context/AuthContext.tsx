@@ -27,9 +27,35 @@ interface AuthContextType {
   user: AuthUser | null;
   accounts: { id: string; email: string; name: string; avatarDataUrl?: string }[];
   activeAccountId: string | null;
-  login: (password: string, email?: string, rememberMe?: boolean) => Promise<{ ok: boolean; error?: string; require2FA?: boolean; preAuthToken?: string }>;
+  login: (
+    password: string,
+    email?: string,
+    rememberMe?: boolean
+  ) => Promise<{
+    ok: boolean;
+    error?: string;
+    require2FA?: boolean;
+    require2FASetup?: boolean;
+    preAuthToken?: string;
+    qrDataUrl?: string;
+    manualKey?: string;
+  }>;
   verify2FA: (preAuthToken: string, params: { token?: string; backupCode?: string }) => Promise<{ ok: boolean; error?: string }>;
-  addAccount: (password: string, email: string) => Promise<{ ok: boolean; error?: string; require2FA?: boolean }>;
+  confirm2FASetup: (params: { preAuthToken: string; token: string; logoutAllSessions?: boolean }) => Promise<{ ok: boolean; error?: string; backupCodes?: string[] }>;
+  addAccount: (
+    password: string,
+    email: string
+  ) => Promise<{
+    ok: boolean;
+    error?: string;
+    require2FA?: boolean;
+    require2FASetup?: boolean;
+    preAuthToken?: string;
+    qrDataUrl?: string;
+    manualKey?: string;
+  }>;
+  verify2FAAddAccount: (preAuthToken: string, params: { token?: string; backupCode?: string }) => Promise<{ ok: boolean; error?: string }>;
+  confirm2FASetupAddAccount: (params: { preAuthToken: string; token: string }) => Promise<{ ok: boolean; error?: string; backupCodes?: string[] }>;
   switchAccount: (accountId: string) => void;
   logoutAccount: (accountId: string) => void;
   updateAccountProfile: (
@@ -449,8 +475,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     initializeAuth();
   }, [applyProfileToLocal, logout, persistAccounts, removeAccount, syncLegacyFromAccount, upsertAccount]);
 
-  const consumeAuthResponse = useCallback(async (data: unknown, fallbackEmail?: string): Promise<{ ok: boolean; error?: string }> => {
+  const consumeAuthResponse = useCallback(
+    async (
+      data: unknown,
+      fallbackEmail?: string,
+      options?: { setActive?: boolean }
+    ): Promise<{ ok: boolean; error?: string }> => {
     if (data && typeof data === 'object' && 'token' in data && (data as { token?: unknown }).token) {
+      const setActive = options?.setActive ?? true;
       const d = data as { token: string; csrfToken?: unknown; sessionId?: unknown; user?: unknown };
       const userData = d.user && typeof d.user === 'object' ? (d.user as { email?: unknown; name?: unknown; role?: unknown; status?: unknown; id?: unknown; clientId?: unknown }) : {};
       const emailValue = String(userData.email || fallbackEmail || '').trim();
@@ -469,34 +501,38 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         createdAt: Date.now(),
         lastUsedAt: Date.now(),
       };
-      upsertAccount(next, { setActive: true });
-      try {
-        const p = await api.get('/account/profile');
-        const profile =
-          p.data && typeof p.data === 'object' && 'profile' in p.data && p.data.profile && typeof p.data.profile === 'object'
-            ? (p.data.profile as { displayName?: unknown; avatarDataUrl?: unknown })
-            : null;
-        if (profile) {
-          const serverHasProfile = Boolean(
-            (typeof profile.displayName === 'string' && profile.displayName.trim()) ||
-              (typeof profile.avatarDataUrl === 'string' && profile.avatarDataUrl.trim())
-          );
-          if (serverHasProfile) {
-            applyProfileToLocal(id, {
-              displayName: typeof profile.displayName === 'string' ? profile.displayName : null,
-              avatarDataUrl: typeof profile.avatarDataUrl === 'string' ? profile.avatarDataUrl : null,
-            });
+      upsertAccount(next, { setActive });
+      if (setActive) {
+        try {
+          const p = await api.get('/account/profile');
+          const profile =
+            p.data && typeof p.data === 'object' && 'profile' in p.data && p.data.profile && typeof p.data.profile === 'object'
+              ? (p.data.profile as { displayName?: unknown; avatarDataUrl?: unknown })
+              : null;
+          if (profile) {
+            const serverHasProfile = Boolean(
+              (typeof profile.displayName === 'string' && profile.displayName.trim()) ||
+                (typeof profile.avatarDataUrl === 'string' && profile.avatarDataUrl.trim())
+            );
+            if (serverHasProfile) {
+              applyProfileToLocal(id, {
+                displayName: typeof profile.displayName === 'string' ? profile.displayName : null,
+                avatarDataUrl: typeof profile.avatarDataUrl === 'string' ? profile.avatarDataUrl : null,
+              });
+            }
           }
+        } catch {
+          void 0;
         }
-      } catch {
-        void 0;
       }
       return { ok: true };
     }
     return { ok: false, error: 'Sign in failed. Please try again.' };
-  }, [applyProfileToLocal, upsertAccount]);
+    },
+    [applyProfileToLocal, upsertAccount]
+  );
 
-  const login = useCallback(async (password: string, email?: string, rememberMe?: boolean): Promise<{ ok: boolean; error?: string; require2FA?: boolean; preAuthToken?: string }> => {
+  const login = useCallback(async (password: string, email?: string, rememberMe?: boolean): Promise<{ ok: boolean; error?: string; require2FA?: boolean; require2FASetup?: boolean; preAuthToken?: string; qrDataUrl?: string; manualKey?: string }> => {
     try {
       const payload = { email, password, rememberMe: Boolean(rememberMe) };
       const postWithFallback = async () => {
@@ -528,6 +564,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const preAuthToken = (res.data as { preAuthToken?: unknown }).preAuthToken;
         if (typeof preAuthToken === 'string' && preAuthToken) return { ok: false, require2FA: true, preAuthToken };
         return { ok: false, error: '2FA required but preauth token missing.' };
+      }
+      if (res.data && typeof res.data === 'object' && 'require2FASetup' in res.data && (res.data as { require2FASetup?: unknown }).require2FASetup) {
+        const preAuthToken = (res.data as { preAuthToken?: unknown }).preAuthToken;
+        const qrDataUrl = (res.data as { qrDataUrl?: unknown }).qrDataUrl;
+        const manualKey = (res.data as { manualKey?: unknown }).manualKey;
+        if (typeof preAuthToken === 'string' && preAuthToken && typeof qrDataUrl === 'string' && qrDataUrl && typeof manualKey === 'string' && manualKey) {
+          return { ok: false, require2FASetup: true, preAuthToken, qrDataUrl, manualKey };
+        }
+        return { ok: false, error: '2FA setup required but setup details missing.' };
       }
       const applied = await consumeAuthResponse(res.data, email);
       return applied;
@@ -592,13 +637,104 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [consumeAuthResponse]);
 
+  const confirm2FASetup = useCallback(async (params: { preAuthToken: string; token: string; logoutAllSessions?: boolean }): Promise<{ ok: boolean; error?: string; backupCodes?: string[] }> => {
+    try {
+      const res = await api.post('/auth/confirm-2fa-preauth', {
+        preAuthToken: params.preAuthToken,
+        token: params.token,
+        logoutAllSessions: params.logoutAllSessions !== undefined ? Boolean(params.logoutAllSessions) : true,
+      });
+      const codes =
+        res.data && typeof res.data === 'object' && 'backupCodes' in res.data && Array.isArray((res.data as { backupCodes?: unknown }).backupCodes)
+          ? ((res.data as { backupCodes: unknown[] }).backupCodes.filter((c) => typeof c === 'string') as string[])
+          : [];
+      const applied = await consumeAuthResponse(res.data);
+      if (!applied.ok) return { ok: false, error: applied.error || 'Sign in failed. Please try again.' };
+      return { ok: true, backupCodes: codes.length ? codes : undefined };
+    } catch (err) {
+      const status =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { status?: unknown; data?: unknown } }).response?.status
+          : null;
+      const data =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { data?: unknown } }).response?.data
+          : null;
+      const errorCode =
+        data && typeof data === 'object' && 'error' in data && typeof (data as { error?: unknown }).error === 'string'
+          ? String((data as { error: string }).error)
+          : null;
+      if (status === 401 && errorCode === 'invalid_2fa_code') return { ok: false, error: 'Invalid code. Try again.' };
+      if (status === 429 && errorCode === 'twofa_locked') return { ok: false, error: 'Too many attempts. Try again later.' };
+      if (status === 401 && errorCode === 'preauth_expired') return { ok: false, error: 'Setup session expired. Sign in again.' };
+      return { ok: false, error: 'Failed to enable 2FA. Try again.' };
+    }
+  }, [consumeAuthResponse]);
+
   const addAccount = useCallback(
-    async (password: string, email: string): Promise<{ ok: boolean; error?: string; require2FA?: boolean }> => {
-      const res = await login(password, email, true);
-      return res;
+    async (password: string, email: string): Promise<{ ok: boolean; error?: string; require2FA?: boolean; require2FASetup?: boolean; preAuthToken?: string; qrDataUrl?: string; manualKey?: string }> => {
+      try {
+        const payload = { email, password, rememberMe: true };
+        const postWithFallback = async () => {
+          try {
+            return await api.post('/auth/login', payload);
+          } catch (err) {
+            const status =
+              err && typeof err === 'object' && 'response' in err
+                ? (err as { response?: { status?: unknown } }).response?.status
+                : null;
+            if (status === 404) return await api.post('/auth/mail-login', payload);
+            throw err;
+          }
+        };
+        const res = await postWithFallback();
+        if (res.data && typeof res.data === 'object' && 'require2FA' in res.data && (res.data as { require2FA?: unknown }).require2FA) {
+          const preAuthToken = (res.data as { preAuthToken?: unknown }).preAuthToken;
+          if (typeof preAuthToken === 'string' && preAuthToken) return { ok: false, require2FA: true, preAuthToken };
+          return { ok: false, error: '2FA required but preauth token missing.' };
+        }
+        if (res.data && typeof res.data === 'object' && 'require2FASetup' in res.data && (res.data as { require2FASetup?: unknown }).require2FASetup) {
+          const preAuthToken = (res.data as { preAuthToken?: unknown }).preAuthToken;
+          const qrDataUrl = (res.data as { qrDataUrl?: unknown }).qrDataUrl;
+          const manualKey = (res.data as { manualKey?: unknown }).manualKey;
+          if (typeof preAuthToken === 'string' && preAuthToken && typeof qrDataUrl === 'string' && qrDataUrl && typeof manualKey === 'string' && manualKey) {
+            return { ok: false, require2FASetup: true, preAuthToken, qrDataUrl, manualKey };
+          }
+          return { ok: false, error: '2FA setup required but setup details missing.' };
+        }
+        const applied = await consumeAuthResponse(res.data, email, { setActive: false });
+        return applied;
+      } catch {
+        return { ok: false, error: 'Sign in failed. Please try again.' };
+      }
     },
-    [login]
+    [consumeAuthResponse]
   );
+
+  const verify2FAAddAccount = useCallback(async (preAuthToken: string, params: { token?: string; backupCode?: string }): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const res = await api.post('/auth/verify-2fa', { preAuthToken, token: params.token, backupCode: params.backupCode });
+      const applied = await consumeAuthResponse(res.data, undefined, { setActive: false });
+      return applied;
+    } catch {
+      return { ok: false, error: 'Verification failed. Try again.' };
+    }
+  }, [consumeAuthResponse]);
+
+  const confirm2FASetupAddAccount = useCallback(async (params: { preAuthToken: string; token: string }): Promise<{ ok: boolean; error?: string; backupCodes?: string[] }> => {
+    try {
+      const res = await api.post('/auth/confirm-2fa-preauth', { preAuthToken: params.preAuthToken, token: params.token, logoutAllSessions: true });
+      const codes =
+        res.data && typeof res.data === 'object' && 'backupCodes' in res.data && Array.isArray((res.data as { backupCodes?: unknown }).backupCodes)
+          ? ((res.data as { backupCodes: unknown[] }).backupCodes.filter((c) => typeof c === 'string') as string[])
+          : [];
+      const applied = await consumeAuthResponse(res.data, undefined, { setActive: false });
+      if (!applied.ok) return { ok: false, error: applied.error || 'Sign in failed. Please try again.' };
+      return { ok: true, backupCodes: codes.length ? codes : undefined };
+    } catch {
+      return { ok: false, error: 'Failed to enable 2FA. Try again.' };
+    }
+  }, [consumeAuthResponse]);
 
   const setActiveAuthToken = useCallback(
     (token: string) => {
@@ -804,7 +940,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [activeAccountId, applyProfileToLocal, isAuthenticated, isLoading]);
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, accounts, activeAccountId, login, verify2FA, addAccount, switchAccount, logoutAccount, updateAccountProfile, setActiveAuthToken, logout, isLoading }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, accounts, activeAccountId, login, verify2FA, confirm2FASetup, addAccount, verify2FAAddAccount, confirm2FASetupAddAccount, switchAccount, logoutAccount, updateAccountProfile, setActiveAuthToken, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1330,8 +1330,24 @@ const handleAuthLogin = async (req, res) => {
 
   const sessionId = crypto.randomUUID();
   const csrfToken = crypto.randomBytes(32).toString('hex');
-  const result = await finishLogin({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion });
-  return res.json(result);
+  const preAuthToken = jwt.sign(
+    { role: 'PREAUTH_SETUP', email, ep: encPassword, csrf: csrfToken, sv: sessionVersion, rm: rememberMe ? 1 : 0, ttl: ttlMs },
+    PREAUTH_JWT_SECRET,
+    { subject: sessionId, expiresIn: Math.floor(PREAUTH_TTL_MS / 1000) }
+  );
+
+  const secret = speakeasy.generateSecret({ length: 20, name: `ArcMail:${email}`, issuer: 'ArcMail' });
+  const tempEnc = encryptToString(secret.base32);
+  await storeSetTemp2faSecret(emailKey, tempEnc);
+  const otpauthUrl = typeof secret.otpauth_url === 'string' ? secret.otpauth_url : '';
+  if (!otpauthUrl) return res.status(500).json({ error: 'twofa_setup_failed' });
+  let qrDataUrl = '';
+  try {
+    qrDataUrl = await QRCode.toDataURL(otpauthUrl, { margin: 1, scale: 6 });
+  } catch {
+    return res.status(500).json({ error: 'twofa_qr_failed' });
+  }
+  return res.json({ ok: true, require2FASetup: true, preAuthToken, qrDataUrl, manualKey: secret.base32, user: { email, role: 'MAIL_USER' } });
 };
 
 app.post('/api/auth/login', handleAuthLogin);
@@ -1409,6 +1425,71 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
 
   const result = await finishLogin({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion });
   return res.json({ ...result, usedBackup });
+});
+
+app.post('/api/auth/confirm-2fa-preauth', async (req, res) => {
+  const preAuthToken = typeof req.body?.preAuthToken === 'string' ? req.body.preAuthToken : '';
+  const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+  const logoutAllSessions = req.body?.logoutAllSessions !== undefined ? Boolean(req.body.logoutAllSessions) : true;
+  if (!preAuthToken) return res.status(400).json({ error: 'missing_preauth' });
+  if (!token) return res.status(400).json({ error: 'missing_2fa_code' });
+
+  let payload = null;
+  try {
+    payload = jwt.verify(preAuthToken, PREAUTH_JWT_SECRET);
+  } catch {
+    return res.status(401).json({ error: 'preauth_expired' });
+  }
+  if (!payload || typeof payload !== 'object') return res.status(401).json({ error: 'preauth_expired' });
+  const decoded = payload;
+  const role = typeof decoded.role === 'string' ? decoded.role : '';
+  if (role !== 'PREAUTH_SETUP') return res.status(401).json({ error: 'preauth_expired' });
+  const email = typeof decoded.email === 'string' ? decoded.email : '';
+  const emailKey = normalizeEmailKey(email);
+  const sessionId = typeof decoded.sub === 'string' ? decoded.sub : '';
+  const encPassword =
+    decoded.ep &&
+    typeof decoded.ep === 'object' &&
+    typeof decoded.ep.iv === 'string' &&
+    typeof decoded.ep.tag === 'string' &&
+    typeof decoded.ep.ciphertext === 'string'
+      ? decoded.ep
+      : null;
+  const csrfToken = typeof decoded.csrf === 'string' ? decoded.csrf : null;
+  const ttlMs = typeof decoded.ttl === 'number' && Number.isFinite(decoded.ttl) ? decoded.ttl : SESSION_TTL_MS;
+  const sessionVersion = typeof decoded.sv === 'number' && Number.isFinite(decoded.sv) ? decoded.sv : 0;
+  if (!emailKey || !sessionId || !encPassword || !csrfToken) return res.status(401).json({ error: 'preauth_expired' });
+
+  const user = await storeGetUser(emailKey);
+  if (!user || typeof user.temp_twofa_secret_enc !== 'string') return res.status(400).json({ error: 'twofa_setup_required' });
+  if (user.twofa_enabled) return res.status(400).json({ error: 'twofa_already_enabled' });
+  const lockUntil = user.lockout_until ? new Date(user.lockout_until).getTime() : null;
+  if (lockUntil && lockUntil > Date.now()) return res.status(429).json({ error: 'twofa_locked', retryAt: lockUntil });
+
+  let secret = '';
+  try {
+    secret = decryptFromString(user.temp_twofa_secret_enc);
+  } catch {
+    return res.status(500).json({ error: 'twofa_secret_unavailable' });
+  }
+
+  const ok = speakeasy.totp.verify({ secret, encoding: 'base32', token, step: TWOFA_STEP_SECONDS, window: TWOFA_WINDOW });
+  if (!ok) {
+    const r = await storeRecord2faFailure(emailKey);
+    if (r.locked) return res.status(429).json({ error: 'twofa_locked', retryAt: r.until });
+    return res.status(401).json({ error: 'invalid_2fa_code' });
+  }
+
+  await storeRecord2faSuccess(emailKey);
+  const rawCodes = generateBackupCodes(10);
+  const hashed = rawCodes.map((c) => hashBackupCode(c));
+  const nextSv = await storeEnable2fa({ emailKey, secretEnc: user.temp_twofa_secret_enc, backupCodesHashed: hashed, logoutAllSessions });
+  if (nextSv === null) return res.status(500).json({ error: 'twofa_enable_failed' });
+  const svOk = await storeCheckSessionVersion(emailKey, sessionVersion);
+  if (!svOk) return res.status(401).json({ error: 'session_revoked' });
+
+  const result = await finishLogin({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion: nextSv });
+  return res.json({ ...result, backupCodes: rawCodes });
 });
 
 app.get('/api/auth/me', requireAuth, (req, res) => {

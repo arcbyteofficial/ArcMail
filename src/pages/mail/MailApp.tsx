@@ -2112,6 +2112,8 @@ const MobileProfileSection = ({
   onLogoutAccount,
   onUpdateAccountProfile,
   onAddAccount,
+  onVerify2FAAddAccount,
+  onConfirm2FASetupAddAccount,
   onLogoutCurrent,
 }: {
   accounts: { id: string; email: string; name: string; avatarDataUrl?: string }[];
@@ -2120,7 +2122,9 @@ const MobileProfileSection = ({
   onSwitchAccount: (id: string) => void;
   onLogoutAccount: (id: string) => void;
   onUpdateAccountProfile: (id: string, updates: { displayName?: string; avatarDataUrl?: string | null }) => Promise<{ ok: boolean; error?: string }>;
-  onAddAccount: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  onAddAccount: (email: string, password: string) => Promise<{ ok: boolean; error?: string; require2FA?: boolean; require2FASetup?: boolean; preAuthToken?: string; qrDataUrl?: string; manualKey?: string }>;
+  onVerify2FAAddAccount: (preAuthToken: string, params: { token?: string; backupCode?: string }) => Promise<{ ok: boolean; error?: string }>;
+  onConfirm2FASetupAddAccount: (params: { preAuthToken: string; token: string }) => Promise<{ ok: boolean; error?: string; backupCodes?: string[] }>;
   onLogoutCurrent: () => void;
 }) => {
   const { isDark } = useTheme();
@@ -2130,12 +2134,20 @@ const MobileProfileSection = ({
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [twoFAOpen, setTwoFAOpen] = useState(false);
   const [addEmail, setAddEmail] = useState('');
   const [addPassword, setAddPassword] = useState('');
   const [addShow, setAddShow] = useState(false);
   const [addBusy, setAddBusy] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [addStep, setAddStep] = useState<'form' | 'otp' | 'setup' | 'backupCodes'>('form');
+  const [addPreAuthToken, setAddPreAuthToken] = useState('');
+  const [addQrDataUrl, setAddQrDataUrl] = useState('');
+  const [addManualKey, setAddManualKey] = useState('');
+  const [addOtp, setAddOtp] = useState('');
+  const [addUseBackup, setAddUseBackup] = useState(false);
+  const [addBackupCodes, setAddBackupCodes] = useState<string[] | null>(null);
   const [removeConfirm, setRemoveConfirm] = useState<{ id: string; email: string } | null>(null);
   const addSectionRef = useRef<HTMLDivElement | null>(null);
   const addEmailRef = useRef<HTMLInputElement | null>(null);
@@ -2155,6 +2167,18 @@ const MobileProfileSection = ({
   const hasUnsaved =
     Boolean(activeAccountId) &&
     ((displayName || '').trim() !== (active?.name || '').trim() || draftAvatar !== undefined);
+
+  const resetAddFlow = () => {
+    setAddStep('form');
+    setAddPreAuthToken('');
+    setAddQrDataUrl('');
+    setAddManualKey('');
+    setAddOtp('');
+    setAddUseBackup(false);
+    setAddBackupCodes(null);
+    setAddError(null);
+    setAddBusy(false);
+  };
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-[calc(7.5rem+env(safe-area-inset-bottom))]">
@@ -2300,6 +2324,17 @@ const MobileProfileSection = ({
               >
                 {saveBusy ? 'Saving' : hasUnsaved ? 'Save changes' : 'Saved'}
               </button>
+              <button
+                onClick={() => setTwoFAOpen(true)}
+                className={cn(
+                  "mt-3 w-full h-11 rounded-2xl text-[11px] font-extrabold tracking-[0.18em] uppercase border transition-colors",
+                  isDark
+                    ? "bg-[#121212] border-[#282828] text-white/85 hover:bg-[#1A1A1A] hover:text-white"
+                    : "bg-white border-[#E5E5E5] text-black/80 hover:bg-[#F6F6F6] hover:text-black"
+                )}
+              >
+                Two‑Factor Auth
+              </button>
             </div>
           </div>
         </div>
@@ -2314,6 +2349,7 @@ const MobileProfileSection = ({
             <span>Accounts</span>
             <button
               onClick={() => {
+                resetAddFlow();
                 setAddOpen(true);
                 window.setTimeout(() => {
                   addSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2453,7 +2489,10 @@ const MobileProfileSection = ({
               >
                 <span>Add account</span>
                 <button
-                  onClick={() => setAddOpen(false)}
+                  onClick={() => {
+                    setAddOpen(false);
+                    resetAddFlow();
+                  }}
                   className={cn(
                     "w-9 h-9 rounded-xl flex items-center justify-center transition-colors border",
                     isDark
@@ -2469,66 +2508,205 @@ const MobileProfileSection = ({
                 {addError && (
                   <div className="mb-4 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">{addError}</div>
                 )}
-                <div className="space-y-3">
-                  <div className={cn("group flex items-center gap-3 rounded-2xl px-4 h-12 border transition-all", isDark ? "bg-[#111111] border-white/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25" : "bg-white border-black/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/20")}>
-                    <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
-                      <Mail size={16} strokeWidth={2.2} />
+                {addStep === 'form' && (
+                  <div className="space-y-3">
+                    <div className={cn("group flex items-center gap-3 rounded-2xl px-4 h-12 border transition-all", isDark ? "bg-[#111111] border-white/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25" : "bg-white border-black/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/20")}>
+                      <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                        <Mail size={16} strokeWidth={2.2} />
+                      </div>
+                      <input
+                        ref={addEmailRef}
+                        value={addEmail}
+                        onChange={(e) => setAddEmail(e.target.value)}
+                        className={cn("flex-1 min-w-0 bg-transparent outline-none text-base", isDark ? "text-white placeholder-white/20" : "text-black placeholder-black/30")}
+                        placeholder="name@mail.arcbyte.co"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                      />
                     </div>
-                    <input
-                      ref={addEmailRef}
-                      value={addEmail}
-                      onChange={(e) => setAddEmail(e.target.value)}
-                      className={cn("flex-1 min-w-0 bg-transparent outline-none text-base", isDark ? "text-white placeholder-white/20" : "text-black placeholder-black/30")}
-                      placeholder="name@mail.arcbyte.co"
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      spellCheck={false}
-                    />
-                  </div>
-                  <div className={cn("group flex items-center gap-3 rounded-2xl px-4 h-12 border transition-all", isDark ? "bg-[#111111] border-white/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25" : "bg-white border-black/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/20")}>
-                    <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
-                      <KeyRound size={16} strokeWidth={2.2} />
+                    <div className={cn("group flex items-center gap-3 rounded-2xl px-4 h-12 border transition-all", isDark ? "bg-[#111111] border-white/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25" : "bg-white border-black/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/20")}>
+                      <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                        <KeyRound size={16} strokeWidth={2.2} />
+                      </div>
+                      <input
+                        value={addPassword}
+                        onChange={(e) => setAddPassword(e.target.value)}
+                        type={addShow ? 'text' : 'password'}
+                        className={cn("flex-1 min-w-0 bg-transparent outline-none text-base", isDark ? "text-white placeholder-white/20" : "text-black placeholder-black/30")}
+                        placeholder="Mailbox password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setAddShow((v) => !v)}
+                        className={cn("w-9 h-9 rounded-xl flex items-center justify-center transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-white/5" : "text-black/55 hover:text-black hover:bg-black/5")}
+                      >
+                        {addShow ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
                     </div>
-                    <input
-                      value={addPassword}
-                      onChange={(e) => setAddPassword(e.target.value)}
-                      type={addShow ? 'text' : 'password'}
-                      className={cn("flex-1 min-w-0 bg-transparent outline-none text-base", isDark ? "text-white placeholder-white/20" : "text-black placeholder-black/30")}
-                      placeholder="Mailbox password"
-                    />
                     <button
-                      type="button"
-                      onClick={() => setAddShow((v) => !v)}
-                      className={cn("w-9 h-9 rounded-xl flex items-center justify-center transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-white/5" : "text-black/55 hover:text-black hover:bg-black/5")}
+                      disabled={addBusy}
+                      onClick={async () => {
+                        setAddError(null);
+                        const e = addEmail.trim();
+                        const p = addPassword;
+                        if (!e || !p) return setAddError('Enter email and password.');
+                        setAddBusy(true);
+                        try {
+                          const res = await onAddAccount(e, p);
+                          if (res.require2FASetup && res.preAuthToken && res.qrDataUrl && res.manualKey) {
+                            setAddStep('setup');
+                            setAddPreAuthToken(res.preAuthToken);
+                            setAddQrDataUrl(res.qrDataUrl);
+                            setAddManualKey(res.manualKey);
+                            setAddOtp('');
+                            setAddUseBackup(false);
+                            return;
+                          }
+                          if (res.require2FA && res.preAuthToken) {
+                            setAddStep('otp');
+                            setAddPreAuthToken(res.preAuthToken);
+                            setAddOtp('');
+                            setAddUseBackup(false);
+                            return;
+                          }
+                          if (!res.ok) return setAddError(res.error || 'Sign in failed.');
+                          setAddEmail('');
+                          setAddPassword('');
+                          setAddOpen(false);
+                          resetAddFlow();
+                        } finally {
+                          setAddBusy(false);
+                        }
+                      }}
+                      className={cn(
+                        "w-full h-12 rounded-2xl font-bold tracking-[0.14em] text-xs transition-all duration-300 flex items-center justify-center gap-2",
+                        "bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black shadow-[0_18px_50px_rgba(29,185,84,0.18)] hover:shadow-[0_22px_60px_rgba(29,185,84,0.28)] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed disabled:shadow-none"
+                      )}
                     >
-                      {addShow ? <EyeOff size={18} /> : <Eye size={18} />}
+                      {addBusy ? <Loader2 className="animate-spin" size={18} /> : 'Add account'}
                     </button>
                   </div>
-                  <button
-                    disabled={addBusy}
-                    onClick={async () => {
-                      setAddError(null);
-                      const e = addEmail.trim();
-                      const p = addPassword;
-                      if (!e || !p) return setAddError('Enter email and password.');
-                      setAddBusy(true);
-                      try {
-                        const res = await onAddAccount(e, p);
-                        if (!res.ok) return setAddError(res.error || 'Sign in failed.');
+                )}
+
+                {addStep === 'setup' && (
+                  <div className="space-y-4">
+                    <div className={cn("rounded-2xl border p-4 flex items-center justify-center", isDark ? "bg-[#111111] border-white/10" : "bg-[#F9F9F9] border-black/10")}>
+                      {addQrDataUrl ? <img src={addQrDataUrl} alt="2FA QR" className="w-44 h-44" /> : null}
+                    </div>
+                    <button
+                      onClick={() => void navigator.clipboard?.writeText(addManualKey)}
+                      className={cn("w-full rounded-2xl border px-4 py-3 text-left font-mono text-xs break-all transition-colors", isDark ? "bg-[#111111] border-white/10 hover:bg-[#1A1A1A] text-white/80" : "bg-white border-black/10 hover:bg-[#F6F6F6] text-black/80")}
+                    >
+                      {addManualKey}
+                    </button>
+                    <SixDigitCodeInput value={addOtp} onChange={setAddOtp} disabled={addBusy} autoFocus />
+                    <button
+                      disabled={addBusy}
+                      onClick={async () => {
+                        setAddError(null);
+                        const code = addOtp.trim();
+                        if (!code) return setAddError('Enter the 6-digit code.');
+                        setAddBusy(true);
+                        try {
+                          const res = await onConfirm2FASetupAddAccount({ preAuthToken: addPreAuthToken, token: code });
+                          if (!res.ok) return setAddError(res.error || 'Sign in failed.');
+                          if (res.backupCodes && res.backupCodes.length) {
+                            setAddBackupCodes(res.backupCodes);
+                            setAddStep('backupCodes');
+                            return;
+                          }
+                          setAddEmail('');
+                          setAddPassword('');
+                          setAddOpen(false);
+                          resetAddFlow();
+                        } finally {
+                          setAddBusy(false);
+                        }
+                      }}
+                      className={cn(
+                        "w-full h-12 rounded-2xl font-bold tracking-[0.14em] text-xs transition-all duration-300 flex items-center justify-center gap-2",
+                        "bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black shadow-[0_18px_50px_rgba(29,185,84,0.18)] hover:shadow-[0_22px_60px_rgba(29,185,84,0.28)] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed disabled:shadow-none"
+                      )}
+                    >
+                      {addBusy ? <Loader2 className="animate-spin" size={18} /> : 'Verify & enable'}
+                    </button>
+                  </div>
+                )}
+
+                {addStep === 'otp' && (
+                  <div className="space-y-4">
+                    <div className={cn("text-[11px] font-bold tracking-widest uppercase", isDark ? "text-white/45" : "text-black/45")}>
+                      Two-factor authentication
+                    </div>
+                    {addUseBackup ? (
+                      <input
+                        value={addOtp}
+                        onChange={(e) => setAddOtp(e.target.value)}
+                        inputMode="text"
+                        className={cn("w-full h-12 rounded-2xl border px-4 bg-transparent outline-none", isDark ? "border-white/10 text-white placeholder-white/20" : "border-black/10 text-black placeholder-black/30")}
+                        placeholder="XXXX-XXXX-XXXX"
+                      />
+                    ) : (
+                      <SixDigitCodeInput value={addOtp} onChange={setAddOtp} disabled={addBusy} autoFocus />
+                    )}
+                    <div className={cn("flex items-center justify-between text-xs", isDark ? "text-white/35" : "text-black/45")}>
+                      <button type="button" onClick={() => { setAddUseBackup((v) => !v); setAddOtp(''); }} className={cn("transition-colors", isDark ? "hover:text-white" : "hover:text-black")}>
+                        {addUseBackup ? 'Use authenticator code' : 'Use backup code'}
+                      </button>
+                    </div>
+                    <button
+                      disabled={addBusy}
+                      onClick={async () => {
+                        setAddError(null);
+                        const code = addOtp.trim();
+                        if (!code) return setAddError(addUseBackup ? 'Enter a backup code.' : 'Enter the 6-digit code.');
+                        setAddBusy(true);
+                        try {
+                          const res = await onVerify2FAAddAccount(addPreAuthToken, addUseBackup ? { backupCode: code } : { token: code });
+                          if (!res.ok) return setAddError(res.error || 'Sign in failed.');
+                          setAddEmail('');
+                          setAddPassword('');
+                          setAddOpen(false);
+                          resetAddFlow();
+                        } finally {
+                          setAddBusy(false);
+                        }
+                      }}
+                      className={cn(
+                        "w-full h-12 rounded-2xl font-bold tracking-[0.14em] text-xs transition-all duration-300 flex items-center justify-center gap-2",
+                        "bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black shadow-[0_18px_50px_rgba(29,185,84,0.18)] hover:shadow-[0_22px_60px_rgba(29,185,84,0.28)] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed disabled:shadow-none"
+                      )}
+                    >
+                      {addBusy ? <Loader2 className="animate-spin" size={18} /> : 'Verify'}
+                    </button>
+                  </div>
+                )}
+
+                {addStep === 'backupCodes' && (
+                  <div className="space-y-4">
+                    <div className={cn("text-[11px] font-bold tracking-widest uppercase", isDark ? "text-white/45" : "text-black/45")}>
+                      Backup codes
+                    </div>
+                    <div className={cn("rounded-2xl border p-4 font-mono text-xs whitespace-pre-wrap", isDark ? "bg-[#111111] border-white/10 text-white/80" : "bg-white border-black/10 text-black/80")}>
+                      {(addBackupCodes || []).join('\n')}
+                    </div>
+                    <button
+                      onClick={() => {
                         setAddEmail('');
                         setAddPassword('');
-                      } finally {
-                        setAddBusy(false);
-                      }
-                    }}
-                    className={cn(
-                      "w-full h-12 rounded-2xl font-bold tracking-[0.14em] text-xs transition-all duration-300 flex items-center justify-center gap-2",
-                      "bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black shadow-[0_18px_50px_rgba(29,185,84,0.18)] hover:shadow-[0_22px_60px_rgba(29,185,84,0.28)] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed disabled:shadow-none"
-                    )}
-                  >
-                    {addBusy ? <Loader2 className="animate-spin" size={18} /> : 'Add account'}
-                  </button>
-                </div>
+                        setAddOpen(false);
+                        resetAddFlow();
+                      }}
+                      className={cn(
+                        "w-full h-12 rounded-2xl font-bold tracking-[0.14em] text-xs transition-all duration-300 flex items-center justify-center gap-2",
+                        "bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black shadow-[0_18px_50px_rgba(29,185,84,0.18)] hover:shadow-[0_22px_60px_rgba(29,185,84,0.28)] active:scale-[0.99]"
+                      )}
+                    >
+                      Done
+                    </button>
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
@@ -2554,6 +2732,7 @@ const MobileProfileSection = ({
           </span>
         </button>
       </div>
+      <TwoFactorModal open={twoFAOpen} onClose={() => setTwoFAOpen(false)} />
     </div>
   );
 };
@@ -2587,7 +2766,95 @@ const TypingGreeting = () => {
   );
 };
 
-const TwoFactorModal = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
+function SixDigitCodeInput({
+  value,
+  onChange,
+  disabled,
+  autoFocus,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  disabled?: boolean;
+  autoFocus?: boolean;
+}) {
+  const { isDark } = useTheme();
+  const refs = useRef<Array<HTMLInputElement | null>>([]);
+  const digits = useMemo(() => {
+    const clean = value.replace(/\D/g, '').slice(0, 6);
+    return Array.from({ length: 6 }).map((_, i) => clean[i] || '');
+  }, [value]);
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    const id = window.setTimeout(() => refs.current[0]?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [autoFocus]);
+
+  const setAt = (index: number, char: string) => {
+    const clean = value.replace(/\D/g, '').slice(0, 6);
+    const arr = clean.split('');
+    while (arr.length < 6) arr.push('');
+    arr[index] = char;
+    const next = arr.join('').replace(/\D/g, '').slice(0, 6);
+    onChange(next);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const text = e.clipboardData.getData('text');
+    const next = text.replace(/\D/g, '').slice(0, 6);
+    if (!next) return;
+    e.preventDefault();
+    onChange(next);
+    const idx = Math.min(next.length, 6) - 1;
+    refs.current[Math.max(0, idx)]?.focus();
+  };
+
+  return (
+    <div className="w-full max-w-[320px] mx-auto grid grid-cols-6 gap-2" onPaste={handlePaste}>
+      {digits.map((d, i) => (
+        <input
+          key={i}
+          ref={(el) => {
+            refs.current[i] = el;
+          }}
+          value={d}
+          inputMode="numeric"
+          pattern="[0-9]*"
+          disabled={disabled}
+          onChange={(e) => {
+            const v = e.target.value.replace(/\D/g, '');
+            const char = v ? v[v.length - 1] : '';
+            setAt(i, char);
+            if (char && i < 5) refs.current[i + 1]?.focus();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Backspace') {
+              if (digits[i]) {
+                setAt(i, '');
+                return;
+              }
+              if (i > 0) {
+                refs.current[i - 1]?.focus();
+                setAt(i - 1, '');
+              }
+            }
+            if (e.key === 'ArrowLeft' && i > 0) refs.current[i - 1]?.focus();
+            if (e.key === 'ArrowRight' && i < 5) refs.current[i + 1]?.focus();
+          }}
+          className={cn(
+            "w-full h-12 text-center text-base font-mono border transition-all duration-200 rounded-2xl outline-none focus:ring-1",
+            isDark
+              ? "bg-[#111111] border-white/10 text-white placeholder-white/20 focus:ring-[#1DB954]/35 focus:border-[#1DB954]/35"
+              : "bg-white border-black/10 text-black placeholder-black/30 focus:ring-[#1DB954]/25 focus:border-[#1DB954]/25"
+          )}
+          aria-label={`Digit ${i + 1}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function TwoFactorModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { isDark } = useTheme();
   const { setActiveAuthToken } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -2781,15 +3048,27 @@ const TwoFactorModal = ({ open, onClose }: { open: boolean; onClose: () => void 
                     >
                       {manualKey}
                     </button>
-                    <input
-                      value={otp}
-                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                      inputMode="numeric"
-                      className={cn("w-full h-12 rounded-2xl border px-4 bg-transparent outline-none", isDark ? "border-white/10 text-white placeholder-white/20" : "border-black/10 text-black placeholder-black/30")}
-                      placeholder="123456"
-                    />
-                    <label className={cn("flex items-center gap-2 text-sm cursor-pointer", isDark ? "text-white/60" : "text-black/60")}>
-                      <input type="checkbox" checked={logoutAllSessions} onChange={(e) => setLogoutAllSessions(e.target.checked)} />
+                    <div className="space-y-2">
+                      <div className={cn("text-xs font-mono tracking-widest uppercase", isDark ? "text-white/45" : "text-black/45")}>6-digit code</div>
+                      <SixDigitCodeInput value={otp} onChange={setOtp} disabled={loading} autoFocus />
+                    </div>
+                    <label className={cn("flex items-center gap-3 text-sm cursor-pointer select-none", isDark ? "text-white/60" : "text-black/60")}>
+                      <span className="relative">
+                        <input
+                          type="checkbox"
+                          checked={logoutAllSessions}
+                          onChange={(e) => setLogoutAllSessions(e.target.checked)}
+                          className="peer sr-only"
+                        />
+                        <span
+                          className={cn(
+                            "block w-5 h-5 rounded-md border transition-all",
+                            isDark ? "border-white/15 bg-[#111111]" : "border-black/15 bg-white",
+                            "peer-checked:bg-[#1DB954] peer-checked:border-[#1DB954] peer-focus-visible:ring-2 peer-focus-visible:ring-[#1DB954]/30"
+                          )}
+                        />
+                        <Check size={12} className="absolute inset-0 m-auto text-black opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none" />
+                      </span>
                       Logout all sessions after enabling
                     </label>
                     <button
@@ -2830,16 +3109,17 @@ const TwoFactorModal = ({ open, onClose }: { open: boolean; onClose: () => void 
                       </button>
                     </div>
 
-                    <input
-                      value={otp}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setOtp(disableMode === 'backup' ? v : v.replace(/\D/g, '').slice(0, 6));
-                      }}
-                      inputMode={disableMode === 'backup' ? 'text' : 'numeric'}
-                      className={cn("w-full h-12 rounded-2xl border px-4 bg-transparent outline-none", isDark ? "border-white/10 text-white placeholder-white/20" : "border-black/10 text-black placeholder-black/30")}
-                      placeholder={disableMode === 'backup' ? 'XXXX-XXXX-XXXX' : '123456'}
-                    />
+                    {disableMode === 'backup' ? (
+                      <input
+                        value={otp}
+                        onChange={(e) => setOtp(e.target.value)}
+                        inputMode="text"
+                        className={cn("w-full h-12 rounded-2xl border px-4 bg-transparent outline-none", isDark ? "border-white/10 text-white placeholder-white/20" : "border-black/10 text-black placeholder-black/30")}
+                        placeholder="XXXX-XXXX-XXXX"
+                      />
+                    ) : (
+                      <SixDigitCodeInput value={otp} onChange={setOtp} disabled={loading} autoFocus />
+                    )}
 
                     <button
                       onClick={() => void disable2fa()}
@@ -2859,7 +3139,7 @@ const TwoFactorModal = ({ open, onClose }: { open: boolean; onClose: () => void 
       )}
     </AnimatePresence>
   );
-};
+}
 
 const SettingsDropdown = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -3106,7 +3386,7 @@ const AccountSwitchPreloader = ({ email }: { email: string }) => {
 // --- Main App Content ---
 
 const MailAppContent = () => {
-  const { user, isAuthenticated, isLoading, logout, accounts, activeAccountId, addAccount, switchAccount, logoutAccount, updateAccountProfile } = useAuth();
+  const { user, isAuthenticated, isLoading, logout, accounts, activeAccountId, addAccount, verify2FAAddAccount, confirm2FASetupAddAccount, switchAccount, logoutAccount, updateAccountProfile } = useAuth();
   const navigate = useNavigate();
   const { isMobile, isDesktop } = useViewport();
   const { isDark } = useTheme();
@@ -4304,6 +4584,8 @@ const MailAppContent = () => {
             onLogoutAccount={logoutAccount}
             onUpdateAccountProfile={updateAccountProfile}
             onAddAccount={async (email, password) => addAccount(password, email)}
+            onVerify2FAAddAccount={verify2FAAddAccount}
+            onConfirm2FASetupAddAccount={confirm2FASetupAddAccount}
             onLogoutCurrent={requestLogoutCurrent}
           />
         ) : (
