@@ -140,6 +140,15 @@ Optional:
 
 - `ADMIN_SESSION_TTL_MS` Admin session TTL in milliseconds (default: 12 hours)
 
+Admin email (Send Access):
+
+- `ADMIN_NOTIFY_SMTP_HOST` (defaults to `SMTP_HOST`)
+- `ADMIN_NOTIFY_SMTP_PORT` (defaults to `SMTP_PORT`)
+- `ADMIN_NOTIFY_SMTP_USER`
+- `ADMIN_NOTIFY_SMTP_PASS`
+- `ADMIN_NOTIFY_SMTP_FROM` (recommended: `sysadmin@mail.arcbyte.co`)
+- `ARCMAIL_LOGIN_URL` (optional, defaults to `https://mail.arcbyte.co/login`)
+
 ## Production Deployment
 
 ### Backend on Railway (api.arcbyte.co)

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AtSign, Ban, Globe, Loader2, Lock, LogOut, Plus, RefreshCw, ShieldOff, ShieldCheck, Trash2 } from 'lucide-react';
+import { AtSign, Ban, Globe, Loader2, Lock, LogOut, Plus, RefreshCw, Send, ShieldOff, ShieldCheck, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { adminApi, getAdminBaseUrl } from '../../api/adminClient';
 import { useAdminAuth } from '../../context/AdminAuthContext';
@@ -15,7 +15,7 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'twofa' | 'domains' | 'emails'>('twofa');
+  const [tab, setTab] = useState<'twofa' | 'domains' | 'emails' | 'send'>('twofa');
   const isLocalDev = useMemo(() => {
     try {
       const host = window.location.hostname;
@@ -53,6 +53,11 @@ export default function AdminDashboard() {
   const [emailInput, setEmailInput] = useState('');
   const [loadingEmails, setLoadingEmails] = useState(false);
   const [savingEmails, setSavingEmails] = useState(false);
+
+  const [sendFullName, setSendFullName] = useState('');
+  const [sendArcMailEmail, setSendArcMailEmail] = useState('');
+  const [sendToEmail, setSendToEmail] = useState('');
+  const [sendingAccess, setSendingAccess] = useState(false);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -349,6 +354,39 @@ export default function AdminDashboard() {
     }
   };
 
+  const sendAccessEmail = async () => {
+    const arcMailEmail = String(sendArcMailEmail || '').trim().toLowerCase();
+    const toEmail = String(sendToEmail || '').trim().toLowerCase();
+    if (!arcMailEmail || !arcMailEmail.includes('@')) {
+      setError('Enter a valid ArcMail email.');
+      return;
+    }
+    if (!toEmail || !toEmail.includes('@')) {
+      setError('Enter a valid delivery email.');
+      return;
+    }
+    setSendingAccess(true);
+    setError(null);
+    setResetResult(null);
+    try {
+      const res = await adminApi.post('/admin/send-access-email', {
+        fullName: sendFullName.trim(),
+        arcMailEmail,
+        toEmail,
+      });
+      const ok = res.data && typeof res.data === 'object' && 'ok' in res.data ? Boolean((res.data as { ok?: unknown }).ok) : false;
+      if (!ok) throw new Error('failed');
+      setResetResult(`Sent access email for ${arcMailEmail}`);
+      setSendFullName('');
+      setSendArcMailEmail('');
+      setSendToEmail('');
+    } catch (err) {
+      setError(errorMessageFrom(err, 'Failed to send email.'));
+    } finally {
+      setSendingAccess(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white font-sans selection:bg-accent/30 selection:text-white">
       <header className="sticky top-0 z-20 border-b border-white/5 bg-[#0A0A0A]/70 backdrop-blur-md">
@@ -448,6 +486,18 @@ export default function AdminDashboard() {
               >
                 <AtSign size={16} />
                 Block emails
+              </button>
+              <button
+                onClick={() => setTab('send')}
+                className={cn(
+                  "w-full h-11 rounded-2xl border px-3 text-xs font-bold tracking-widest uppercase transition-colors flex items-center gap-2",
+                  tab === 'send'
+                    ? "bg-white/10 border-white/15 text-white"
+                    : "bg-transparent border-white/10 text-white/70 hover:text-white hover:bg-white/5"
+                )}
+              >
+                <Send size={16} />
+                Send access
               </button>
             </div>
           </aside>
@@ -793,6 +843,65 @@ export default function AdminDashboard() {
                       )}
                     </button>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {tab === 'send' && (
+              <div className="rounded-3xl border border-white/5 bg-[#111111]/60 backdrop-blur-sm p-6">
+                <div className="text-sm font-bold tracking-widest uppercase text-white/45">Send ArcMail Access</div>
+                <div className="text-sm text-white/45 mt-2">
+                  Sends a secure onboarding email containing the ArcMail username and login link. Passwords are not emailed.
+                </div>
+
+                <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <div className="text-[11px] font-bold tracking-widest uppercase text-white/45">Full name (optional)</div>
+                    <input
+                      value={sendFullName}
+                      onChange={(e) => setSendFullName(e.target.value)}
+                      className="w-full h-11 rounded-2xl border border-white/10 bg-[#0B0B0B]/60 px-4 outline-none text-sm text-white placeholder-white/20 focus:ring-1 focus:ring-[#1DB954]/30 focus:border-[#1DB954]/30"
+                      placeholder="John Doe"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="text-[11px] font-bold tracking-widest uppercase text-white/45">ArcMail username</div>
+                    <input
+                      value={sendArcMailEmail}
+                      onChange={(e) => setSendArcMailEmail(e.target.value)}
+                      className="w-full h-11 rounded-2xl border border-white/10 bg-[#0B0B0B]/60 px-4 outline-none text-sm text-white placeholder-white/20 focus:ring-1 focus:ring-[#1DB954]/30 focus:border-[#1DB954]/30"
+                      placeholder="user@arcbyte.co"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="text-[11px] font-bold tracking-widest uppercase text-white/45">Send to</div>
+                    <input
+                      value={sendToEmail}
+                      onChange={(e) => setSendToEmail(e.target.value)}
+                      className="w-full h-11 rounded-2xl border border-white/10 bg-[#0B0B0B]/60 px-4 outline-none text-sm text-white placeholder-white/20 focus:ring-1 focus:ring-[#1DB954]/30 focus:border-[#1DB954]/30"
+                      placeholder="personal@email.com"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-5 flex items-center justify-end">
+                  <button
+                    disabled={sendingAccess}
+                    onClick={() => void sendAccessEmail()}
+                    className="h-11 px-5 rounded-2xl bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black text-xs font-bold tracking-widest uppercase hover:shadow-[0_22px_60px_rgba(29,185,84,0.28)] transition-all disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                  >
+                    {sendingAccess ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="animate-spin" size={14} />
+                        Sending
+                      </span>
+                    ) : (
+                      <>
+                        <Send size={14} />
+                        Send email
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
             )}

@@ -1692,6 +1692,165 @@ app.post('/api/admin/email-policy', requireAdmin, express.json({ limit: '50kb' }
   }
 });
 
+app.post('/api/admin/send-access-email', requireAdmin, express.json({ limit: '50kb' }), async (req, res) => {
+  if (!enforceAdminDesktopOnly(req, res)) return;
+  const arcMailEmail = normalizeEmailKey(req.body?.arcMailEmail);
+  const toEmail = String(req.body?.toEmail || '').trim().toLowerCase();
+  const fullName = typeof req.body?.fullName === 'string' ? req.body.fullName.trim() : '';
+
+  const isValidEmail = (v) => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  if (!arcMailEmail || !arcMailEmail.includes('@')) return res.status(400).json({ error: 'invalid_arcmail_email', message: 'Invalid ArcMail email.' });
+  if (!isValidEmail(toEmail)) return res.status(400).json({ error: 'invalid_to_email', message: 'Invalid delivery email.' });
+
+  try {
+    const emailCheck = await checkEmailAllowed(arcMailEmail);
+    if (!emailCheck.ok) return res.status(403).json({ error: 'email_blocked', message: 'This mailbox is blocked.' });
+    const domainCheck = await checkDomainAllowed(arcMailEmail);
+    if (!domainCheck.ok) return res.status(403).json({ error: 'domain_blocked', message: 'This mailbox domain is not allowed.' });
+  } catch {
+  }
+
+  const host = process.env.ADMIN_NOTIFY_SMTP_HOST || SMTP_HOST;
+  const port = Number(process.env.ADMIN_NOTIFY_SMTP_PORT || SMTP_PORT || 465);
+  const user = typeof process.env.ADMIN_NOTIFY_SMTP_USER === 'string' ? process.env.ADMIN_NOTIFY_SMTP_USER : '';
+  const pass = typeof process.env.ADMIN_NOTIFY_SMTP_PASS === 'string' ? process.env.ADMIN_NOTIFY_SMTP_PASS : '';
+  const from = process.env.ADMIN_NOTIFY_SMTP_FROM || user || 'sysadmin@mail.arcbyte.co';
+
+  if (!user || !pass) return res.status(501).json({ error: 'admin_email_unconfigured', message: 'Admin email is not configured on the backend.' });
+
+  const escapeHtml = (value) =>
+    String(value ?? '').replace(/[&<>"']/g, (ch) => {
+      if (ch === '&') return '&amp;';
+      if (ch === '<') return '&lt;';
+      if (ch === '>') return '&gt;';
+      if (ch === '"') return '&quot;';
+      return '&#39;';
+    });
+
+  const logoDataUri = getArcbyteLogoDataUri();
+  const loginUrl = process.env.ARCMAIL_LOGIN_URL || 'https://mail.arcbyte.co/login';
+  const subject = `Your ArcMail access — ${arcMailEmail}`;
+  const recipient = fullName ? `${fullName} <${toEmail}>` : toEmail;
+  const text = [
+    'ArcMail access',
+    '',
+    `Username: ${arcMailEmail}`,
+    `Login: ${loginUrl}`,
+    '',
+    'For security, passwords are not sent over email.',
+    'If you need a password reset, contact your administrator or IT support.',
+    '',
+    'Enable 2FA (Google Authenticator):',
+    '- Install Google Authenticator',
+    '- Scan the QR code during setup in ArcMail',
+    '- Save your backup codes in a password manager',
+  ].join('\n');
+
+  const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="supported-color-schemes" content="dark light" />
+    <title>${escapeHtml(subject)}</title>
+    <style>
+      .font { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif; }
+      body { margin:0 !important; padding:0 !important; background:#0A0A0A !important; color:#EDEDED !important; }
+      .bg { background:#0A0A0A !important; }
+      .card { background:#0B0B0B !important; border:1px solid rgba(255,255,255,0.10) !important; }
+      .muted { color:rgba(255,255,255,0.62) !important; }
+      .label { color:rgba(255,255,255,0.55) !important; }
+      .value { color:#FFFFFF !important; }
+      .btn { background:#1DB954 !important; color:#0B0B0B !important; text-decoration:none !important; display:inline-block; padding:12px 18px; border-radius:14px; font-weight:900; letter-spacing:0.12em; text-transform:uppercase; font-size:12px; }
+      .chip { background:#111111 !important; border:1px solid rgba(255,255,255,0.08) !important; border-radius:16px; padding:14px 16px; }
+      @media (prefers-color-scheme: light) {
+        body { background:#F4F5F7 !important; color:#0B0B0B !important; }
+        .bg { background:#F4F5F7 !important; }
+        .card { background:#FFFFFF !important; border:1px solid rgba(0,0,0,0.12) !important; }
+        .muted { color:rgba(0,0,0,0.62) !important; }
+        .label { color:rgba(0,0,0,0.55) !important; }
+        .value { color:#0B0B0B !important; }
+        .chip { background:#F7F8FA !important; border:1px solid rgba(0,0,0,0.08) !important; }
+      }
+    </style>
+  </head>
+  <body class="font">
+    <table role="presentation" class="bg font" cellpadding="0" cellspacing="0" border="0" width="100%" style="padding:28px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:640px;">
+            <tr>
+              <td class="card" style="border-radius:22px;overflow:hidden;">
+                <div style="height:2px;background:linear-gradient(90deg, transparent, #1DB954, transparent);"></div>
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td style="padding:22px 22px 14px 22px;">
+                      <div style="display:flex;gap:12px;align-items:center;">
+                        <div style="width:40px;height:40px;border-radius:14px;background:#0B0B0B;display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.10);">
+                          ${logoDataUri ? `<img src="${logoDataUri}" alt="ArcByte" width="22" height="22" style="display:block;width:22px;height:22px;object-fit:contain;" />` : `<span style="font-weight:900;color:#FFFFFF;font-size:12px;letter-spacing:0.08em;">ARC</span>`}
+                        </div>
+                        <div style="min-width:0;">
+                          <div style="font-size:18px;font-weight:900;letter-spacing:-0.02em;" class="value">ArcMail Access</div>
+                          <div class="muted" style="margin-top:4px;font-size:13px;line-height:1.5;">
+                            ${fullName ? `Hi ${escapeHtml(fullName)},` : 'Hi,'} here are your ArcMail access details.
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:0 22px 18px 22px;">
+                      <div class="chip">
+                        <div class="label" style="font-size:12px;letter-spacing:0.14em;text-transform:uppercase;">Username</div>
+                        <div class="value" style="margin-top:8px;font-size:16px;font-weight:900;word-break:break-word;">${escapeHtml(arcMailEmail)}</div>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:0 22px 18px 22px;">
+                      <a class="btn" href="${escapeHtml(loginUrl)}" target="_blank" rel="noreferrer">Open ArcMail</a>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:0 22px 22px 22px;">
+                      <div class="muted" style="font-size:13px;line-height:1.6;">
+                        For security, passwords are not sent over email. If you need a password reset, contact your administrator / IT support.
+                      </div>
+                      <div class="muted" style="margin-top:12px;font-size:13px;line-height:1.6;">
+                        Recommended: enable 2FA in ArcMail using Google Authenticator and store your backup codes in a password manager.
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td class="muted" style="padding:14px 2px 0 2px;font-size:12px;line-height:1.55;">
+                This email was sent by ArcMail Admin.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: port === 465,
+      auth: { user, pass },
+    });
+    await transporter.sendMail({ from, to: recipient, subject, text, html });
+    return res.json({ ok: true });
+  } catch {
+    return res.status(502).json({ error: 'smtp_error', message: 'Failed to send email.' });
+  }
+});
+
 app.get('/api/admin/users', requireAdmin, async (_req, res) => {
   if (!enforceAdminDesktopOnly(_req, res)) return;
   if (db) {
