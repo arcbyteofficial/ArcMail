@@ -811,6 +811,190 @@ const setLoginBlock = async ({ blocked, message }) => {
   return writeAdminStore(updated);
 };
 
+const normalizeDomain = (value) => {
+  const d = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^@+/, '')
+    .replace(/\.+$/, '');
+  if (!d) return '';
+  if (d.includes('/') || d.includes(' ') || d.includes(':')) return '';
+  if (!d.includes('.')) return '';
+  return d;
+};
+
+const getDomainPolicy = async () => {
+  const fallback = { domains: [{ domain: 'arcbyte.co', blocked: false }] };
+  if (db) {
+    const v = await dbGetAdminSetting('domainPolicy');
+    const domains =
+      v && typeof v === 'object' && Array.isArray(v.domains)
+        ? v.domains
+            .map((row) => {
+              if (!row || typeof row !== 'object') return null;
+              const domain = normalizeDomain(row.domain);
+              if (!domain) return null;
+              return { domain, blocked: row.blocked === true };
+            })
+            .filter(Boolean)
+        : null;
+    if (!domains || !domains.length) return fallback;
+    const uniq = [];
+    const seen = new Set();
+    for (const r of domains) {
+      if (seen.has(r.domain)) continue;
+      seen.add(r.domain);
+      uniq.push(r);
+    }
+    return { domains: uniq };
+  }
+  const store = adminStore && typeof adminStore === 'object' && !Array.isArray(adminStore) ? adminStore : {};
+  const raw = store.domainPolicy;
+  const domains =
+    raw && typeof raw === 'object' && Array.isArray(raw.domains)
+      ? raw.domains
+          .map((row) => {
+            if (!row || typeof row !== 'object') return null;
+            const domain = normalizeDomain(row.domain);
+            if (!domain) return null;
+            return { domain, blocked: row.blocked === true };
+          })
+          .filter(Boolean)
+      : null;
+  if (!domains || !domains.length) return fallback;
+  const uniq = [];
+  const seen = new Set();
+  for (const r of domains) {
+    if (seen.has(r.domain)) continue;
+    seen.add(r.domain);
+    uniq.push(r);
+  }
+  return { domains: uniq };
+};
+
+const setDomainPolicy = async ({ domains }) => {
+  const sanitized = Array.isArray(domains)
+    ? domains
+        .map((row) => {
+          if (!row || typeof row !== 'object') return null;
+          const domain = normalizeDomain(row.domain);
+          if (!domain) return null;
+          return { domain, blocked: row.blocked === true };
+        })
+        .filter(Boolean)
+    : [];
+  const uniq = [];
+  const seen = new Set();
+  for (const r of sanitized) {
+    if (seen.has(r.domain)) continue;
+    seen.add(r.domain);
+    uniq.push(r);
+  }
+  const next = { domains: uniq };
+  if (db) return await dbSetAdminSetting('domainPolicy', next);
+  const store = adminStore && typeof adminStore === 'object' && !Array.isArray(adminStore) ? adminStore : {};
+  const updated = { ...store, domainPolicy: next };
+  adminStore = updated;
+  return writeAdminStore(updated);
+};
+
+const checkDomainAllowed = async (emailKey) => {
+  const email = String(emailKey || '').trim().toLowerCase();
+  const parts = email.split('@');
+  const domain = normalizeDomain(parts.length >= 2 ? parts[parts.length - 1] : '');
+  if (!domain) return { ok: false, error: 'invalid_email_domain' };
+  const policy = await getDomainPolicy();
+  const match = policy.domains.find((d) => d.domain === domain) || null;
+  if (!match) return { ok: false, error: 'domain_not_allowed', domain };
+  if (match.blocked) return { ok: false, error: 'domain_blocked', domain };
+  return { ok: true, domain };
+};
+
+const getEmailPolicy = async () => {
+  const fallback = { emails: [] };
+  if (db) {
+    const v = await dbGetAdminSetting('emailPolicy');
+    const emails =
+      v && typeof v === 'object' && Array.isArray(v.emails)
+        ? v.emails
+            .map((row) => {
+              if (!row || typeof row !== 'object') return null;
+              const email = normalizeEmailKey(row.email);
+              if (!email || !email.includes('@')) return null;
+              return { email, blocked: row.blocked === true };
+            })
+            .filter(Boolean)
+        : null;
+    if (!emails || !emails.length) return fallback;
+    const uniq = [];
+    const seen = new Set();
+    for (const r of emails) {
+      if (seen.has(r.email)) continue;
+      seen.add(r.email);
+      uniq.push(r);
+    }
+    return { emails: uniq };
+  }
+  const store = adminStore && typeof adminStore === 'object' && !Array.isArray(adminStore) ? adminStore : {};
+  const raw = store.emailPolicy;
+  const emails =
+    raw && typeof raw === 'object' && Array.isArray(raw.emails)
+      ? raw.emails
+          .map((row) => {
+            if (!row || typeof row !== 'object') return null;
+            const email = normalizeEmailKey(row.email);
+            if (!email || !email.includes('@')) return null;
+            return { email, blocked: row.blocked === true };
+          })
+          .filter(Boolean)
+      : null;
+  if (!emails || !emails.length) return fallback;
+  const uniq = [];
+  const seen = new Set();
+  for (const r of emails) {
+    if (seen.has(r.email)) continue;
+    seen.add(r.email);
+    uniq.push(r);
+  }
+  return { emails: uniq };
+};
+
+const setEmailPolicy = async ({ emails }) => {
+  const sanitized = Array.isArray(emails)
+    ? emails
+        .map((row) => {
+          if (!row || typeof row !== 'object') return null;
+          const email = normalizeEmailKey(row.email);
+          if (!email || !email.includes('@')) return null;
+          return { email, blocked: row.blocked === true };
+        })
+        .filter(Boolean)
+    : [];
+  const uniq = [];
+  const seen = new Set();
+  for (const r of sanitized) {
+    if (seen.has(r.email)) continue;
+    seen.add(r.email);
+    uniq.push(r);
+  }
+  const next = { emails: uniq };
+  if (db) return await dbSetAdminSetting('emailPolicy', next);
+  const store = adminStore && typeof adminStore === 'object' && !Array.isArray(adminStore) ? adminStore : {};
+  const updated = { ...store, emailPolicy: next };
+  adminStore = updated;
+  return writeAdminStore(updated);
+};
+
+const checkEmailAllowed = async (emailKey) => {
+  const email = normalizeEmailKey(emailKey);
+  if (!email || !email.includes('@')) return { ok: false, error: 'invalid_email' };
+  const policy = await getEmailPolicy();
+  const match = policy.emails.find((e) => e.email === email) || null;
+  if (!match) return { ok: true };
+  if (match.blocked) return { ok: false, error: 'email_blocked' };
+  return { ok: true };
+};
+
 const normalizeAdminString = (v) => String(v || '').trim();
 const timingSafeEq = (a, b) => {
   const aa = Buffer.from(String(a));
@@ -843,6 +1027,19 @@ const requireAdmin = (req, res, next) => {
   if (!a) return res.status(401).json({ error: 'unauthorized' });
   req.admin = a;
   return next();
+};
+
+const isMobileUserAgent = (req) => {
+  const ua = String(req.headers['user-agent'] || '');
+  return /android|iphone|ipod|ipad|iemobile|blackberry|opera mini|mobile/i.test(ua);
+};
+
+const enforceAdminDesktopOnly = (req, res) => {
+  if (isMobileUserAgent(req)) {
+    res.status(403).json({ error: 'admin_desktop_only', message: 'Admin is available on desktop only.' });
+    return false;
+  }
+  return true;
 };
 
 const sessions = new Map();
@@ -1420,6 +1617,7 @@ const rateLimitAdminLogin = (key) => {
 };
 
 app.post('/api/admin/login', express.json({ limit: '50kb' }), async (req, res) => {
+  if (!enforceAdminDesktopOnly(req, res)) return;
   const ip = String(req.ip || 'unknown');
   if (!rateLimitAdminLogin(ip)) return res.status(429).json({ error: 'rate_limited' });
   const username = normalizeAdminString(req.body?.username);
@@ -1433,23 +1631,69 @@ app.post('/api/admin/login', express.json({ limit: '50kb' }), async (req, res) =
 });
 
 app.get('/api/admin/me', requireAdmin, (req, res) => {
+  if (!enforceAdminDesktopOnly(req, res)) return;
   return res.json({ ok: true, user: { username: req.admin.username, role: 'ADMIN' } });
 });
 
 app.get('/api/admin/login-block', requireAdmin, async (_req, res) => {
+  if (!enforceAdminDesktopOnly(_req, res)) return;
   const v = await getLoginBlock();
   return res.json({ ok: true, blocked: v.blocked, message: v.message || '' });
 });
 
 app.post('/api/admin/login-block', requireAdmin, express.json({ limit: '50kb' }), async (req, res) => {
-  const blocked = Boolean(req.body?.blocked);
-  const message = typeof req.body?.message === 'string' ? req.body.message : '';
-  const ok = await setLoginBlock({ blocked, message });
-  if (!ok) return res.status(500).json({ error: 'save_failed' });
-  return res.json({ ok: true, blocked, message });
+  if (!enforceAdminDesktopOnly(req, res)) return;
+  try {
+    const blocked = Boolean(req.body?.blocked);
+    const message = typeof req.body?.message === 'string' ? req.body.message : '';
+    const ok = await setLoginBlock({ blocked, message });
+    if (!ok) return res.status(500).json({ error: 'save_failed', message: 'Failed to save login block settings.' });
+    return res.json({ ok: true, blocked, message });
+  } catch {
+    return res.status(500).json({ error: 'save_failed', message: 'Failed to save login block settings.' });
+  }
+});
+
+app.get('/api/admin/domain-policy', requireAdmin, async (_req, res) => {
+  if (!enforceAdminDesktopOnly(_req, res)) return;
+  const policy = await getDomainPolicy();
+  return res.json({ ok: true, domains: policy.domains });
+});
+
+app.post('/api/admin/domain-policy', requireAdmin, express.json({ limit: '50kb' }), async (req, res) => {
+  if (!enforceAdminDesktopOnly(req, res)) return;
+  try {
+    const domains = Array.isArray(req.body?.domains) ? req.body.domains : [];
+    const ok = await setDomainPolicy({ domains });
+    if (!ok) return res.status(500).json({ error: 'save_failed', message: 'Failed to save domain rules.' });
+    const policy = await getDomainPolicy();
+    return res.json({ ok: true, domains: policy.domains });
+  } catch {
+    return res.status(500).json({ error: 'save_failed', message: 'Failed to save domain rules.' });
+  }
+});
+
+app.get('/api/admin/email-policy', requireAdmin, async (_req, res) => {
+  if (!enforceAdminDesktopOnly(_req, res)) return;
+  const policy = await getEmailPolicy();
+  return res.json({ ok: true, emails: policy.emails });
+});
+
+app.post('/api/admin/email-policy', requireAdmin, express.json({ limit: '50kb' }), async (req, res) => {
+  if (!enforceAdminDesktopOnly(req, res)) return;
+  try {
+    const emails = Array.isArray(req.body?.emails) ? req.body.emails : [];
+    const ok = await setEmailPolicy({ emails });
+    if (!ok) return res.status(500).json({ error: 'save_failed', message: 'Failed to save email rules.' });
+    const policy = await getEmailPolicy();
+    return res.json({ ok: true, emails: policy.emails });
+  } catch {
+    return res.status(500).json({ error: 'save_failed', message: 'Failed to save email rules.' });
+  }
 });
 
 app.get('/api/admin/users', requireAdmin, async (_req, res) => {
+  if (!enforceAdminDesktopOnly(_req, res)) return;
   if (db) {
     const r = await db.query(
       `SELECT email, twofa_enabled, updated_at FROM arcmail_users ORDER BY updated_at DESC NULLS LAST LIMIT 500`
@@ -1511,6 +1755,7 @@ const reset2faForEmail = async (emailKey) => {
 };
 
 app.post('/api/admin/reset-2fa-email', requireAdmin, express.json({ limit: '50kb' }), async (req, res) => {
+  if (!enforceAdminDesktopOnly(req, res)) return;
   const email = normalizeEmailKey(req.body?.email);
   if (!email || !email.includes('@')) return res.status(400).json({ error: 'invalid_email' });
   const r = await reset2faForEmail(email);
@@ -1518,11 +1763,13 @@ app.post('/api/admin/reset-2fa-email', requireAdmin, express.json({ limit: '50kb
 });
 
 app.post('/api/admin/reset-2fa-all', requireAdmin, async (_req, res) => {
+  if (!enforceAdminDesktopOnly(_req, res)) return;
   const r = await resetAll2fa();
   return res.json({ ok: true, ...r });
 });
 
 app.post('/api/admin/bootstrap', requireAdmin, async (_req, res) => {
+  if (!enforceAdminDesktopOnly(_req, res)) return;
   if (!db) return res.status(501).json({ error: 'db_unconfigured' });
   await ensureAuthSchema();
   const r = await db.query(`SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename ASC`);
@@ -1562,6 +1809,27 @@ const handleAuthLogin = async (req, res) => {
   try {
     const block = await getLoginBlock();
     if (block.blocked) return res.status(403).json({ error: 'login_blocked', message: block.message || undefined });
+  } catch {
+  }
+
+  try {
+    const emailKey = normalizeEmailKey(email);
+    const emailCheck = await checkEmailAllowed(emailKey);
+    if (!emailCheck.ok) return res.status(403).json({ error: 'email_blocked', message: 'Sign-in for this email is blocked.' });
+  } catch {
+  }
+
+  try {
+    const domainCheck = await checkDomainAllowed(normalizeEmailKey(email));
+    if (!domainCheck.ok) {
+      const msg =
+        domainCheck.error === 'domain_blocked'
+          ? `Sign-ins from @${domainCheck.domain} are blocked.`
+          : domainCheck.error === 'domain_not_allowed'
+            ? `Sign-ins from @${domainCheck.domain} are not allowed.`
+            : 'Sign-in domain is not allowed.';
+      return res.status(403).json({ error: 'domain_blocked', message: msg });
+    }
   } catch {
   }
 
@@ -1669,6 +1937,26 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
   const sessionVersion = typeof decoded.sv === 'number' && Number.isFinite(decoded.sv) ? decoded.sv : 0;
   if (!emailKey || !sessionId || !encPassword || !csrfToken) return res.status(401).json({ error: 'preauth_expired' });
 
+  try {
+    const emailCheck = await checkEmailAllowed(emailKey);
+    if (!emailCheck.ok) return res.status(403).json({ error: 'email_blocked', message: 'Sign-in for this email is blocked.' });
+  } catch {
+  }
+
+  try {
+    const domainCheck = await checkDomainAllowed(emailKey);
+    if (!domainCheck.ok) {
+      const msg =
+        domainCheck.error === 'domain_blocked'
+          ? `Sign-ins from @${domainCheck.domain} are blocked.`
+          : domainCheck.error === 'domain_not_allowed'
+            ? `Sign-ins from @${domainCheck.domain} are not allowed.`
+            : 'Sign-in domain is not allowed.';
+      return res.status(403).json({ error: 'domain_blocked', message: msg });
+    }
+  } catch {
+  }
+
   const user = await storeGetUser(emailKey);
   if (!user || !user.twofa_enabled || typeof user.twofa_secret_enc !== 'string') return res.status(403).json({ error: 'twofa_not_enabled' });
   const lockUntil = user.lockout_until ? new Date(user.lockout_until).getTime() : null;
@@ -1748,6 +2036,26 @@ app.post('/api/auth/confirm-2fa-preauth', async (req, res) => {
   const ttlMs = typeof decoded.ttl === 'number' && Number.isFinite(decoded.ttl) ? decoded.ttl : SESSION_TTL_MS;
   const sessionVersion = typeof decoded.sv === 'number' && Number.isFinite(decoded.sv) ? decoded.sv : 0;
   if (!emailKey || !sessionId || !encPassword || !csrfToken) return res.status(401).json({ error: 'preauth_expired' });
+
+  try {
+    const emailCheck = await checkEmailAllowed(emailKey);
+    if (!emailCheck.ok) return res.status(403).json({ error: 'email_blocked', message: 'Sign-in for this email is blocked.' });
+  } catch {
+  }
+
+  try {
+    const domainCheck = await checkDomainAllowed(emailKey);
+    if (!domainCheck.ok) {
+      const msg =
+        domainCheck.error === 'domain_blocked'
+          ? `Sign-ins from @${domainCheck.domain} are blocked.`
+          : domainCheck.error === 'domain_not_allowed'
+            ? `Sign-ins from @${domainCheck.domain} are not allowed.`
+            : 'Sign-in domain is not allowed.';
+      return res.status(403).json({ error: 'domain_blocked', message: msg });
+    }
+  } catch {
+  }
 
   const svOkBefore = await storeCheckSessionVersion(emailKey, sessionVersion);
   if (!svOkBefore) return res.status(401).json({ error: 'session_revoked' });

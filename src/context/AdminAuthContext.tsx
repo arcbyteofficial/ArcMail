@@ -83,7 +83,12 @@ export const AdminAuthProvider = ({ children }: { children: React.ReactNode }) =
           data && typeof data === 'object' && 'error' in data && typeof (data as { error?: unknown }).error === 'string'
             ? String((data as { error: string }).error)
             : null;
+        const message =
+          data && typeof data === 'object' && 'message' in data && typeof (data as { message?: unknown }).message === 'string'
+            ? String((data as { message: string }).message)
+            : null;
         if (status === 429 || code === 'rate_limited') return { ok: false, error: 'Too many attempts. Try again later.' };
+        if (status === 403 && code === 'admin_desktop_only') return { ok: false, error: message || 'Admin is available on desktop only.' };
         if (status === 401) return { ok: false, error: 'Invalid admin credentials.' };
         return { ok: false, error: 'Login failed.' };
       }
@@ -111,4 +116,3 @@ export const useAdminAuth = () => {
   if (!ctx) throw new Error('AdminAuthProvider missing');
   return ctx;
 };
-

@@ -272,6 +272,28 @@ const MailLogin = () => {
     resetForgot();
   };
 
+  const downloadBackupCodes = (codes: string[], subjectEmail: string) => {
+    const safeEmail = String(subjectEmail || 'account').replace(/[^a-z0-9@._-]+/gi, '_');
+    const lines = [
+      'ArcMail Backup Codes',
+      `Email: ${safeEmail}`,
+      `Generated: ${new Date().toISOString()}`,
+      '',
+      ...codes,
+      '',
+      'Keep these codes safe. Each code can be used once to sign in if you lose access to your authenticator.',
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `arcmail-backup-codes-${safeEmail}-${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const submitForgot = async (e: React.FormEvent) => {
     e.preventDefault();
     setFpError('');
@@ -437,9 +459,19 @@ const MailLogin = () => {
             {step === 'backupCodes' ? (
               <div className="space-y-6">
                 <div className="text-xs font-mono uppercase tracking-widest text-white/40">Backup codes</div>
+                <div className="text-sm text-white/45 leading-relaxed">
+                  Save these codes in a password manager or offline. Each code works once if you lose access to Google Authenticator.
+                </div>
                 <div className="p-4 rounded-2xl bg-[#141414] border border-white/10 text-white/80 font-mono text-sm whitespace-pre-wrap">
                   {(backupCodes || []).join('\n')}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => downloadBackupCodes(backupCodes || [], email)}
+                  className="w-full h-11 rounded-2xl border border-white/10 text-xs font-bold tracking-widest uppercase text-white/70 hover:text-white hover:bg-white/5 transition-colors"
+                >
+                  Download codes
+                </button>
                 <button
                   type="button"
                   onClick={() => navigate('/')}
@@ -486,6 +518,9 @@ const MailLogin = () => {
                   <>
                     <div className="text-xs font-mono uppercase tracking-widest text-white/40">
                       Set up two-factor authentication
+                    </div>
+                    <div className="text-sm text-white/45 leading-relaxed">
+                      Install Google Authenticator from the App Store / Play Store, then open the app → tap <span className="text-white/70 font-semibold">+</span> → <span className="text-white/70 font-semibold">Scan a QR code</span>. Enter the 6‑digit code below to finish.
                     </div>
                     <div className="rounded-2xl bg-[#141414] border border-white/10 p-4 flex items-center justify-center">
                       {qrDataUrl ? <img src={qrDataUrl} alt="2FA QR" className="w-44 h-44" /> : null}

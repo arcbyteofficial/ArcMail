@@ -3058,6 +3058,25 @@ function TwoFactorModal({ open, onClose }: { open: boolean; onClose: () => void 
   const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
   const [logoutAllSessions, setLogoutAllSessions] = useState(true);
   const [disableMode, setDisableMode] = useState<'totp' | 'backup'>('totp');
+  const downloadBackupCodes = (codes: string[]) => {
+    const lines = [
+      'ArcMail Backup Codes',
+      `Generated: ${new Date().toISOString()}`,
+      '',
+      ...codes,
+      '',
+      'Keep these codes safe. Each code can be used once to sign in if you lose access to your authenticator.',
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `arcmail-backup-codes-${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -3231,6 +3250,9 @@ function TwoFactorModal({ open, onClose }: { open: boolean; onClose: () => void 
 
                 {!loading && step === 'setup' && (
                   <div className="space-y-4">
+                    <div className={cn("text-sm leading-relaxed", isDark ? "text-white/55" : "text-black/55")}>
+                      Install Google Authenticator, then open the app → tap <span className={cn("font-semibold", isDark ? "text-white/70" : "text-black/70")}>+</span> → <span className={cn("font-semibold", isDark ? "text-white/70" : "text-black/70")}>Scan a QR code</span>. Enter the 6‑digit code below.
+                    </div>
                     <div className={cn("rounded-2xl border p-4 flex items-center justify-center", isDark ? "bg-[#111111] border-white/10" : "bg-[#F9F9F9] border-black/10")}>
                       {qrDataUrl ? <img src={qrDataUrl} alt="2FA QR" className="w-44 h-44" /> : null}
                     </div>
@@ -3281,9 +3303,21 @@ function TwoFactorModal({ open, onClose }: { open: boolean; onClose: () => void 
                     {backupCodes && backupCodes.length > 0 && (
                       <div className={cn("rounded-2xl border p-4", isDark ? "bg-[#111111] border-white/10" : "bg-[#F9F9F9] border-black/10")}>
                         <div className={cn("text-xs font-bold tracking-widest uppercase mb-2", isDark ? "text-white/45" : "text-black/45")}>Backup codes</div>
+                        <div className={cn("text-sm mb-3 leading-relaxed", isDark ? "text-white/55" : "text-black/55")}>
+                          Save these codes safely. Each code works once if you lose access to Google Authenticator.
+                        </div>
                         <div className={cn("text-sm whitespace-pre-wrap", isDark ? "text-white/80" : "text-black/80")}>
                           {backupCodes.join('\n')}
                         </div>
+                        <button
+                          onClick={() => downloadBackupCodes(backupCodes)}
+                          className={cn(
+                            "mt-3 w-full h-11 rounded-2xl border text-xs font-bold tracking-widest uppercase transition-colors",
+                            isDark ? "border-white/10 text-white/70 hover:text-white hover:bg-white/5" : "border-black/10 text-black/70 hover:text-black hover:bg-black/5"
+                          )}
+                        >
+                          Download codes
+                        </button>
                       </div>
                     )}
 

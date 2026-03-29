@@ -1,5 +1,6 @@
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAdminAuth } from '../../context/AdminAuthContext';
+import AdminDesktopOnlyGate from '../admin/AdminDesktopOnlyGate';
 
 export default function ProtectedAdminRoute() {
   const { isAuthenticated, user, isLoading } = useAdminAuth();
@@ -16,6 +17,9 @@ export default function ProtectedAdminRoute() {
     return <Navigate to="/admin/login" replace />;
   }
 
-  return <Outlet />;
+  return (
+    <AdminDesktopOnlyGate>
+      <Outlet />
+    </AdminDesktopOnlyGate>
+  );
 }
-
