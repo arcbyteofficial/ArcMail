@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AtSign, Ban, Globe, Loader2, Lock, LogOut, Plus, RefreshCw, Send, ShieldOff, ShieldCheck, Trash2 } from 'lucide-react';
+import { Activity, AtSign, Ban, Eye, EyeOff, Globe, Loader2, Lock, LogOut, Plus, RefreshCw, Send, ShieldOff, ShieldCheck, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { adminApi, getAdminBaseUrl } from '../../api/adminClient';
 import { useAdminAuth } from '../../context/AdminAuthContext';
@@ -9,13 +9,21 @@ import arcByteLogo from '../../assets/arcbyte.co Logo_white_transparent.png';
 type AdminUserRow = { email: string; twofaEnabled: boolean; updatedAt?: string | null };
 type DomainRule = { domain: string; blocked: boolean };
 type EmailRule = { email: string; blocked: boolean };
+type AuditEventRow = {
+  id: string;
+  createdAt?: string | null;
+  eventType: string;
+  email: string;
+  ip?: string | null;
+  userAgent?: string | null;
+};
 
 export default function AdminDashboard() {
   const { user, logout } = useAdminAuth();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'twofa' | 'domains' | 'emails' | 'send'>('twofa');
+  const [tab, setTab] = useState<'twofa' | 'domains' | 'login' | 'emails' | 'send' | 'activity'>('twofa');
   const isLocalDev = useMemo(() => {
     try {
       const host = window.location.hostname;
@@ -58,6 +66,13 @@ export default function AdminDashboard() {
   const [sendArcMailEmail, setSendArcMailEmail] = useState('');
   const [sendToEmail, setSendToEmail] = useState('');
   const [sendingAccess, setSendingAccess] = useState(false);
+  const [sendIncludePassword, setSendIncludePassword] = useState(false);
+  const [sendPassword, setSendPassword] = useState('');
+  const [sendShowPassword, setSendShowPassword] = useState(false);
+
+  const [activityEmail, setActivityEmail] = useState('');
+  const [activityRows, setActivityRows] = useState<AuditEventRow[]>([]);
+  const [loadingActivity, setLoadingActivity] = useState(false);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -65,7 +80,7 @@ export default function AdminDashboard() {
     return rows.filter((r) => r.email.toLowerCase().includes(q));
   }, [rows, query]);
 
-  const errorMessageFrom = (err: unknown, fallback: string) => {
+  const errorMessageFrom = useCallback((err: unknown, fallback: string) => {
     const status =
       err && typeof err === 'object' && 'response' in err ? (err as { response?: { status?: unknown } }).response?.status : null;
     const data =
@@ -88,7 +103,7 @@ export default function AdminDashboard() {
     if (status === 404) return 'Endpoint not found. Deploy the updated API.';
     if (!status && err && typeof err === 'object') return 'Network/CORS error. Check API URL and CORS settings.';
     return message || fallback;
-  };
+  }, [logout, navigate]);
 
   const load = useCallback(async () => {
     setLoadingRows(true);
@@ -218,6 +233,51 @@ export default function AdminDashboard() {
     }
   }, []);
 
+  const loadActivity = useCallback(async () => {
+    setLoadingActivity(true);
+    setError(null);
+    try {
+      const res = await adminApi.get('/admin/activity', {
+        params: {
+          email: activityEmail.trim() ? activityEmail.trim() : undefined,
+          limit: 200,
+          offset: 0,
+        },
+      });
+      const list =
+        res.data && typeof res.data === 'object' && 'events' in res.data && Array.isArray((res.data as { events?: unknown }).events)
+          ? ((res.data as { events: unknown[] }).events as unknown[])
+          : [];
+      const mapped: AuditEventRow[] = list
+        .map((e) => {
+          if (!e || typeof e !== 'object') return null;
+          const id = 'id' in e && (typeof (e as { id?: unknown }).id === 'string' || typeof (e as { id?: unknown }).id === 'number') ? String((e as { id: string | number }).id) : '';
+          const createdAt =
+            'createdAt' in e && (typeof (e as { createdAt?: unknown }).createdAt === 'string' || (e as { createdAt?: unknown }).createdAt === null)
+              ? ((e as { createdAt?: string | null }).createdAt ?? null)
+              : null;
+          const eventType = 'eventType' in e && typeof (e as { eventType?: unknown }).eventType === 'string' ? String((e as { eventType: string }).eventType) : '';
+          const email = 'email' in e && typeof (e as { email?: unknown }).email === 'string' ? String((e as { email: string }).email) : '';
+          const ip =
+            'ip' in e && (typeof (e as { ip?: unknown }).ip === 'string' || (e as { ip?: unknown }).ip === null)
+              ? ((e as { ip?: string | null }).ip ?? null)
+              : null;
+          const userAgent =
+            'userAgent' in e && (typeof (e as { userAgent?: unknown }).userAgent === 'string' || (e as { userAgent?: unknown }).userAgent === null)
+              ? ((e as { userAgent?: string | null }).userAgent ?? null)
+              : null;
+          if (!id || !email || !eventType) return null;
+          return { id, createdAt, eventType, email, ip, userAgent };
+        })
+        .filter(Boolean) as AuditEventRow[];
+      setActivityRows(mapped);
+    } catch (err) {
+      setError(errorMessageFrom(err, 'Failed to load activity.'));
+    } finally {
+      setLoadingActivity(false);
+    }
+  }, [activityEmail, errorMessageFrom]);
+
   const saveDomains = async (next: DomainRule[]) => {
     setSavingDomains(true);
     setError(null);
@@ -282,6 +342,11 @@ export default function AdminDashboard() {
     void loadDomains();
     void loadEmails();
   }, [load, loadBlock, loadDomains, loadEmails]);
+
+  useEffect(() => {
+    if (tab !== 'activity') return;
+    void loadActivity();
+  }, [tab, loadActivity]);
 
   const reset2faEmail = async (email: string) => {
     setBusy(true);
@@ -365,6 +430,10 @@ export default function AdminDashboard() {
       setError('Enter a valid delivery email.');
       return;
     }
+    if (sendIncludePassword && !sendPassword) {
+      setError('Enter a password or disable the password option.');
+      return;
+    }
     setSendingAccess(true);
     setError(null);
     setResetResult(null);
@@ -373,6 +442,8 @@ export default function AdminDashboard() {
         fullName: sendFullName.trim(),
         arcMailEmail,
         toEmail,
+        includePassword: sendIncludePassword,
+        password: sendIncludePassword ? sendPassword : undefined,
       });
       const ok = res.data && typeof res.data === 'object' && 'ok' in res.data ? Boolean((res.data as { ok?: unknown }).ok) : false;
       if (!ok) throw new Error('failed');
@@ -380,6 +451,9 @@ export default function AdminDashboard() {
       setSendFullName('');
       setSendArcMailEmail('');
       setSendToEmail('');
+      setSendPassword('');
+      setSendIncludePassword(false);
+      setSendShowPassword(false);
     } catch (err) {
       setError(errorMessageFrom(err, 'Failed to send email.'));
     } finally {
@@ -476,6 +550,18 @@ export default function AdminDashboard() {
                 Domain access
               </button>
               <button
+                onClick={() => setTab('login')}
+                className={cn(
+                  "w-full h-11 rounded-2xl border px-3 text-xs font-bold tracking-widest uppercase transition-colors flex items-center gap-2",
+                  tab === 'login'
+                    ? "bg-white/10 border-white/15 text-white"
+                    : "bg-transparent border-white/10 text-white/70 hover:text-white hover:bg-white/5"
+                )}
+              >
+                <Lock size={16} />
+                Block login
+              </button>
+              <button
                 onClick={() => setTab('emails')}
                 className={cn(
                   "w-full h-11 rounded-2xl border px-3 text-xs font-bold tracking-widest uppercase transition-colors flex items-center gap-2",
@@ -498,6 +584,18 @@ export default function AdminDashboard() {
               >
                 <Send size={16} />
                 Send access
+              </button>
+              <button
+                onClick={() => setTab('activity')}
+                className={cn(
+                  "w-full h-11 rounded-2xl border px-3 text-xs font-bold tracking-widest uppercase transition-colors flex items-center gap-2",
+                  tab === 'activity'
+                    ? "bg-white/10 border-white/15 text-white"
+                    : "bg-transparent border-white/10 text-white/70 hover:text-white hover:bg-white/5"
+                )}
+              >
+                <Activity size={16} />
+                Activity
               </button>
             </div>
           </aside>
@@ -598,6 +696,45 @@ export default function AdminDashboard() {
                       </button>
                     </div>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {tab === 'login' && (
+              <div className="rounded-3xl border border-white/5 bg-[#111111]/60 backdrop-blur-sm p-6">
+                <div className="text-sm font-bold tracking-widest uppercase text-white/45">Block Login</div>
+                <div className="text-sm text-white/45 mt-2">Stop new logins to ArcMail.</div>
+                <div className="mt-6 space-y-3 w-full max-w-2xl mx-auto">
+                  <button
+                    type="button"
+                    onClick={() => setLoginBlocked((v) => !v)}
+                    className={cn(
+                      "w-full h-11 rounded-2xl border text-xs font-bold tracking-widest uppercase transition-colors",
+                      loginBlocked ? "bg-[#FF5555] text-black border-transparent hover:bg-[#FF6B6B]" : "bg-white/5 text-white/80 border-white/10 hover:bg-white/10"
+                    )}
+                  >
+                    {loginBlocked ? 'Login blocked' : 'Login allowed'}
+                  </button>
+                  <input
+                    value={loginBlockMessage}
+                    onChange={(e) => setLoginBlockMessage(e.target.value)}
+                    className="w-full h-11 rounded-2xl border border-white/10 bg-[#0B0B0B]/60 px-4 outline-none text-sm text-white placeholder-white/20 focus:ring-1 focus:ring-[#1DB954]/30 focus:border-[#1DB954]/30"
+                    placeholder="Optional message shown on login…"
+                  />
+                  <button
+                    disabled={savingBlock}
+                    onClick={() => void saveBlock()}
+                    className="w-full h-11 rounded-2xl bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black text-xs font-bold tracking-widest uppercase hover:shadow-[0_22px_60px_rgba(29,185,84,0.28)] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {savingBlock ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="animate-spin" size={14} />
+                        Saving
+                      </span>
+                    ) : (
+                      'Save'
+                    )}
+                  </button>
                 </div>
               </div>
             )}
@@ -708,141 +845,102 @@ export default function AdminDashboard() {
             )}
 
             {tab === 'emails' && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="rounded-3xl border border-white/5 bg-[#111111]/60 backdrop-blur-sm p-6">
-                  <div className="text-sm font-bold tracking-widest uppercase text-white/45">Block Login</div>
-                  <div className="text-sm text-white/45 mt-2">Stop new logins to ArcMail.</div>
-                  <div className="mt-6 space-y-3">
-                    <button
-                      type="button"
-                      onClick={() => setLoginBlocked((v) => !v)}
-                      className={cn(
-                        "w-full h-11 rounded-2xl border text-xs font-bold tracking-widest uppercase transition-colors",
-                        loginBlocked ? "bg-[#FF5555] text-black border-transparent hover:bg-[#FF6B6B]" : "bg-white/5 text-white/80 border-white/10 hover:bg-white/10"
-                      )}
-                    >
-                      {loginBlocked ? 'Login blocked' : 'Login allowed'}
-                    </button>
-                    <input
-                      value={loginBlockMessage}
-                      onChange={(e) => setLoginBlockMessage(e.target.value)}
-                      className="w-full h-11 rounded-2xl border border-white/10 bg-[#0B0B0B]/60 px-4 outline-none text-sm text-white placeholder-white/20 focus:ring-1 focus:ring-[#1DB954]/30 focus:border-[#1DB954]/30"
-                      placeholder="Optional message shown on login…"
-                    />
-                    <button
-                      disabled={savingBlock}
-                      onClick={() => void saveBlock()}
-                      className="w-full h-11 rounded-2xl bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black text-xs font-bold tracking-widest uppercase hover:shadow-[0_22px_60px_rgba(29,185,84,0.28)] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      {savingBlock ? (
-                        <span className="inline-flex items-center gap-2">
-                          <Loader2 className="animate-spin" size={14} />
-                          Saving
-                        </span>
-                      ) : (
-                        'Save'
-                      )}
-                    </button>
-                  </div>
-                </div>
+              <div className="rounded-3xl border border-white/5 bg-[#111111]/60 backdrop-blur-sm p-6">
+                <div className="text-sm font-bold tracking-widest uppercase text-white/45">Block specific emails</div>
+                <div className="text-sm text-white/45 mt-2">Block sign-ins for individual mailboxes even if the domain is allowed.</div>
 
-                <div className="rounded-3xl border border-white/5 bg-[#111111]/60 backdrop-blur-sm p-6">
-                  <div className="text-sm font-bold tracking-widest uppercase text-white/45">Block specific emails</div>
-                  <div className="text-sm text-white/45 mt-2">Block sign-ins for individual mailboxes even if the domain is allowed.</div>
-
-                  <div className="mt-6 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <div className="relative flex-1">
-                        <input
-                          value={emailInput}
-                          onChange={(e) => setEmailInput(e.target.value)}
-                          className="w-full h-11 rounded-2xl border border-white/10 bg-[#0B0B0B]/60 pl-11 pr-4 outline-none text-sm text-white placeholder-white/20 focus:ring-1 focus:ring-[#1DB954]/30 focus:border-[#1DB954]/30"
-                          placeholder="user@arcbyte.co"
-                        />
-                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40">
-                          <AtSign size={16} />
-                        </div>
+                <div className="mt-6 space-y-3 max-w-3xl">
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        value={emailInput}
+                        onChange={(e) => setEmailInput(e.target.value)}
+                        className="w-full h-11 rounded-2xl border border-white/10 bg-[#0B0B0B]/60 pl-11 pr-4 outline-none text-sm text-white placeholder-white/20 focus:ring-1 focus:ring-[#1DB954]/30 focus:border-[#1DB954]/30"
+                        placeholder="user@arcbyte.co"
+                      />
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40">
+                        <AtSign size={16} />
                       </div>
-                      <button
-                        disabled={savingEmails}
-                        onClick={() => {
-                          const email = normalizeEmail(emailInput);
-                          if (!email) {
-                            setError('Enter a valid email like user@arcbyte.co');
-                            return;
-                          }
-                          setError(null);
-                          setResetResult(null);
-                          setEmailInput('');
-                          setEmailRules((prev) => {
-                            const exists = prev.some((r) => r.email === email);
-                            if (exists) return prev;
-                            return [...prev, { email, blocked: true }].sort((a, b) => a.email.localeCompare(b.email));
-                          });
-                        }}
-                        className="h-11 px-4 rounded-2xl border border-white/10 text-xs font-bold tracking-widest uppercase text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
-                      >
-                        <Plus size={14} />
-                        Add
-                      </button>
                     </div>
-
-                    <div className="border border-white/5 rounded-2xl overflow-hidden">
-                      {loadingEmails ? (
-                        <div className="p-4 text-sm text-white/40 flex items-center gap-2">
-                          <Loader2 className="animate-spin" size={14} />
-                          Loading emails…
-                        </div>
-                      ) : emailRules.length === 0 ? (
-                        <div className="p-4 text-sm text-white/40">No emails configured.</div>
-                      ) : (
-                        emailRules.map((r) => (
-                          <div key={r.email} className="p-3 flex items-center justify-between gap-3 bg-[#0B0B0B]/40 border-t border-white/5 first:border-t-0">
-                            <div className="min-w-0">
-                              <div className="font-semibold truncate">{r.email}</div>
-                              <div className="text-xs text-white/35">{r.blocked ? 'Blocked' : 'Allowed'}</div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                disabled={savingEmails}
-                                onClick={() => setEmailRules((prev) => prev.map((x) => (x.email === r.email ? { ...x, blocked: !x.blocked } : x)))}
-                                className={cn(
-                                  "h-9 px-3 rounded-2xl text-[11px] font-bold tracking-widest uppercase transition-colors flex items-center gap-2",
-                                  r.blocked ? "bg-white/5 text-white/80 border border-white/10 hover:bg-white/10" : "bg-[#FF5555] text-black hover:bg-[#FF6B6B]"
-                                )}
-                              >
-                                <Ban size={14} />
-                                {r.blocked ? 'Unblock' : 'Block'}
-                              </button>
-                              <button
-                                disabled={savingEmails}
-                                onClick={() => setEmailRules((prev) => prev.filter((x) => x.email !== r.email))}
-                                className="h-9 w-9 rounded-2xl border border-white/10 text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center"
-                                aria-label={`Delete ${r.email}`}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-
                     <button
                       disabled={savingEmails}
-                      onClick={() => void saveEmails(emailRules)}
-                      className="w-full h-11 rounded-2xl bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black text-xs font-bold tracking-widest uppercase hover:shadow-[0_22px_60px_rgba(29,185,84,0.28)] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                      onClick={() => {
+                        const email = normalizeEmail(emailInput);
+                        if (!email) {
+                          setError('Enter a valid email like user@arcbyte.co');
+                          return;
+                        }
+                        setError(null);
+                        setResetResult(null);
+                        setEmailInput('');
+                        setEmailRules((prev) => {
+                          const exists = prev.some((r) => r.email === email);
+                          if (exists) return prev;
+                          return [...prev, { email, blocked: true }].sort((a, b) => a.email.localeCompare(b.email));
+                        });
+                      }}
+                      className="h-11 px-4 rounded-2xl border border-white/10 text-xs font-bold tracking-widest uppercase text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
                     >
-                      {savingEmails ? (
-                        <span className="inline-flex items-center gap-2">
-                          <Loader2 className="animate-spin" size={14} />
-                          Saving
-                        </span>
-                      ) : (
-                        'Save emails'
-                      )}
+                      <Plus size={14} />
+                      Add
                     </button>
                   </div>
+
+                  <div className="border border-white/5 rounded-2xl overflow-hidden">
+                    {loadingEmails ? (
+                      <div className="p-4 text-sm text-white/40 flex items-center gap-2">
+                        <Loader2 className="animate-spin" size={14} />
+                        Loading emails…
+                      </div>
+                    ) : emailRules.length === 0 ? (
+                      <div className="p-4 text-sm text-white/40">No emails configured.</div>
+                    ) : (
+                      emailRules.map((r) => (
+                        <div key={r.email} className="p-3 flex items-center justify-between gap-3 bg-[#0B0B0B]/40 border-t border-white/5 first:border-t-0">
+                          <div className="min-w-0">
+                            <div className="font-semibold truncate">{r.email}</div>
+                            <div className="text-xs text-white/35">{r.blocked ? 'Blocked' : 'Allowed'}</div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              disabled={savingEmails}
+                              onClick={() => setEmailRules((prev) => prev.map((x) => (x.email === r.email ? { ...x, blocked: !x.blocked } : x)))}
+                              className={cn(
+                                "h-9 px-3 rounded-2xl text-[11px] font-bold tracking-widest uppercase transition-colors flex items-center gap-2",
+                                r.blocked ? "bg-white/5 text-white/80 border border-white/10 hover:bg-white/10" : "bg-[#FF5555] text-black hover:bg-[#FF6B6B]"
+                              )}
+                            >
+                              <Ban size={14} />
+                              {r.blocked ? 'Unblock' : 'Block'}
+                            </button>
+                            <button
+                              disabled={savingEmails}
+                              onClick={() => setEmailRules((prev) => prev.filter((x) => x.email !== r.email))}
+                              className="h-9 w-9 rounded-2xl border border-white/10 text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center"
+                              aria-label={`Delete ${r.email}`}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <button
+                    disabled={savingEmails}
+                    onClick={() => void saveEmails(emailRules)}
+                    className="w-full h-11 rounded-2xl bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black text-xs font-bold tracking-widest uppercase hover:shadow-[0_22px_60px_rgba(29,185,84,0.28)] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {savingEmails ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="animate-spin" size={14} />
+                        Saving
+                      </span>
+                    ) : (
+                      'Save emails'
+                    )}
+                  </button>
                 </div>
               </div>
             )}
@@ -851,7 +949,7 @@ export default function AdminDashboard() {
               <div className="rounded-3xl border border-white/5 bg-[#111111]/60 backdrop-blur-sm p-6">
                 <div className="text-sm font-bold tracking-widest uppercase text-white/45">Send ArcMail Access</div>
                 <div className="text-sm text-white/45 mt-2">
-                  Sends a secure onboarding email containing the ArcMail username and login link. Passwords are not emailed.
+                  Sends an onboarding email containing the ArcMail username and login link.
                 </div>
 
                 <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -884,6 +982,43 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
+                <div className="mt-5 grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <div className="lg:col-span-2 flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSendIncludePassword((v) => !v)}
+                      className={cn(
+                        "h-11 px-4 rounded-2xl border text-xs font-bold tracking-widest uppercase transition-colors",
+                        sendIncludePassword
+                          ? "bg-[#FF5555] text-black border-transparent hover:bg-[#FF6B6B]"
+                          : "bg-transparent border-white/10 text-white/70 hover:text-white hover:bg-white/5"
+                      )}
+                    >
+                      {sendIncludePassword ? 'Password included' : 'Add password'}
+                    </button>
+                  </div>
+                  {sendIncludePassword && (
+                    <div className="relative">
+                      <input
+                        value={sendPassword}
+                        onChange={(e) => setSendPassword(e.target.value)}
+                        type={sendShowPassword ? 'text' : 'password'}
+                        className="w-full h-11 rounded-2xl border border-white/10 bg-[#0B0B0B]/60 pl-4 pr-12 outline-none text-sm text-white placeholder-white/20 focus:ring-1 focus:ring-[#1DB954]/30 focus:border-[#1DB954]/30"
+                        placeholder="Password"
+                        autoComplete="off"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setSendShowPassword((v) => !v)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9 rounded-2xl border border-white/10 text-white/70 hover:text-white hover:bg-white/5 transition-colors flex items-center justify-center"
+                        aria-label={sendShowPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {sendShowPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 <div className="mt-5 flex items-center justify-end">
                   <button
                     disabled={sendingAccess}
@@ -902,6 +1037,74 @@ export default function AdminDashboard() {
                       </>
                     )}
                   </button>
+                </div>
+              </div>
+            )}
+
+            {tab === 'activity' && (
+              <div className="rounded-3xl border border-white/5 bg-[#111111]/60 backdrop-blur-sm p-6">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-bold tracking-widest uppercase text-white/45">User Activity</div>
+                    <div className="text-sm text-white/45 mt-2">Login and logout events.</div>
+                  </div>
+                  <button
+                    onClick={() => void loadActivity()}
+                    className="h-10 px-4 rounded-2xl border border-white/10 text-xs font-bold tracking-widest uppercase text-white/70 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2"
+                    disabled={loadingActivity}
+                  >
+                    {loadingActivity ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
+                    Refresh
+                  </button>
+                </div>
+
+                <div className="mt-5 flex items-center gap-2 max-w-xl">
+                  <input
+                    value={activityEmail}
+                    onChange={(e) => setActivityEmail(e.target.value)}
+                    className="w-full h-11 rounded-2xl border border-white/10 bg-[#0B0B0B]/60 px-4 outline-none text-sm text-white placeholder-white/20 focus:ring-1 focus:ring-[#1DB954]/30 focus:border-[#1DB954]/30"
+                    placeholder="Filter by email (optional)…"
+                  />
+                  <button
+                    onClick={() => void loadActivity()}
+                    className="h-11 px-4 rounded-2xl bg-gradient-to-r from-[#1DB954] to-[#1ED760] text-black text-xs font-bold tracking-widest uppercase hover:shadow-[0_22px_60px_rgba(29,185,84,0.28)] transition-all"
+                  >
+                    Apply
+                  </button>
+                </div>
+
+                <div className="mt-5 border border-white/5 rounded-2xl overflow-hidden">
+                  {loadingActivity ? (
+                    <div className="p-4 text-sm text-white/40 flex items-center gap-2">
+                      <Loader2 className="animate-spin" size={14} />
+                      Loading activity…
+                    </div>
+                  ) : activityRows.length === 0 ? (
+                    <div className="p-4 text-sm text-white/40">No activity yet.</div>
+                  ) : (
+                    activityRows.map((r) => (
+                      <div key={r.id} className="p-4 flex items-center justify-between gap-4 bg-[#0B0B0B]/40 border-t border-white/5 first:border-t-0">
+                        <div className="min-w-0">
+                          <div className="font-semibold truncate">{r.email}</div>
+                          <div className="text-xs text-white/35">
+                            {r.createdAt ? new Date(r.createdAt).toLocaleString() : ''}
+                            {r.ip ? ` · ${r.ip}` : ''}
+                          </div>
+                        </div>
+                        <div
+                          className={cn(
+                            "h-9 px-3 rounded-2xl border text-[11px] font-bold tracking-widest uppercase flex items-center gap-2",
+                            r.eventType === 'login'
+                              ? "border-[#1DB954]/30 bg-[#1DB954]/10 text-[#B8F7CF]"
+                              : "border-white/10 bg-white/5 text-white/70"
+                          )}
+                        >
+                          <Activity size={14} />
+                          {r.eventType}
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}

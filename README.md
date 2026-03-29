@@ -153,6 +153,10 @@ Fallback:
 
 - If `ADMIN_NOTIFY_SMTP_USER/PASS` are not set, ArcMail will reuse `FORGOT_SMTP_USER/PASS` (and `FORGOT_SMTP_HOST/PORT/FROM`) when available.
 
+Password delivery (not recommended):
+
+- `ADMIN_ALLOW_PASSWORD_EMAIL=true` Enables including a password in the onboarding email when the admin checks “Add password”.
+
 ## Production Deployment
 
 ### Backend on Railway (api.arcbyte.co)

@@ -163,6 +163,7 @@ const deleteStoredProfile = async (emailKey) => {
 
 const PORT = Number(process.env.PORT || 5000);
 const IS_PROD = process.env.NODE_ENV === 'production';
+const SERVER_BUILD_ID = new Date().toISOString();
 const DEV_ADMIN_TOKEN = typeof process.env.DEV_ADMIN_TOKEN === 'string' ? process.env.DEV_ADMIN_TOKEN.trim() : '';
 const ADMIN_RESET_2FA_TOKEN = typeof process.env.ADMIN_RESET_2FA_TOKEN === 'string' ? process.env.ADMIN_RESET_2FA_TOKEN.trim() : '';
 const REQUIRE_2FA_ON_LOGIN = (() => {
@@ -240,6 +241,10 @@ const ADMIN_USERNAME = typeof process.env.ADMIN_USERNAME === 'string' ? process.
 const ADMIN_PASSWORD = typeof process.env.ADMIN_PASSWORD === 'string' ? process.env.ADMIN_PASSWORD : '';
 const ADMIN_JWT_SECRET = `${String(JWT_SECRET)}:admin`;
 const ADMIN_SESSION_TTL_MS = Number(process.env.ADMIN_SESSION_TTL_MS || 12 * 60 * 60 * 1000);
+const ADMIN_ALLOW_PASSWORD_EMAIL = (() => {
+  const raw = typeof process.env.ADMIN_ALLOW_PASSWORD_EMAIL === 'string' ? process.env.ADMIN_ALLOW_PASSWORD_EMAIL.trim().toLowerCase() : '';
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+})();
 
 if (IS_PROD && (!JWT_SECRET || !SESSION_SECRET)) {
   throw new Error('Missing JWT_SECRET/SESSION_SECRET');
@@ -250,6 +255,15 @@ if (REQUIRE_PERSISTENT_2FA_STORAGE && !db) {
 }
 
 const app = express();
+if (!IS_PROD) {
+  app.use((req, _res, next) => {
+    try {
+      console.log(`[REQ] ${req.method} ${req.url}`);
+    } catch {
+    }
+    next();
+  });
+}
 const corsOptions = {
   origin(origin, cb) {
     if (!origin) return cb(null, DEFAULT_CORS_ORIGIN);
@@ -436,6 +450,18 @@ const ensureAuthSchema = async () => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS arcmail_audit_log (
+      id BIGSERIAL PRIMARY KEY,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      event_type TEXT NOT NULL,
+      email TEXT NOT NULL,
+      ip TEXT,
+      user_agent TEXT,
+      meta JSONB NOT NULL DEFAULT '{}'::jsonb
+    );
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_arcmail_audit_log_email_created_at ON arcmail_audit_log(email, created_at DESC);`);
 };
 
 const dbGetUser = async (emailKey) => {
@@ -773,6 +799,83 @@ const writeAdminStore = (store) => {
   }
 };
 let adminStore = readAdminStore();
+
+const AUDIT_STORE_PATH = path.join(__dirname, 'arcmail-audit.json');
+const readAuditStore = () => {
+  try {
+    if (!fs.existsSync(AUDIT_STORE_PATH)) return [];
+    const raw = fs.readFileSync(AUDIT_STORE_PATH, 'utf8');
+    if (!raw || !raw.trim()) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+const writeAuditStore = (rows) => {
+  try {
+    fs.writeFileSync(AUDIT_STORE_PATH, JSON.stringify(rows, null, 2), 'utf8');
+    return true;
+  } catch {
+    return false;
+  }
+};
+let auditStore = readAuditStore();
+
+const recordAuditEvent = async ({ eventType, email, ip, userAgent, meta }) => {
+  const emailKey = normalizeEmailKey(email);
+  if (!emailKey || !emailKey.includes('@')) return false;
+  const safeMeta = meta && typeof meta === 'object' && !Array.isArray(meta) ? meta : {};
+  if (db) {
+    await db.query(
+      `INSERT INTO arcmail_audit_log (event_type, email, ip, user_agent, meta)
+       VALUES ($1, $2, $3, $4, $5::jsonb)`,
+      [String(eventType || 'unknown'), emailKey, ip ? String(ip) : null, userAgent ? String(userAgent) : null, JSON.stringify(safeMeta)]
+    );
+    return true;
+  }
+  const row = {
+    id: `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`,
+    createdAt: new Date().toISOString(),
+    eventType: String(eventType || 'unknown'),
+    email: emailKey,
+    ip: ip ? String(ip) : null,
+    userAgent: userAgent ? String(userAgent) : null,
+    meta: safeMeta,
+  };
+  const next = [row, ...(Array.isArray(auditStore) ? auditStore : [])].slice(0, 2000);
+  auditStore = next;
+  return writeAuditStore(next);
+};
+
+const listAuditEvents = async ({ email, limit, offset }) => {
+  const lim = Math.min(500, Math.max(1, Number(limit || 100)));
+  const off = Math.max(0, Number(offset || 0));
+  const emailKey = email ? normalizeEmailKey(email) : '';
+  if (db) {
+    const r = await db.query(
+      `SELECT id, created_at, event_type, email, ip, user_agent, meta
+       FROM arcmail_audit_log
+       WHERE ($1::text = '' OR email = $1)
+       ORDER BY id DESC
+       LIMIT $2 OFFSET $3`,
+      [emailKey || '', lim, off]
+    );
+    const rows = (r.rows || []).map((row) => ({
+      id: String(row.id),
+      createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+      eventType: String(row.event_type || ''),
+      email: String(row.email || ''),
+      ip: row.ip ? String(row.ip) : null,
+      userAgent: row.user_agent ? String(row.user_agent) : null,
+      meta: row.meta && typeof row.meta === 'object' ? row.meta : {},
+    }));
+    return rows;
+  }
+  const src = Array.isArray(auditStore) ? auditStore : [];
+  const filtered = emailKey ? src.filter((r) => r && typeof r === 'object' && r.email === emailKey) : src;
+  return filtered.slice(off, off + lim);
+};
 
 const dbGetAdminSetting = async (key) => {
   if (!db) return null;
@@ -1587,6 +1690,7 @@ app.get('/api/health', (_req, res) =>
   res.json({
     ok: true,
     routes: { forgotPassword: true },
+    buildId: SERVER_BUILD_ID,
     auth: {
       require2FAOnLogin: REQUIRE_2FA_ON_LOGIN,
       storage: db ? 'db' : 'file',
@@ -1594,6 +1698,29 @@ app.get('/api/health', (_req, res) =>
     },
   })
 );
+
+app.get('/api/dev/routes', (req, res) => {
+  if (IS_PROD) return res.status(404).json({ error: 'not_found' });
+  const host = String(req.hostname || '').toLowerCase();
+  const ip = String(req.ip || '').toLowerCase();
+  const isLocal = host === 'localhost' || host === '127.0.0.1' || ip.includes('127.0.0.1') || ip.includes('::1');
+  if (!isLocal) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    const stack = app && app._router && Array.isArray(app._router.stack) ? app._router.stack : [];
+    const routes = [];
+    for (const layer of stack) {
+      if (!layer) continue;
+      if (layer.route && layer.route.path) {
+        const methods = layer.route.methods ? Object.keys(layer.route.methods).filter((m) => layer.route.methods[m]) : [];
+        routes.push({ path: layer.route.path, methods });
+      }
+    }
+    return res.json({ ok: true, count: routes.length, routes });
+  } catch (e) {
+    const msg = e && typeof e === 'object' && 'message' in e && typeof e.message === 'string' ? e.message : 'failed';
+    return res.status(500).json({ error: 'server_error', message: msg });
+  }
+});
 
 app.get('/api/notifications/vapid-public-key', (_req, res) => {
   if (!PUSH_ENABLED || !VAPID_PUBLIC_KEY) return res.status(501).json({ error: 'push_unconfigured' });
@@ -1697,10 +1824,16 @@ app.post('/api/admin/send-access-email', requireAdmin, express.json({ limit: '50
   const arcMailEmail = normalizeEmailKey(req.body?.arcMailEmail);
   const toEmail = String(req.body?.toEmail || '').trim().toLowerCase();
   const fullName = typeof req.body?.fullName === 'string' ? req.body.fullName.trim() : '';
+  const includePassword = Boolean(req.body?.includePassword);
+  const plainPassword = typeof req.body?.password === 'string' ? req.body.password : '';
 
   const isValidEmail = (v) => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
   if (!arcMailEmail || !arcMailEmail.includes('@')) return res.status(400).json({ error: 'invalid_arcmail_email', message: 'Invalid ArcMail email.' });
   if (!isValidEmail(toEmail)) return res.status(400).json({ error: 'invalid_to_email', message: 'Invalid delivery email.' });
+  if (includePassword) {
+    if (!ADMIN_ALLOW_PASSWORD_EMAIL) return res.status(403).json({ error: 'password_email_disabled', message: 'Password delivery via email is disabled.' });
+    if (!plainPassword) return res.status(400).json({ error: 'missing_password', message: 'Password is required when password delivery is enabled.' });
+  }
 
   try {
     const emailCheck = await checkEmailAllowed(arcMailEmail);
@@ -1750,10 +1883,17 @@ app.post('/api/admin/send-access-email', requireAdmin, express.json({ limit: '50
     'ArcMail access',
     '',
     `Username: ${arcMailEmail}`,
+    ...(includePassword ? [`Password: ${plainPassword}`] : []),
     `Login: ${loginUrl}`,
     '',
-    'For security, passwords are not sent over email.',
-    'If you need a password reset, contact your administrator or IT support.',
+    ...(includePassword
+      ? [
+          'If you suspect exposure, change the password in your mailbox provider immediately.',
+        ]
+      : [
+          'For security, passwords are not sent over email.',
+          'If you need a password reset, contact your administrator or IT support.',
+        ]),
     '',
     'Enable 2FA (Google Authenticator):',
     '- Install Google Authenticator',
@@ -1770,70 +1910,151 @@ app.post('/api/admin/send-access-email', requireAdmin, express.json({ limit: '50
     <meta name="supported-color-schemes" content="dark light" />
     <title>${escapeHtml(subject)}</title>
     <style>
+      body { margin:0 !important; padding:0 !important; }
       .font { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif; }
-      body { margin:0 !important; padding:0 !important; background:#0A0A0A !important; color:#EDEDED !important; }
       .bg { background:#0A0A0A !important; }
       .card { background:#0B0B0B !important; border:1px solid rgba(255,255,255,0.10) !important; }
       .muted { color:rgba(255,255,255,0.62) !important; }
-      .label { color:rgba(255,255,255,0.55) !important; }
+      .soft { color:rgba(255,255,255,0.72) !important; }
+      .label { color:rgba(255,255,255,0.50) !important; }
       .value { color:#FFFFFF !important; }
-      .btn { background:#1DB954 !important; color:#0B0B0B !important; text-decoration:none !important; display:inline-block; padding:12px 18px; border-radius:14px; font-weight:900; letter-spacing:0.12em; text-transform:uppercase; font-size:12px; }
-      .chip { background:#111111 !important; border:1px solid rgba(255,255,255,0.08) !important; border-radius:16px; padding:14px 16px; }
+      .chip { background:#111111 !important; border:1px solid rgba(255,255,255,0.08) !important; border-radius:18px; padding:16px 16px; }
+      .divider { height:1px; background:rgba(255,255,255,0.10); }
+      .btn { background:#1DB954 !important; color:#06130B !important; text-decoration:none !important; display:inline-block; padding:14px 18px; border-radius:16px; font-weight:900; letter-spacing:0.14em; text-transform:uppercase; font-size:12px; }
+      .pill { display:inline-block; padding:6px 10px; border-radius:999px; background:rgba(29,185,84,0.12); border:1px solid rgba(29,185,84,0.22); color:#B8F7CF; font-size:11px; font-weight:800; letter-spacing:0.12em; text-transform:uppercase; }
+      .stepN { width:26px; height:26px; border-radius:10px; background:rgba(29,185,84,0.16); border:1px solid rgba(29,185,84,0.24); color:#B8F7CF; font-weight:900; font-size:12px; line-height:26px; text-align:center; }
       @media (prefers-color-scheme: light) {
-        body { background:#F4F5F7 !important; color:#0B0B0B !important; }
         .bg { background:#F4F5F7 !important; }
         .card { background:#FFFFFF !important; border:1px solid rgba(0,0,0,0.12) !important; }
         .muted { color:rgba(0,0,0,0.62) !important; }
-        .label { color:rgba(0,0,0,0.55) !important; }
+        .soft { color:rgba(0,0,0,0.72) !important; }
+        .label { color:rgba(0,0,0,0.52) !important; }
         .value { color:#0B0B0B !important; }
         .chip { background:#F7F8FA !important; border:1px solid rgba(0,0,0,0.08) !important; }
+        .divider { background:rgba(0,0,0,0.10); }
+        .pill { background:rgba(29,185,84,0.10); border:1px solid rgba(29,185,84,0.22); color:#0E5A2B; }
+        .btn { background:#1DB954 !important; color:#06130B !important; }
+        .stepN { background:rgba(29,185,84,0.12); border:1px solid rgba(29,185,84,0.24); color:#0E5A2B; }
       }
     </style>
   </head>
-  <body class="font">
-    <table role="presentation" class="bg font" cellpadding="0" cellspacing="0" border="0" width="100%" style="padding:28px 16px;">
+  <body class="font bg">
+    <table role="presentation" class="bg font" cellpadding="0" cellspacing="0" border="0" width="100%" style="padding:34px 16px;">
       <tr>
         <td align="center">
-          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:640px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:680px;">
             <tr>
-              <td class="card" style="border-radius:22px;overflow:hidden;">
-                <div style="height:2px;background:linear-gradient(90deg, transparent, #1DB954, transparent);"></div>
+              <td class="card" style="border-radius:26px; overflow:hidden;">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                   <tr>
-                    <td style="padding:22px 22px 14px 22px;">
-                      <div style="display:flex;gap:12px;align-items:center;">
-                        <div style="width:40px;height:40px;border-radius:14px;background:#0B0B0B;display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.10);">
-                          ${logoDataUri ? `<img src="${logoDataUri}" alt="ArcByte" width="22" height="22" style="display:block;width:22px;height:22px;object-fit:contain;" />` : `<span style="font-weight:900;color:#FFFFFF;font-size:12px;letter-spacing:0.08em;">ARC</span>`}
-                        </div>
-                        <div style="min-width:0;">
-                          <div style="font-size:18px;font-weight:900;letter-spacing:-0.02em;" class="value">ArcMail Access</div>
-                          <div class="muted" style="margin-top:4px;font-size:13px;line-height:1.5;">
-                            ${fullName ? `Hi ${escapeHtml(fullName)},` : 'Hi,'} here are your ArcMail access details.
-                          </div>
-                        </div>
-                      </div>
+                    <td style="padding:0;">
+                      <div style="height:4px;background:linear-gradient(90deg,#0A0A0A 0%, #1DB954 35%, #1ED760 65%, #0A0A0A 100%);"></div>
                     </td>
                   </tr>
                   <tr>
-                    <td style="padding:0 22px 18px 22px;">
+                    <td style="padding:24px 24px 10px 24px;">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                        <tr>
+                          <td style="width:44px; vertical-align:top;">
+                            <div style="width:44px;height:44px;border-radius:16px;background:#0B0B0B;display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.10);">
+                              ${logoDataUri ? `<img src="${logoDataUri}" alt="ArcByte" width="22" height="22" style="display:block;width:22px;height:22px;object-fit:contain;" />` : `<span style="font-weight:900;color:#FFFFFF;font-size:12px;letter-spacing:0.08em;">ARC</span>`}
+                            </div>
+                          </td>
+                          <td style="padding-left:14px; vertical-align:top;">
+                            <div class="pill">ArcMail Access</div>
+                            <div class="value" style="margin-top:10px;font-size:22px;font-weight:950;letter-spacing:-0.03em;line-height:1.2;">
+                              ${fullName ? `Welcome, ${escapeHtml(fullName)}.` : 'Welcome.'}
+                            </div>
+                            <div class="muted" style="margin-top:8px;font-size:14px;line-height:1.6;">
+                              Your ArcMail account is ready. Use the details below to sign in.
+                            </div>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="padding:14px 24px 0 24px;">
+                      <div class="divider"></div>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="padding:18px 24px 0 24px;">
+                      <div class="label" style="font-size:12px;letter-spacing:0.16em;text-transform:uppercase;">Credentials</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:12px 24px 0 24px;">
                       <div class="chip">
                         <div class="label" style="font-size:12px;letter-spacing:0.14em;text-transform:uppercase;">Username</div>
-                        <div class="value" style="margin-top:8px;font-size:16px;font-weight:900;word-break:break-word;">${escapeHtml(arcMailEmail)}</div>
+                        <div class="value" style="margin-top:10px;font-size:16px;font-weight:900;word-break:break-word;">${escapeHtml(arcMailEmail)}</div>
+                        ${includePassword ? `<div style="height:12px;"></div>
+                        <div class="label" style="font-size:12px;letter-spacing:0.14em;text-transform:uppercase;">Password</div>
+                        <div class="value" style="margin-top:10px;font-size:16px;font-weight:900;word-break:break-word;">${escapeHtml(plainPassword)}</div>` : ''}
                       </div>
                     </td>
                   </tr>
                   <tr>
-                    <td style="padding:0 22px 18px 22px;">
-                      <a class="btn" href="${escapeHtml(loginUrl)}" target="_blank" rel="noreferrer">Open ArcMail</a>
+                    <td style="padding:18px 24px 6px 24px;">
+                      <a class="btn" href="${escapeHtml(loginUrl)}" target="_blank" rel="noreferrer">Sign in</a>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="padding:10px 24px 0 24px;">
+                      <div class="muted" style="font-size:13px;line-height:1.65;">
+                        ${includePassword ? 'If you suspect exposure, change the password in your mailbox provider immediately.' : 'If you need a password reset, contact your administrator / IT support.'}
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="padding:18px 24px 0 24px;">
+                      <div class="divider"></div>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="padding:18px 24px 0 24px;">
+                      <div class="label" style="font-size:12px;letter-spacing:0.16em;text-transform:uppercase;">Set up 2FA</div>
+                      <div class="soft" style="margin-top:8px;font-size:14px;line-height:1.6;">
+                        Recommended: enable two-factor authentication using Google Authenticator and save your backup codes.
+                      </div>
                     </td>
                   </tr>
                   <tr>
-                    <td style="padding:0 22px 22px 22px;">
-                      <div class="muted" style="font-size:13px;line-height:1.6;">
-                        For security, passwords are not sent over email. If you need a password reset, contact your administrator / IT support.
-                      </div>
-                      <div class="muted" style="margin-top:12px;font-size:13px;line-height:1.6;">
-                        Recommended: enable 2FA in ArcMail using Google Authenticator and store your backup codes in a password manager.
+                    <td style="padding:12px 24px 0 24px;">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" class="chip" style="border-radius:18px;">
+                        <tr>
+                          <td style="padding:14px 16px;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                              <tr>
+                                <td style="width:30px; vertical-align:top;"><div class="stepN">1</div></td>
+                                <td style="padding-left:12px;" class="soft">Install Google Authenticator (App Store / Play Store).</td>
+                              </tr>
+                              <tr><td style="height:12px;"></td><td></td></tr>
+                              <tr>
+                                <td style="width:30px; vertical-align:top;"><div class="stepN">2</div></td>
+                                <td style="padding-left:12px;" class="soft">In ArcMail, enable 2FA and scan the QR code in the app.</td>
+                              </tr>
+                              <tr><td style="height:12px;"></td><td></td></tr>
+                              <tr>
+                                <td style="width:30px; vertical-align:top;"><div class="stepN">3</div></td>
+                                <td style="padding-left:12px;" class="soft">Download and store your backup codes in a password manager.</td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="padding:18px 24px 22px 24px;">
+                      <div class="muted" style="font-size:12px;line-height:1.6;">
+                        Sent by ArcMail Admin · ${escapeHtml(from)}
                       </div>
                     </td>
                   </tr>
@@ -1842,7 +2063,7 @@ app.post('/api/admin/send-access-email', requireAdmin, express.json({ limit: '50
             </tr>
             <tr>
               <td class="muted" style="padding:14px 2px 0 2px;font-size:12px;line-height:1.55;">
-                This email was sent by ArcMail Admin.
+                If you did not expect this email, you can ignore it.
               </td>
             </tr>
           </table>
@@ -1864,6 +2085,15 @@ app.post('/api/admin/send-access-email', requireAdmin, express.json({ limit: '50
   } catch {
     return res.status(502).json({ error: 'smtp_error', message: 'Failed to send email.' });
   }
+});
+
+app.get('/api/admin/activity', requireAdmin, async (req, res) => {
+  if (!enforceAdminDesktopOnly(req, res)) return;
+  const email = typeof req.query?.email === 'string' ? req.query.email : '';
+  const limit = typeof req.query?.limit === 'string' ? Number(req.query.limit) : 100;
+  const offset = typeof req.query?.offset === 'string' ? Number(req.query.offset) : 0;
+  const rows = await listAuditEvents({ email, limit, offset });
+  return res.json({ ok: true, events: rows });
 });
 
 app.get('/api/admin/users', requireAdmin, async (_req, res) => {
@@ -1956,7 +2186,7 @@ app.get('/api/login', (_req, res) => res.status(405).json({ error: 'method_not_a
 app.get('/api/auth/mail-login', (_req, res) => res.status(405).json({ error: 'method_not_allowed' }));
 app.get('/api/auth/login', (_req, res) => res.status(405).json({ error: 'method_not_allowed' }));
 
-const finishLogin = async ({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion, twoFactorVerified }) => {
+const finishLogin = async ({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion, twoFactorVerified, ip, userAgent }) => {
   const createdAt = nowMs();
   sessions.set(sessionId, {
     id: sessionId,
@@ -1969,6 +2199,16 @@ const finishLogin = async ({ email, encPassword, csrfToken, sessionId, ttlMs, se
   });
   const token = signToken({ sessionId, email, ttlMs, encPassword, csrfToken, sessionVersion, twoFactorVerified });
   const name = email.split('@')[0] || email;
+  try {
+    await recordAuditEvent({
+      eventType: 'login',
+      email,
+      ip,
+      userAgent,
+      meta: { twoFactorVerified: Boolean(twoFactorVerified), sessionId },
+    });
+  } catch {
+  }
   return { token, csrfToken, sessionId, user: { name, email, role: 'MAIL_USER', status: 'Active' } };
 };
 
@@ -2043,7 +2283,17 @@ const handleAuthLogin = async (req, res) => {
   if (!REQUIRE_2FA_ON_LOGIN) {
     const sessionId = crypto.randomUUID();
     const csrfToken = crypto.randomBytes(32).toString('hex');
-    const result = await finishLogin({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion, twoFactorVerified: false });
+    const result = await finishLogin({
+      email,
+      encPassword,
+      csrfToken,
+      sessionId,
+      ttlMs,
+      sessionVersion,
+      twoFactorVerified: false,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
     return res.json(result);
   }
 
@@ -2168,7 +2418,17 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
   const svOk = await storeCheckSessionVersion(emailKey, sessionVersion);
   if (!svOk) return res.status(401).json({ error: 'session_revoked' });
 
-  const result = await finishLogin({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion, twoFactorVerified: true });
+  const result = await finishLogin({
+    email,
+    encPassword,
+    csrfToken,
+    sessionId,
+    ttlMs,
+    sessionVersion,
+    twoFactorVerified: true,
+    ip: req.ip,
+    userAgent: req.headers['user-agent'],
+  });
   return res.json({ ...result, usedBackup });
 });
 
@@ -2260,7 +2520,17 @@ app.post('/api/auth/confirm-2fa-preauth', async (req, res) => {
   const nextSv = await storeEnable2fa({ emailKey, secretEnc: user.temp_twofa_secret_enc, backupCodesHashed: hashed, logoutAllSessions });
   if (nextSv === null) return res.status(500).json({ error: 'twofa_enable_failed' });
 
-  const result = await finishLogin({ email, encPassword, csrfToken, sessionId, ttlMs, sessionVersion: nextSv, twoFactorVerified: true });
+  const result = await finishLogin({
+    email,
+    encPassword,
+    csrfToken,
+    sessionId,
+    ttlMs,
+    sessionVersion: nextSv,
+    twoFactorVerified: true,
+    ip: req.ip,
+    userAgent: req.headers['user-agent'],
+  });
   return res.json({ ...result, backupCodes: rawCodes });
 });
 
@@ -3598,6 +3868,16 @@ app.post('/api/mail/send', requireAuth, requireCsrf, async (req, res) => {
 });
 
 app.post('/api/auth/logout', requireAuth, (req, res) => {
+  try {
+    void recordAuditEvent({
+      eventType: 'logout',
+      email: req.session.email,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      meta: { sessionId: req.session.id },
+    });
+  } catch {
+  }
   sessions.delete(req.session.id);
   return res.json({ ok: true });
 });
@@ -3616,6 +3896,14 @@ app.use((_req, res) => {
 
 app.use((err, _req, res, _next) => {
   const status = err?.message === 'Not allowed by CORS' ? 403 : 500;
+  if (!IS_PROD) {
+    try {
+      console.error(err);
+    } catch {
+    }
+    const message = err && typeof err === 'object' && 'message' in err && typeof err.message === 'string' ? err.message : 'server_error';
+    return res.status(status).json({ error: 'server_error', message });
+  }
   return res.status(status).json({ error: 'server_error' });
 });
 

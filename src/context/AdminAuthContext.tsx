@@ -89,6 +89,9 @@ export const AdminAuthProvider = ({ children }: { children: React.ReactNode }) =
             : null;
         if (status === 429 || code === 'rate_limited') return { ok: false, error: 'Too many attempts. Try again later.' };
         if (status === 403 && code === 'admin_desktop_only') return { ok: false, error: message || 'Admin is available on desktop only.' };
+        if (status === 501 && code === 'admin_unconfigured') {
+          return { ok: false, error: 'Admin is not configured on this backend. Set ADMIN_USERNAME and ADMIN_PASSWORD on the API.' };
+        }
         if (status === 401) return { ok: false, error: 'Invalid admin credentials.' };
         return { ok: false, error: 'Login failed.' };
       }
