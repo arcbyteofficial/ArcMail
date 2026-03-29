@@ -223,6 +223,12 @@ const s3 = S3_ENABLED
 
 const DATABASE_URL = typeof process.env.DATABASE_URL === 'string' ? process.env.DATABASE_URL.trim() : '';
 const db = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL, ssl: process.env.PGSSLMODE === 'disable' ? false : undefined }) : null;
+const REQUIRE_PERSISTENT_2FA_STORAGE = (() => {
+  if (!IS_PROD) return false;
+  const raw = typeof process.env.ALLOW_EPHEMERAL_2FA_STORAGE === 'string' ? process.env.ALLOW_EPHEMERAL_2FA_STORAGE.trim().toLowerCase() : '';
+  if (raw === '1' || raw === 'true' || raw === 'yes') return false;
+  return true;
+})();
 
 const DEV_FALLBACK_SECRET = 'arcbyte-dev-secret';
 const JWT_SECRET =
@@ -230,9 +236,17 @@ const JWT_SECRET =
   process.env.SESSION_SECRET ||
   (IS_PROD ? null : DEV_FALLBACK_SECRET);
 const SESSION_SECRET = process.env.SESSION_SECRET || process.env.JWT_SECRET || JWT_SECRET;
+const ADMIN_USERNAME = typeof process.env.ADMIN_USERNAME === 'string' ? process.env.ADMIN_USERNAME.trim() : '';
+const ADMIN_PASSWORD = typeof process.env.ADMIN_PASSWORD === 'string' ? process.env.ADMIN_PASSWORD : '';
+const ADMIN_JWT_SECRET = `${String(JWT_SECRET)}:admin`;
+const ADMIN_SESSION_TTL_MS = Number(process.env.ADMIN_SESSION_TTL_MS || 12 * 60 * 60 * 1000);
 
 if (IS_PROD && (!JWT_SECRET || !SESSION_SECRET)) {
   throw new Error('Missing JWT_SECRET/SESSION_SECRET');
+}
+
+if (REQUIRE_PERSISTENT_2FA_STORAGE && !db) {
+  throw new Error('Missing DATABASE_URL (required for persistent 2FA/admin storage in production)');
 }
 
 const app = express();
@@ -415,6 +429,13 @@ const ensureAuthSchema = async () => {
     );
   `);
   await db.query(`CREATE INDEX IF NOT EXISTS idx_arcmail_users_twofa_enabled ON arcmail_users(twofa_enabled);`);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS arcmail_admin_settings (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
 };
 
 const dbGetUser = async (emailKey) => {
@@ -728,6 +749,100 @@ const storeRecord2faSuccess = async (emailKey) => {
     last_2fa_verified_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   });
+};
+
+const ADMIN_STORE_PATH = path.join(__dirname, 'arcmail-admin.json');
+const readAdminStore = () => {
+  try {
+    if (!fs.existsSync(ADMIN_STORE_PATH)) return {};
+    const raw = fs.readFileSync(ADMIN_STORE_PATH, 'utf8');
+    if (!raw || !raw.trim()) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+};
+const writeAdminStore = (store) => {
+  try {
+    fs.writeFileSync(ADMIN_STORE_PATH, JSON.stringify(store, null, 2), 'utf8');
+    return true;
+  } catch {
+    return false;
+  }
+};
+let adminStore = readAdminStore();
+
+const dbGetAdminSetting = async (key) => {
+  if (!db) return null;
+  const r = await db.query(`SELECT value FROM arcmail_admin_settings WHERE key = $1`, [key]);
+  return r.rows && r.rows[0] ? r.rows[0].value : null;
+};
+const dbSetAdminSetting = async (key, value) => {
+  if (!db) return false;
+  await db.query(
+    `INSERT INTO arcmail_admin_settings (key, value, updated_at)
+     VALUES ($1, $2::jsonb, now())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [key, JSON.stringify(value)]
+  );
+  return true;
+};
+
+const getLoginBlock = async () => {
+  if (db) {
+    const v = await dbGetAdminSetting('loginBlock');
+    const blocked = Boolean(v && typeof v === 'object' && v.blocked === true);
+    const message = v && typeof v === 'object' && typeof v.message === 'string' ? v.message : '';
+    return { blocked, message };
+  }
+  const store = adminStore && typeof adminStore === 'object' && !Array.isArray(adminStore) ? adminStore : {};
+  const blocked = Boolean(store.loginBlocked);
+  const message = typeof store.loginBlockMessage === 'string' ? store.loginBlockMessage : '';
+  return { blocked, message };
+};
+const setLoginBlock = async ({ blocked, message }) => {
+  const next = { blocked: Boolean(blocked), message: typeof message === 'string' ? message : '' };
+  if (db) return await dbSetAdminSetting('loginBlock', next);
+  const store = adminStore && typeof adminStore === 'object' && !Array.isArray(adminStore) ? adminStore : {};
+  const updated = { ...store, loginBlocked: next.blocked, loginBlockMessage: next.message };
+  adminStore = updated;
+  return writeAdminStore(updated);
+};
+
+const normalizeAdminString = (v) => String(v || '').trim();
+const timingSafeEq = (a, b) => {
+  const aa = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  if (aa.length !== bb.length) return false;
+  return crypto.timingSafeEqual(aa, bb);
+};
+const signAdminToken = ({ username }) => {
+  const ttl = typeof ADMIN_SESSION_TTL_MS === 'number' && Number.isFinite(ADMIN_SESSION_TTL_MS) ? ADMIN_SESSION_TTL_MS : 12 * 60 * 60 * 1000;
+  return jwt.sign({ role: 'ADMIN', username }, ADMIN_JWT_SECRET, { expiresIn: Math.floor(ttl / 1000) });
+};
+const parseAdminAuth = (req) => {
+  const raw = req.headers.authorization || '';
+  const [kind, token] = String(raw).split(' ');
+  if (kind !== 'Bearer' || !token) return null;
+  try {
+    const payload = jwt.verify(token, ADMIN_JWT_SECRET);
+    if (!payload || typeof payload !== 'object') return null;
+    const decoded = payload;
+    if (decoded.role !== 'ADMIN') return null;
+    const username = typeof decoded.username === 'string' ? decoded.username : null;
+    if (!username) return null;
+    return { username };
+  } catch {
+    return null;
+  }
+};
+const requireAdmin = (req, res, next) => {
+  const a = parseAdminAuth(req);
+  if (!a) return res.status(401).json({ error: 'unauthorized' });
+  req.admin = a;
+  return next();
 };
 
 const sessions = new Map();
@@ -1288,6 +1403,133 @@ app.get('/api/notifications/vapid-public-key', (_req, res) => {
   return res.json({ publicKey: VAPID_PUBLIC_KEY });
 });
 
+const adminLoginRate = new Map();
+const rateLimitAdminLogin = (key) => {
+  const now = Date.now();
+  const windowMs = 10 * 60 * 1000;
+  const max = 10;
+  const prev = adminLoginRate.get(key);
+  const entry = prev && typeof prev === 'object' ? prev : { count: 0, resetAt: now + windowMs };
+  if (now > entry.resetAt) {
+    entry.count = 0;
+    entry.resetAt = now + windowMs;
+  }
+  entry.count += 1;
+  adminLoginRate.set(key, entry);
+  return entry.count <= max;
+};
+
+app.post('/api/admin/login', express.json({ limit: '50kb' }), async (req, res) => {
+  const ip = String(req.ip || 'unknown');
+  if (!rateLimitAdminLogin(ip)) return res.status(429).json({ error: 'rate_limited' });
+  const username = normalizeAdminString(req.body?.username);
+  const password = String(req.body?.password || '');
+  if (!ADMIN_USERNAME || !ADMIN_PASSWORD) return res.status(501).json({ error: 'admin_unconfigured' });
+  const okUser = timingSafeEq(username, ADMIN_USERNAME);
+  const okPass = timingSafeEq(password, ADMIN_PASSWORD);
+  if (!okUser || !okPass) return res.status(401).json({ error: 'invalid_credentials' });
+  const token = signAdminToken({ username });
+  return res.json({ ok: true, token, user: { username, role: 'ADMIN' } });
+});
+
+app.get('/api/admin/me', requireAdmin, (req, res) => {
+  return res.json({ ok: true, user: { username: req.admin.username, role: 'ADMIN' } });
+});
+
+app.get('/api/admin/login-block', requireAdmin, async (_req, res) => {
+  const v = await getLoginBlock();
+  return res.json({ ok: true, blocked: v.blocked, message: v.message || '' });
+});
+
+app.post('/api/admin/login-block', requireAdmin, express.json({ limit: '50kb' }), async (req, res) => {
+  const blocked = Boolean(req.body?.blocked);
+  const message = typeof req.body?.message === 'string' ? req.body.message : '';
+  const ok = await setLoginBlock({ blocked, message });
+  if (!ok) return res.status(500).json({ error: 'save_failed' });
+  return res.json({ ok: true, blocked, message });
+});
+
+app.get('/api/admin/users', requireAdmin, async (_req, res) => {
+  if (db) {
+    const r = await db.query(
+      `SELECT email, twofa_enabled, updated_at FROM arcmail_users ORDER BY updated_at DESC NULLS LAST LIMIT 500`
+    );
+    const users = (r.rows || []).map((row) => ({
+      email: String(row.email || ''),
+      twofaEnabled: Boolean(row.twofa_enabled),
+      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+    }));
+    return res.json({ ok: true, users });
+  }
+  const store = authStore && typeof authStore === 'object' && !Array.isArray(authStore) ? authStore : {};
+  const users = Object.keys(store)
+    .sort()
+    .slice(0, 500)
+    .map((email) => {
+      const entry = store[email] && typeof store[email] === 'object' ? store[email] : {};
+      const enabled = Boolean(entry.twofa_enabled);
+      const updatedAt = typeof entry.updated_at === 'string' ? entry.updated_at : null;
+      return { email, twofaEnabled: enabled, updatedAt };
+    });
+  return res.json({ ok: true, users });
+});
+
+const reset2faForEmail = async (emailKey) => {
+  if (db) {
+    const r = await db.query(
+      `UPDATE arcmail_users
+       SET twofa_enabled = FALSE,
+           twofa_secret_enc = NULL,
+           temp_twofa_secret_enc = NULL,
+           backup_codes = '[]'::jsonb,
+           failed_2fa_attempts = 0,
+           lockout_until = NULL,
+           last_2fa_verified_at = NULL,
+           session_version = session_version + 1,
+           updated_at = now()
+       WHERE email = $1`,
+      [emailKey]
+    );
+    return { ok: true, existed: (r.rowCount || 0) > 0 };
+  }
+  const prev = getAuthEntry(emailKey);
+  const currentSv = prev && typeof prev.session_version === 'number' ? prev.session_version : 0;
+  const next = {
+    ...(prev || {}),
+    twofa_enabled: false,
+    twofa_secret_enc: null,
+    temp_twofa_secret_enc: null,
+    backup_codes: [],
+    failed_2fa_attempts: 0,
+    lockout_until: null,
+    last_2fa_verified_at: null,
+    session_version: currentSv + 1,
+    updated_at: new Date().toISOString(),
+  };
+  setAuthEntry(emailKey, next);
+  return { ok: true, existed: Boolean(prev) };
+};
+
+app.post('/api/admin/reset-2fa-email', requireAdmin, express.json({ limit: '50kb' }), async (req, res) => {
+  const email = normalizeEmailKey(req.body?.email);
+  if (!email || !email.includes('@')) return res.status(400).json({ error: 'invalid_email' });
+  const r = await reset2faForEmail(email);
+  return res.json({ ok: true, ...r });
+});
+
+app.post('/api/admin/reset-2fa-all', requireAdmin, async (_req, res) => {
+  const r = await resetAll2fa();
+  return res.json({ ok: true, ...r });
+});
+
+app.post('/api/admin/bootstrap', requireAdmin, async (_req, res) => {
+  if (!db) return res.status(501).json({ error: 'db_unconfigured' });
+  await ensureAuthSchema();
+  const r = await db.query(`SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename ASC`);
+  const tables = (r.rows || []).map((row) => String(row.tablename || '')).filter(Boolean);
+  return res.json({ ok: true, tables });
+});
+
 app.post('/api/login', (_req, res) => res.status(404).json({ error: 'use_/api/auth/login' }));
 app.get('/api/login', (_req, res) => res.status(405).json({ error: 'method_not_allowed' }));
 app.get('/api/auth/mail-login', (_req, res) => res.status(405).json({ error: 'method_not_allowed' }));
@@ -1316,6 +1558,12 @@ const handleAuthLogin = async (req, res) => {
 
   if (!email || !password) return res.status(400).json({ error: 'missing_credentials' });
   if (!email.includes('@')) return res.status(400).json({ error: 'invalid_email' });
+
+  try {
+    const block = await getLoginBlock();
+    if (block.blocked) return res.status(403).json({ error: 'login_blocked', message: block.message || undefined });
+  } catch {
+  }
 
   const inboxFolder = 'INBOX';
   try {
@@ -1388,6 +1636,12 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
   const backupCode = typeof req.body?.backupCode === 'string' ? req.body.backupCode.trim() : '';
   if (!preAuthToken) return res.status(400).json({ error: 'missing_preauth' });
   if (!token && !backupCode) return res.status(400).json({ error: 'missing_2fa_code' });
+
+  try {
+    const block = await getLoginBlock();
+    if (block.blocked) return res.status(403).json({ error: 'login_blocked', message: block.message || undefined });
+  } catch {
+  }
 
   let payload = null;
   try {
@@ -1462,6 +1716,12 @@ app.post('/api/auth/confirm-2fa-preauth', async (req, res) => {
   const logoutAllSessions = req.body?.logoutAllSessions !== undefined ? Boolean(req.body.logoutAllSessions) : true;
   if (!preAuthToken) return res.status(400).json({ error: 'missing_preauth' });
   if (!token) return res.status(400).json({ error: 'missing_2fa_code' });
+
+  try {
+    const block = await getLoginBlock();
+    if (block.blocked) return res.status(403).json({ error: 'login_blocked', message: block.message || undefined });
+  } catch {
+  }
 
   let payload = null;
   try {

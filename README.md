@@ -102,6 +102,7 @@ Required in production:
 - `SESSION_SECRET` Strong random secret (different from JWT_SECRET recommended)
 - `CORS_ORIGIN` Comma-separated allowlist
   - Example: `https://mail.arcbyte.co`
+- `DATABASE_URL` Postgres connection string (required for persistent 2FA + admin settings)
 
 Mail server defaults (Hostinger):
 
@@ -118,6 +119,26 @@ Optional tuning:
 - `SMTP_TLS_REJECT_UNAUTHORIZED`
 - `IMAP_TLS_CA_FILE`, `SMTP_TLS_CA_FILE`
 - `DEBUG_ERRORS=true` (exposes safe SMTP error details in responses; use only while debugging)
+
+### Admin (Optional)
+
+ArcMail includes an admin UI at `/admin/login` and `/admin` for:
+
+- Resetting 2FA for a single mailbox or all mailboxes
+- Blocking new logins to ArcMail (with an optional message)
+
+To enable the admin UI, set:
+
+- `ADMIN_USERNAME` Admin username (recommended: a dedicated company mailbox)
+- `ADMIN_PASSWORD` Admin password
+
+Note:
+
+- In production, 2FA state and admin settings are stored in Postgres via `DATABASE_URL`. Without it, 2FA can reset on redeploy/restart because file storage is ephemeral.
+
+Optional:
+
+- `ADMIN_SESSION_TTL_MS` Admin session TTL in milliseconds (default: 12 hours)
 
 ## Production Deployment
 

@@ -1,10 +1,14 @@
 import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { AdminAuthProvider } from './context/AdminAuthContext';
 import ProtectedMailRoute from './components/layout/ProtectedMailRoute';
+import ProtectedAdminRoute from './components/layout/ProtectedAdminRoute';
 import MailLogin from './pages/mail/MailLogin';
 import MailApp from './pages/mail/MailApp';
 import MailSecurity from './pages/mail/MailSecurity';
+import AdminLogin from './pages/admin/AdminLogin';
+import AdminDashboard from './pages/admin/AdminDashboard';
 
 export default function App() {
   useEffect(() => {
@@ -50,18 +54,24 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <Router>
-        <Routes>
-          <Route path="/login" element={<MailLogin />} />
-          <Route path="/mail/login" element={<Navigate to="/login" replace />} />
-          <Route path="/" element={<ProtectedMailRoute />}>
-            <Route index element={<MailApp />} />
-            <Route path="security" element={<MailSecurity />} />
-          </Route>
-          <Route path="/mail/*" element={<Navigate to="/" replace />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </Routes>
-      </Router>
+      <AdminAuthProvider>
+        <Router>
+          <Routes>
+            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/admin" element={<ProtectedAdminRoute />}>
+              <Route index element={<AdminDashboard />} />
+            </Route>
+            <Route path="/login" element={<MailLogin />} />
+            <Route path="/mail/login" element={<Navigate to="/login" replace />} />
+            <Route path="/" element={<ProtectedMailRoute />}>
+              <Route index element={<MailApp />} />
+              <Route path="security" element={<MailSecurity />} />
+            </Route>
+            <Route path="/mail/*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
+        </Router>
+      </AdminAuthProvider>
     </AuthProvider>
   );
 }

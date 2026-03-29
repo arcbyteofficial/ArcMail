@@ -589,8 +589,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         data && typeof data === 'object' && 'error' in data && typeof data.error === 'string' ? data.error : null;
       const detailCode =
         data && typeof data === 'object' && 'code' in data && typeof data.code === 'string' ? data.code : null;
+      const serverMessage =
+        data && typeof data === 'object' && 'message' in data && typeof (data as { message?: unknown }).message === 'string'
+          ? String((data as { message: string }).message)
+          : null;
 
       if (status === 401) return { ok: false, error: 'Invalid mailbox credentials.' };
+      if (status === 403 && errorCode === 'login_blocked') {
+        return { ok: false, error: serverMessage || 'Login is temporarily disabled.' };
+      }
       if (errorCode === 'imap_tls_error') {
         return {
           ok: false,
@@ -629,7 +636,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         data && typeof data === 'object' && 'error' in data && typeof (data as { error?: unknown }).error === 'string'
           ? String((data as { error: string }).error)
           : null;
+      const serverMessage =
+        data && typeof data === 'object' && 'message' in data && typeof (data as { message?: unknown }).message === 'string'
+          ? String((data as { message: string }).message)
+          : null;
       if (status === 404) return { ok: false, error: '2FA is not available on the backend yet. Deploy the updated API.' };
+      if (status === 403 && errorCode === 'login_blocked') return { ok: false, error: serverMessage || 'Login is temporarily disabled.' };
       if (status === 401 && errorCode === 'invalid_2fa_code') return { ok: false, error: 'Invalid code. Try again.' };
       if (status === 401 && errorCode === 'preauth_expired') return { ok: false, error: 'Code session expired. Sign in again.' };
       if (status === 429 && errorCode === 'twofa_locked') return { ok: false, error: 'Too many attempts. Try again later.' };
