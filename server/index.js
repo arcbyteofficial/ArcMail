@@ -1710,13 +1710,28 @@ app.post('/api/admin/send-access-email', requireAdmin, express.json({ limit: '50
   } catch {
   }
 
-  const host = process.env.ADMIN_NOTIFY_SMTP_HOST || SMTP_HOST;
-  const port = Number(process.env.ADMIN_NOTIFY_SMTP_PORT || SMTP_PORT || 465);
-  const user = typeof process.env.ADMIN_NOTIFY_SMTP_USER === 'string' ? process.env.ADMIN_NOTIFY_SMTP_USER : '';
-  const pass = typeof process.env.ADMIN_NOTIFY_SMTP_PASS === 'string' ? process.env.ADMIN_NOTIFY_SMTP_PASS : '';
-  const from = process.env.ADMIN_NOTIFY_SMTP_FROM || user || 'sysadmin@mail.arcbyte.co';
+  const host = process.env.ADMIN_NOTIFY_SMTP_HOST || process.env.FORGOT_SMTP_HOST || SMTP_HOST;
+  const port = Number(process.env.ADMIN_NOTIFY_SMTP_PORT || process.env.FORGOT_SMTP_PORT || SMTP_PORT || 465);
+  const user =
+    typeof process.env.ADMIN_NOTIFY_SMTP_USER === 'string' && process.env.ADMIN_NOTIFY_SMTP_USER
+      ? process.env.ADMIN_NOTIFY_SMTP_USER
+      : typeof process.env.FORGOT_SMTP_USER === 'string'
+        ? process.env.FORGOT_SMTP_USER
+        : '';
+  const pass =
+    typeof process.env.ADMIN_NOTIFY_SMTP_PASS === 'string' && process.env.ADMIN_NOTIFY_SMTP_PASS
+      ? process.env.ADMIN_NOTIFY_SMTP_PASS
+      : typeof process.env.FORGOT_SMTP_PASS === 'string'
+        ? process.env.FORGOT_SMTP_PASS
+        : '';
+  const from = process.env.ADMIN_NOTIFY_SMTP_FROM || process.env.FORGOT_SMTP_FROM || user || 'sysadmin@mail.arcbyte.co';
 
-  if (!user || !pass) return res.status(501).json({ error: 'admin_email_unconfigured', message: 'Admin email is not configured on the backend.' });
+  if (!user || !pass) {
+    return res.status(501).json({
+      error: 'admin_email_unconfigured',
+      message: 'Admin email is not configured on the backend.',
+    });
+  }
 
   const escapeHtml = (value) =>
     String(value ?? '').replace(/[&<>"']/g, (ch) => {

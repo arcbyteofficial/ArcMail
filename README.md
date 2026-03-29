@@ -149,6 +149,10 @@ Admin email (Send Access):
 - `ADMIN_NOTIFY_SMTP_FROM` (recommended: `sysadmin@mail.arcbyte.co`)
 - `ARCMAIL_LOGIN_URL` (optional, defaults to `https://mail.arcbyte.co/login`)
 
+Fallback:
+
+- If `ADMIN_NOTIFY_SMTP_USER/PASS` are not set, ArcMail will reuse `FORGOT_SMTP_USER/PASS` (and `FORGOT_SMTP_HOST/PORT/FROM`) when available.
+
 ## Production Deployment
 
 ### Backend on Railway (api.arcbyte.co)
