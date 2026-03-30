@@ -193,6 +193,69 @@ export const generateReply = async (email) => {
   return stripMarkdownFences(await runAI(prompt, { maxTokens: 420, temperature: 0.35 }));
 };
 
+const textToHtml = (text) => {
+  const safe = String(text || '').trim();
+  if (!safe) return '';
+  const esc = safe
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  const paras = esc
+    .split(/\n{2,}/g)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => `<p>${p.replace(/\n/g, '<br/>')}</p>`)
+    .join('');
+  return paras || `<p>${esc}</p>`;
+};
+
+export const composeEmailFromPrompt = async (params) => {
+  const promptText = params && typeof params.prompt === 'string' ? params.prompt : '';
+  const to = Array.isArray(params?.to) ? params.to : [];
+  const cc = Array.isArray(params?.cc) ? params.cc : [];
+  const bcc = Array.isArray(params?.bcc) ? params.bcc : [];
+  const subjectHint = params && typeof params.subject === 'string' ? params.subject : '';
+
+  const userPrompt = clampText(promptText, 1800).trim();
+  const toLine = to.map((x) => String(x || '').trim()).filter(Boolean).slice(0, 20).join(', ');
+  const ccLine = cc.map((x) => String(x || '').trim()).filter(Boolean).slice(0, 20).join(', ');
+  const bccLine = bcc.map((x) => String(x || '').trim()).filter(Boolean).slice(0, 20).join(', ');
+  const subjectLine = subjectHint.trim();
+
+  const prompt = [
+    'Draft an email based on the user instruction.',
+    'Return ONLY valid JSON with this exact shape:',
+    '{"subject":"","text":"","html":""}',
+    'Rules:',
+    '- subject: short, specific, no quotes.',
+    '- text: plain text email body (no markdown).',
+    '- html: HTML version of the body using only <p> and <br/> tags.',
+    '- Do not include code fences.',
+    '',
+    `To: ${toLine}`,
+    ccLine ? `Cc: ${ccLine}` : '',
+    bccLine ? `Bcc: ${bccLine}` : '',
+    subjectLine ? `Subject hint: ${subjectLine}` : '',
+    '',
+    `User instruction: ${userPrompt}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const out = await runAI(prompt, { maxTokens: 700, temperature: 0.35 });
+  const parsed = parseJsonFromText(out);
+  const subject = parsed && typeof parsed.subject === 'string' ? parsed.subject.trim() : '';
+  const text = parsed && typeof parsed.text === 'string' ? parsed.text.trim() : '';
+  const htmlRaw = parsed && typeof parsed.html === 'string' ? parsed.html.trim() : '';
+  const html = htmlRaw ? htmlRaw : text ? textToHtml(text) : '';
+  return {
+    subject: subject || subjectLine || '',
+    text,
+    html,
+    _stable: toStableJson({ subject: subject || subjectLine || '', text, html }),
+  };
+};
+
 export const classifyEmail = async (email) => {
   const normalized = normalizeEmail(email);
   const prompt = [

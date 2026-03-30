@@ -14,7 +14,7 @@ import { Pool } from 'pg';
 import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
 import { URL, fileURLToPath } from 'node:url';
-import { generateReply, runAI } from './services/ai.js';
+import { composeEmailFromPrompt, generateReply, runAI } from './services/ai.js';
 import { getEmailAI, getEmailAIBatch, processIncomingEmail, scheduleProcessIncomingEmail } from './services/intelligence.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1804,6 +1804,27 @@ app.get('/api/dev/ai/ping', async (req, res) => {
   }
 });
 
+app.get('/api/dev/ai/compose', async (req, res) => {
+  if (IS_PROD) return res.status(404).json({ error: 'not_found' });
+  const host = String(req.hostname || '').toLowerCase();
+  const ip = String(req.ip || '').toLowerCase();
+  const isLocal = host === 'localhost' || host === '127.0.0.1' || ip.includes('127.0.0.1') || ip.includes('::1');
+  if (!isLocal) return res.status(401).json({ error: 'unauthorized' });
+  if (!requireAiEnabled(req, res)) return;
+  const promptRaw = typeof req.query?.prompt === 'string' ? req.query.prompt : '';
+  const prompt = promptRaw.trim();
+  if (!prompt || prompt.length > 2000) return res.status(400).json({ error: 'invalid_prompt' });
+  try {
+    const result = await composeEmailFromPrompt({ prompt, to: [], cc: [], bcc: [], subject: '' });
+    return res.json({ ok: true, subject: result.subject, text: result.text, html: result.html });
+  } catch (err) {
+    const status = err && typeof err === 'object' && typeof err.status === 'number' ? err.status : null;
+    const code = err && typeof err === 'object' && typeof err.code === 'string' ? String(err.code) : null;
+    const message = err && typeof err === 'object' && typeof err.message === 'string' ? String(err.message) : 'error';
+    return res.status(500).json({ ok: false, status, code, message: message.slice(0, 240) });
+  }
+});
+
 app.get('/api/notifications/vapid-public-key', (_req, res) => {
   if (!PUSH_ENABLED || !VAPID_PUBLIC_KEY) return res.status(501).json({ error: 'push_unconfigured' });
   return res.json({ publicKey: VAPID_PUBLIC_KEY });
@@ -3573,6 +3594,32 @@ app.post('/api/ai/reply', requireAuth, async (req, res) => {
     const reply = await generateReply(email);
     return res.json({ reply });
   } catch {
+    return res.status(502).json({ error: 'ai_error' });
+  }
+});
+
+app.post('/api/ai/compose', requireAuth, async (req, res) => {
+  if (!requireAiEnabled(req, res)) return;
+  const promptRaw = typeof req.body?.prompt === 'string' ? req.body.prompt : '';
+  const prompt = promptRaw.trim();
+  if (!prompt || prompt.length > 2000) return res.status(400).json({ error: 'invalid_prompt' });
+  const to = Array.isArray(req.body?.to) ? req.body.to.filter((x) => typeof x === 'string') : [];
+  const cc = Array.isArray(req.body?.cc) ? req.body.cc.filter((x) => typeof x === 'string') : [];
+  const bcc = Array.isArray(req.body?.bcc) ? req.body.bcc.filter((x) => typeof x === 'string') : [];
+  const subject = typeof req.body?.subject === 'string' ? req.body.subject : '';
+
+  try {
+    const result = await composeEmailFromPrompt({ prompt, to, cc, bcc, subject });
+    return res.json({ subject: result.subject, html: result.html, text: result.text });
+  } catch (err) {
+    const code = err && typeof err === 'object' && typeof err.code === 'string' ? String(err.code) : null;
+    if (code === 'MISSING_GEMINI_API_KEY') return res.status(503).json({ error: 'ai_disabled' });
+    if (code === 'AI_AUTH_ERROR') return res.status(502).json({ error: 'ai_invalid_key' });
+    if (code === 'AI_RATE_LIMIT') return res.status(502).json({ error: 'ai_rate_limited' });
+    if (code === 'AI_PROVIDER_ERROR') return res.status(502).json({ error: 'ai_provider_error' });
+    if (code === 'AI_PAYLOAD_TOO_LARGE') return res.status(502).json({ error: 'ai_request_too_large' });
+    if (code === 'AI_BAD_REQUEST') return res.status(502).json({ error: 'ai_request_rejected' });
+    if (code === 'AI_REQUEST_ERROR') return res.status(502).json({ error: 'ai_request_rejected' });
     return res.status(502).json({ error: 'ai_error' });
   }
 });

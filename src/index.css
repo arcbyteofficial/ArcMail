@@ -120,6 +120,22 @@
     @apply bg-background text-text-main font-sans antialiased selection:bg-accent/30 selection:text-white overflow-x-hidden transition-colors duration-300;
   }
 
+  input.mail-login-autofill:-webkit-autofill,
+  input.mail-login-autofill:-webkit-autofill:hover,
+  input.mail-login-autofill:-webkit-autofill:focus,
+  textarea.mail-login-autofill:-webkit-autofill,
+  textarea.mail-login-autofill:-webkit-autofill:hover,
+  textarea.mail-login-autofill:-webkit-autofill:focus,
+  select.mail-login-autofill:-webkit-autofill,
+  select.mail-login-autofill:-webkit-autofill:hover,
+  select.mail-login-autofill:-webkit-autofill:focus {
+    -webkit-text-fill-color: #ffffff;
+    caret-color: #ffffff;
+    transition: background-color 9999s ease-in-out 0s;
+    -webkit-box-shadow: 0 0 0 1000px #121212 inset;
+    box-shadow: 0 0 0 1000px #121212 inset;
+  }
+
   h1, h2, h3, h4, h5, h6 {
     @apply font-display font-medium tracking-tight;
   }

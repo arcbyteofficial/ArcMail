@@ -180,6 +180,26 @@ const AIChatSidebar = ({
             <div className={cn("text-xs mt-2 leading-relaxed", isDark ? "text-white/45" : "text-black/45")}>
               Examples: summarize it, extract deadlines, identify risks, draft a response, or explain the sender’s intent.
             </div>
+            {Array.isArray(suggested) && suggested.length > 0 && (
+              <div className="mt-5 flex flex-wrap gap-3">
+                {suggested.slice(0, 6).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => onSuggested(s)}
+                    disabled={busy}
+                    className={cn(
+                      "px-4 py-2 rounded-[999px] text-[12px] font-semibold border whitespace-nowrap leading-none transition-all",
+                      busy && "opacity-70 cursor-not-allowed",
+                      isDark
+                        ? "bg-white/5 border-white/10 text-white/80 hover:text-white hover:bg-white/8 hover:border-[#1DB954]/35 hover:shadow-[0_10px_30px_rgba(29,185,84,0.18)]"
+                        : "bg-black/5 border-black/10 text-black/70 hover:text-black hover:bg-black/8 hover:border-[#1DB954]/35 hover:shadow-[0_10px_30px_rgba(29,185,84,0.14)]"
+                    )}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ) : (
           <>
@@ -238,26 +258,6 @@ const AIChatSidebar = ({
       </div>
 
       <div className={cn("px-5 pb-5 pt-3 border-t", isDark ? "border-white/10" : "border-black/10")} style={{ paddingBottom: 'calc(1.25rem + env(safe-area-inset-bottom))' }}>
-        {Array.isArray(suggested) && suggested.length > 0 && (
-          <div className="mb-3 flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
-            {suggested.slice(0, 6).map((s) => (
-              <button
-                key={s}
-                onClick={() => onSuggested(s)}
-                disabled={busy}
-                className={cn(
-                  "shrink-0 px-4 h-9 rounded-full text-xs font-semibold border transition-colors whitespace-nowrap",
-                  busy && "opacity-70 cursor-not-allowed",
-                  isDark
-                    ? "bg-[#121212] border-white/10 text-white/80 hover:text-white hover:bg-white/5"
-                    : "bg-white border-black/10 text-black/70 hover:text-black hover:bg-black/5"
-                )}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
         <div className={cn("min-h-12 rounded-full border flex items-center gap-2 px-3", isDark ? "bg-[#121212] border-white/10" : "bg-white border-black/10")}>
           <button className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-white/10" : "text-black/55 hover:text-black hover:bg-black/10")} title="Add">
             <Plus size={18} />
@@ -2037,7 +2037,7 @@ const ReadingPane = ({
         </div>
 
         {!isMobile && aiChatOpen && (
-          <aside className={cn("w-[420px] shrink-0 border-l", isDark ? "border-[#1A1A1A] bg-[#0B0B0B]" : "border-[#E5E5E5] bg-white")}>
+          <aside className={cn("w-[420px] shrink-0 border-l", isDark ? "border-[#1A1A1A] bg-[#121212]" : "border-[#E5E5E5] bg-white")}>
             <AIChatSidebar
               isDark={isDark}
               subject={chatSubject}
@@ -2071,7 +2071,7 @@ const ReadingPane = ({
               transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
               className={cn(
                 "absolute inset-y-0 right-0 w-[92%] max-w-[440px] border-l shadow-2xl",
-                isDark ? "bg-[#0B0B0B] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]"
+                isDark ? "bg-[#121212] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]"
               )}
             >
               <AIChatSidebar
@@ -2207,6 +2207,10 @@ const ComposeModal = ({
 }) => {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [aiComposeOpen, setAiComposeOpen] = useState(false);
+  const [aiComposePrompt, setAiComposePrompt] = useState('');
+  const [aiComposeBusy, setAiComposeBusy] = useState(false);
+  const [aiComposeError, setAiComposeError] = useState<string | null>(null);
   const [to, setTo] = useState(() => initialDraft?.to || '');
   const [cc, setCc] = useState(() => initialDraft?.cc || '');
   const [bcc, setBcc] = useState(() => initialDraft?.bcc || '');
@@ -2215,6 +2219,64 @@ const ComposeModal = ({
   const [showCcBcc, setShowCcBcc] = useState(() => Boolean(initialDraft?.showCcBcc));
   const { isDark } = useTheme();
   const { t } = useLanguage();
+
+  const runAiCompose = useCallback(async () => {
+    if (aiComposeBusy) return;
+    const p = aiComposePrompt.trim();
+    if (!p) {
+      setAiComposeError('Enter a prompt for the email you want to write.');
+      return;
+    }
+    setAiComposeError(null);
+    setAiComposeBusy(true);
+    try {
+      const toList = to.split(/[,\s]+/).filter(Boolean);
+      const ccList = cc.split(/[,\s]+/).filter(Boolean);
+      const bccList = bcc.split(/[,\s]+/).filter(Boolean);
+      const res = await api.post('/ai/compose', {
+        prompt: p,
+        to: toList,
+        cc: ccList,
+        bcc: bccList,
+        subject: subject.trim(),
+      });
+      const nextSubject =
+        res.data && typeof res.data === 'object' && 'subject' in res.data && typeof (res.data as { subject?: unknown }).subject === 'string'
+          ? String((res.data as { subject: string }).subject)
+          : '';
+      const nextHtml =
+        res.data && typeof res.data === 'object' && 'html' in res.data && typeof (res.data as { html?: unknown }).html === 'string'
+          ? String((res.data as { html: string }).html)
+          : '';
+      if (nextSubject && !subject.trim()) setSubject(nextSubject);
+      if (nextHtml) setBody(nextHtml);
+      setAiComposeOpen(false);
+      setAiComposePrompt('');
+    } catch (err) {
+      const response =
+        err && typeof err === 'object' && 'response' in err ? (err as { response?: { data?: unknown; status?: unknown } }).response : undefined;
+      const status = typeof response?.status === 'number' ? response.status : null;
+      const data = response?.data as unknown;
+      const code =
+        data && typeof data === 'object' && 'error' in data && typeof (data as { error?: unknown }).error === 'string'
+          ? String((data as { error: string }).error)
+          : null;
+      const base = typeof api.defaults.baseURL === 'string' ? api.defaults.baseURL : '';
+      if (!response) setAiComposeError('API unreachable.');
+      else if (status === 401) setAiComposeError('Session expired. Please sign in again.');
+      else if (status === 403 && (code === 'csrf_required' || code === 'csrf_invalid')) setAiComposeError('Session expired. Please sign in again.');
+      else if (status === 404) setAiComposeError(`AI compose endpoint not found.${base ? ` (API: ${base})` : ''}`);
+      else if (status === 400 && (code === 'invalid_prompt' || code === 'invalid_question')) setAiComposeError('Prompt is invalid.');
+      else if (status === 503 && code === 'ai_disabled') setAiComposeError(`AI is disabled on the backend.${base ? ` (API: ${base})` : ''}`);
+      else if (status === 502 && code === 'ai_invalid_key') setAiComposeError(`AI API key is invalid for this backend.${base ? ` (API: ${base})` : ''}`);
+      else if (status === 502 && code === 'ai_rate_limited') setAiComposeError('AI rate limited. Try again.');
+      else if (status === 502 && code === 'ai_provider_error') setAiComposeError('AI provider error. Try again.');
+      else if (status === 502 && (code === 'ai_request_rejected' || code === 'ai_request_too_large')) setAiComposeError('AI request rejected. Try a shorter prompt.');
+      else setAiComposeError(`AI compose failed.${base ? ` (API: ${base})` : ''}${status ? ` (status: ${status}${code ? `, code: ${code}` : ''})` : ''}`);
+    } finally {
+      setAiComposeBusy(false);
+    }
+  }, [aiComposeBusy, aiComposePrompt, bcc, cc, subject, to]);
 
   const handleSend = async () => {
     if (sending) return;
@@ -2437,24 +2499,148 @@ const ComposeModal = ({
                <Trash2 size={20} />
              </button>
              
-             <button
-               onClick={handleSend}
-               disabled={sending}
-               className="pl-8 pr-8 py-3 bg-[#1DB954] hover:bg-[#1ED760] text-black text-[15px] font-bold rounded-full transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-[0_8px_20px_rgba(29,185,84,0.3)] hover:shadow-[0_12px_30px_rgba(29,185,84,0.4)]"
-             >
-               {sending ? (
-                 <div className="flex items-center gap-2">
-                    <span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin"/> 
-                    <span>{t('sending')}</span>
-                 </div>
-               ) : (
-                 <div className="flex items-center gap-2">
-                    <span>{t('send')}</span>
-                    <Send size={16} strokeWidth={2.5} />
-                 </div>
-               )}
-             </button>
+             <div className="flex items-center gap-3">
+               <button
+                 onClick={() => {
+                   setAiComposeError(null);
+                   setAiComposeOpen(true);
+                 }}
+                 disabled={sending || aiComposeBusy}
+                 className={cn(
+                  "px-4 py-2.5 rounded-full border text-[12px] font-bold tracking-wide flex items-center gap-2 transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap min-w-0",
+                  isMobile && "px-3 text-[11px] gap-1.5",
+                   isDark
+                     ? "bg-[#1A1A1A] border-[#282828] text-white/85 hover:text-white hover:bg-[#222]"
+                     : "bg-[#F6F6F6] border-[#E5E5E5] text-black/80 hover:text-black hover:bg-[#EFEFEF]"
+                 )}
+               >
+                 <Sparkles size={16} className="text-[#1DB954]" />
+                 <span className="whitespace-nowrap leading-none">AI Compose</span>
+               </button>
+
+               <button
+                 onClick={handleSend}
+                 disabled={sending}
+                 className="pl-8 pr-8 py-3 bg-[#1DB954] hover:bg-[#1ED760] text-black text-[15px] font-bold rounded-full transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-[0_8px_20px_rgba(29,185,84,0.3)] hover:shadow-[0_12px_30px_rgba(29,185,84,0.4)]"
+               >
+                 {sending ? (
+                   <div className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin"/> 
+                      <span>{t('sending')}</span>
+                   </div>
+                 ) : (
+                   <div className="flex items-center gap-2">
+                      <span>{t('send')}</span>
+                      <Send size={16} strokeWidth={2.5} />
+                   </div>
+                 )}
+               </button>
+             </div>
           </div>
+
+          <AnimatePresence>
+            {aiComposeOpen && (
+              <>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 z-[30] bg-black/55 backdrop-blur-sm"
+                  onClick={() => {
+                    if (aiComposeBusy) return;
+                    setAiComposeOpen(false);
+                  }}
+                />
+                <motion.div
+                  initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 14, scale: 0.98 }}
+                  transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                  className={cn(
+                    "absolute inset-x-4 top-[16vh] z-[35] mx-auto max-w-lg rounded-3xl border shadow-2xl overflow-hidden",
+                    isDark ? "bg-[#121212] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black"
+                  )}
+                >
+                  <div className="h-[2px] bg-gradient-to-r from-transparent via-[#1DB954]/85 to-transparent" />
+                  <div className="p-6">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className={cn("text-xs font-bold tracking-widest uppercase flex items-center gap-2", isDark ? "text-white/45" : "text-black/45")}>
+                          <img src={arcByteLogo} alt="ArcByte" className="h-3.5 w-auto object-contain opacity-80" />
+                          ArcByte AI
+                        </div>
+                        <div className={cn("text-lg font-bold tracking-tight mt-1", isDark ? "text-white" : "text-black")}>What should this email say?</div>
+                        <div className={cn("text-sm mt-1", isDark ? "text-white/55" : "text-black/55")}>
+                          Example: “Write a polite follow-up asking for an update and propose a call tomorrow afternoon.”
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (aiComposeBusy) return;
+                          setAiComposeOpen(false);
+                        }}
+                        className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-[#1A1A1A]" : "text-black/55 hover:text-black hover:bg-[#F0F0F0]")}
+                        title="Close"
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
+
+                    <div className="mt-5">
+                      <textarea
+                        value={aiComposePrompt}
+                        onChange={(e) => setAiComposePrompt(e.target.value)}
+                        placeholder="Describe the email you want to write…"
+                        rows={5}
+                        className={cn(
+                          "w-full rounded-2xl border px-4 py-3 text-[14px] outline-none resize-none",
+                          isDark
+                            ? "bg-[#0F0F0F] border-[#282828] text-white placeholder:text-white/30 focus:border-[#1DB954]/50"
+                            : "bg-white border-[#E5E5E5] text-black placeholder:text-black/30 focus:border-[#1DB954]/50"
+                        )}
+                      />
+                      {aiComposeError && (
+                        <div className={cn("mt-3 text-sm font-medium", isDark ? "text-red-300" : "text-red-700")}>{aiComposeError}</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className={cn("px-6 pb-6 flex items-center gap-3", isDark ? "bg-[#121212]" : "bg-white")}>
+                    <button
+                      onClick={() => {
+                        if (aiComposeBusy) return;
+                        setAiComposeOpen(false);
+                      }}
+                      disabled={aiComposeBusy}
+                      className={cn(
+                        "flex-1 h-11 rounded-2xl font-bold text-[12px] border transition-colors",
+                        isDark ? "bg-transparent border-[#282828] text-white/75 hover:bg-[#1A1A1A] hover:text-white" : "bg-transparent border-[#E5E5E5] text-black/70 hover:bg-[#F6F6F6] hover:text-black"
+                      )}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => void runAiCompose()}
+                      disabled={aiComposeBusy}
+                      className="flex-1 h-11 rounded-2xl font-bold text-[12px] bg-[#1DB954] hover:bg-[#1ED760] text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {aiComposeBusy ? (
+                        <div className="flex items-center justify-center gap-2">
+                          <span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                          <span>Generating…</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center gap-2">
+                          <Sparkles size={16} className="text-black/80" />
+                          <span>Generate</span>
+                        </div>
+                      )}
+                    </button>
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
         </motion.div>
       </motion.div>
     </AnimatePresence>
@@ -5069,11 +5255,11 @@ const MailAppContent = () => {
         )}>
           
           {/* Typing Greeting (Left) */}
-          <TypingGreeting />
+          {!isMobile && <TypingGreeting />}
 
           {/* Mobile Header Logo */}
           {isMobile && (
-             <div className="flex items-center gap-2">
+             <div className="flex items-center gap-2 min-w-0">
                 <button 
                   onClick={() => setSidebarCollapsed(false)}
                   className={cn("p-2 -ml-1 rounded-xl mr-1 group relative transition-all duration-300 hover:scale-105 active:scale-95", isDark ? "hover:bg-[#1A1A1A]" : "hover:bg-[#F0F0F0]")}
@@ -5084,8 +5270,8 @@ const MailAppContent = () => {
                        <span className={cn("h-0.5 rounded-full w-4 transition-all duration-300 group-hover:w-2", isDark ? "bg-white" : "bg-black")} />
                    </div>
                 </button>
-                <img src={arcByteLogo} alt="ArcMail" className={cn("h-7 w-auto object-contain", !isDark && "brightness-0")} />
-                <span className={cn("font-bold text-xl tracking-tight", isDark ? "text-white" : "text-black")}>ArcMail</span>
+                <img src={arcByteLogo} alt="ArcMail" className={cn("h-6 w-auto object-contain", !isDark && "brightness-0")} />
+                <span className={cn("font-bold text-lg tracking-tight leading-none truncate", isDark ? "text-white" : "text-black")}>ArcMail</span>
              </div>
           )}
 
@@ -5172,12 +5358,12 @@ const MailAppContent = () => {
           </div>
 
           {/* Right Actions */}
-          <div className="flex items-center justify-end gap-3 w-auto lg:w-20 min-w-max ml-4">
+          <div className={cn("flex items-center justify-end", isMobile ? "gap-2 ml-2" : "gap-3 w-auto lg:w-20 min-w-max ml-4")}>
              {isMobile && (
                <button
                  onClick={() => setMobileSearchOpen(true)}
                  className={cn(
-                   "p-3 rounded-full transition-colors border border-transparent",
+                   "p-2.5 rounded-full transition-colors border border-transparent",
                    isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A] hover:border-[#282828]" : "text-[#5E5E5E] hover:text-black hover:bg-[#F0F0F0] hover:border-[#E5E5E5]"
                  )}
                  title={t('search_placeholder')}
@@ -5204,7 +5390,7 @@ const MailAppContent = () => {
                  <button
                    onClick={openAskAI}
                    className={cn(
-                     "md:hidden p-3 rounded-full transition-colors relative border border-transparent",
+                     "md:hidden p-2.5 rounded-full transition-colors relative border border-transparent",
                      isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A] hover:border-[#282828]" : "text-[#5E5E5E] hover:text-black hover:bg-[#F0F0F0] hover:border-[#E5E5E5]"
                    )}
                   title="Ask AI"
@@ -5215,7 +5401,7 @@ const MailAppContent = () => {
              )}
 
              <button className={cn(
-               "p-3 rounded-full transition-colors relative border border-transparent",
+              isMobile ? "p-2.5 rounded-full transition-colors relative border border-transparent" : "p-3 rounded-full transition-colors relative border border-transparent",
                isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A] hover:border-[#282828]" : "text-[#5E5E5E] hover:text-black hover:bg-[#F0F0F0] hover:border-[#E5E5E5]"
              )}>
                 <div className={cn("absolute top-3 right-3 w-2 h-2 bg-[#1DB954] rounded-full border-2", isDark ? "border-[#0B0B0B]" : "border-white")} />
@@ -5562,7 +5748,7 @@ const MailAppContent = () => {
       </main>
 
       {/* Mobile Nav */}
-      {isMobile && !composeOpen && (
+      {isMobile && !composeOpen && !aiChatOpen && (
         <MobileNav 
           activeFolder={activeFolder}
           onFolderChange={(f) => {
