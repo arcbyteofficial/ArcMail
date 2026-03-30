@@ -120,28 +120,39 @@ export const runAI = async (prompt, options = {}) => {
   const fullPrompt = `${SYSTEM_PROMPT}\n\n${String(prompt || '')}`.trim();
   const request = { contents: [{ role: 'user', parts: [{ text: fullPrompt }] }], generationConfig: { temperature, maxOutputTokens } };
 
-  try {
-    const res = await model.generateContent(request);
-    const t = res?.response?.text?.();
-    const primary = typeof t === 'string' ? t : '';
-    if (primary && primary.trim()) return primary.trim();
-    const parts = res?.response?.candidates?.[0]?.content?.parts;
-    const joined = Array.isArray(parts) ? parts.map((p) => (p && typeof p === 'object' && typeof p.text === 'string' ? p.text : '')).join('') : '';
-    return String(joined || '').trim();
-  } catch (err) {
-    const message = err && typeof err === 'object' && typeof err.message === 'string' ? String(err.message) : 'AI request failed';
-    const status = err && typeof err === 'object' && typeof err.status === 'number' ? err.status : null;
-    const lower = message.toLowerCase();
-    const e = new Error(message);
-    if (status === 401 || status === 403 || lower.includes('api key') || lower.includes('permission denied') || lower.includes('unauth')) e.code = 'AI_AUTH_ERROR';
-    else if (status === 429 || lower.includes('quota') || lower.includes('rate')) e.code = 'AI_RATE_LIMIT';
-    else if (status === 413 || lower.includes('payload') || lower.includes('too large')) e.code = 'AI_PAYLOAD_TOO_LARGE';
-    else if (status === 404 && lower.includes('models/')) e.code = 'AI_MODEL_NOT_FOUND';
-    else if (status === 400 || status === 404 || status === 422 || lower.includes('invalid') || lower.includes('bad request')) e.code = 'AI_BAD_REQUEST';
-    else if (status && status >= 500) e.code = 'AI_PROVIDER_ERROR';
-    else e.code = 'AI_REQUEST_ERROR';
-    e.status = status || undefined;
-    throw e;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const res = await model.generateContent(request);
+      const t = res?.response?.text?.();
+      const primary = typeof t === 'string' ? t : '';
+      if (primary && primary.trim()) return primary.trim();
+      const parts = res?.response?.candidates?.[0]?.content?.parts;
+      const joined = Array.isArray(parts) ? parts.map((p) => (p && typeof p === 'object' && typeof p.text === 'string' ? p.text : '')).join('') : '';
+      return String(joined || '').trim();
+    } catch (err) {
+      const message = err && typeof err === 'object' && typeof err.message === 'string' ? String(err.message) : 'AI request failed';
+      const status = err && typeof err === 'object' && typeof err.status === 'number' ? err.status : null;
+      const lower = message.toLowerCase();
+
+      if (status === 429 && attempt < 2) {
+        const jitter = Math.floor(Math.random() * 250);
+        await sleep(700 * (attempt + 1) + jitter);
+        continue;
+      }
+
+      const e = new Error(message);
+      if (status === 401 || status === 403 || lower.includes('api key') || lower.includes('permission denied') || lower.includes('unauth')) e.code = 'AI_AUTH_ERROR';
+      else if (status === 429 || lower.includes('quota') || lower.includes('rate')) e.code = 'AI_RATE_LIMIT';
+      else if (status === 413 || lower.includes('payload') || lower.includes('too large')) e.code = 'AI_PAYLOAD_TOO_LARGE';
+      else if (status === 404 && lower.includes('models/')) e.code = 'AI_MODEL_NOT_FOUND';
+      else if (status === 400 || status === 404 || status === 422 || lower.includes('invalid') || lower.includes('bad request')) e.code = 'AI_BAD_REQUEST';
+      else if (status && status >= 500) e.code = 'AI_PROVIDER_ERROR';
+      else e.code = 'AI_REQUEST_ERROR';
+      e.status = status || undefined;
+      throw e;
+    }
   }
 };
 
