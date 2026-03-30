@@ -146,11 +146,11 @@ const AIChatSidebar = ({
       <div className={cn("px-5 py-4 border-b", isDark ? "border-white/10" : "border-black/10")}>
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-[#1DB954] shadow-[0_10px_30px_rgba(29,185,84,0.25)] flex items-center justify-center shrink-0">
-              <img src={arcByteLogo} alt="ArcByte" className="h-5 w-auto object-contain" />
+            <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0">
+              <img src={arcByteLogo} alt="ArcByte" className="h-7 w-auto object-contain" />
             </div>
             <div className="min-w-0">
-              <div className={cn("text-[15px] font-bold leading-tight", isDark ? "text-white" : "text-black")}>Arcbyte Co-Pilot</div>
+              <div className={cn("text-[15px] font-bold leading-tight", isDark ? "text-white" : "text-black")}>ArcByte AI</div>
               <div className={cn("text-[12px] font-semibold truncate mt-0.5", isDark ? "text-white/45" : "text-black/45")}>{subject}</div>
             </div>
           </div>
@@ -191,7 +191,7 @@ const AIChatSidebar = ({
                 </div>
               ) : (
                 <div key={m.id} className="flex items-end justify-start gap-2">
-                  <div className="w-9 h-9 rounded-full bg-[#1DB954]/15 border border-[#1DB954]/20 flex items-center justify-center shrink-0">
+                  <div className={cn("w-9 h-9 rounded-full border flex items-center justify-center shrink-0", isDark ? "bg-transparent border-white/10" : "bg-transparent border-black/10")}>
                     <img src={arcByteLogo} alt="ArcByte" className="h-4 w-auto object-contain" />
                   </div>
                   <div className="max-w-[86%] rounded-[26px] bg-[#1DB954] text-black px-5 py-4 shadow-[0_18px_50px_rgba(29,185,84,0.18)]">
@@ -217,7 +217,7 @@ const AIChatSidebar = ({
 
             {busy && (
               <div className="flex items-end justify-start gap-2">
-                <div className="w-9 h-9 rounded-full bg-[#1DB954]/15 border border-[#1DB954]/20 flex items-center justify-center shrink-0">
+                <div className={cn("w-9 h-9 rounded-full border flex items-center justify-center shrink-0", isDark ? "bg-transparent border-white/10" : "bg-transparent border-black/10")}>
                   <img src={arcByteLogo} alt="ArcByte" className="h-4 w-auto object-contain" />
                 </div>
                 <div className={cn("max-w-[70%] rounded-[22px] px-4 py-3", isDark ? "bg-white/10" : "bg-black/10")}>
@@ -1538,7 +1538,7 @@ const ReadingPane = ({
   aiChatMessages: AIChatMessage[];
   aiChatInput: string;
   onAiChatInputChange: (value: string) => void;
-  onSendAiChat: () => void;
+  onSendAiChat: () => void | Promise<void>;
   aiChatBusy: boolean;
   onCloseAiChat: () => void;
   isMobile: boolean;
@@ -4244,10 +4244,24 @@ const MailAppContent = () => {
     setAiChatBusy(true);
 
     try {
+      const latestMsg = threadDetail?.messages?.length ? threadDetail.messages[threadDetail.messages.length - 1] : null;
+      const email =
+        threadDetail && latestMsg
+          ? {
+              subject: String(threadDetail.subject || ''),
+              fromName: typeof latestMsg.fromName === 'string' ? latestMsg.fromName : '',
+              fromAddress: typeof latestMsg.fromAddress === 'string' ? latestMsg.fromAddress : '',
+              to: Array.isArray(latestMsg.to) ? latestMsg.to.map((a) => ({ name: a?.name, address: a?.address })) : [],
+              date: typeof latestMsg.date === 'string' ? latestMsg.date : '',
+              text: typeof latestMsg.text === 'string' ? latestMsg.text : '',
+              html: typeof latestMsg.html === 'string' ? latestMsg.html : '',
+            }
+          : null;
       const res = await api.post('/ai/ask', {
         id: selectedId,
         folder: MAIL_FOLDER_IMAP_PATH[activeFolder],
         question,
+        ...(email ? { email } : {}),
       });
       const answer =
         res.data && typeof res.data === 'object' && 'answer' in res.data && typeof (res.data as { answer?: unknown }).answer === 'string'
@@ -4281,6 +4295,7 @@ const MailAppContent = () => {
         if (status === 502 && code === 'ai_invalid_key') return `Groq API key is invalid for this backend.${base ? ` (API: ${base})` : ''}`;
         if (status === 502 && code === 'ai_rate_limited') return 'AI rate limited. Try again.';
         if (status === 502 && code === 'ai_provider_error') return 'AI provider error. Try again.';
+        if (status === 502 && code === 'ai_request_rejected') return 'AI request rejected. Try a shorter question.';
         if (status === 502 && code === 'ai_error') return 'AI request failed.';
         return 'Co-Pilot failed.';
       })();
@@ -4295,7 +4310,7 @@ const MailAppContent = () => {
     } finally {
       setAiChatBusy(false);
     }
-  }, [activeFolder, aiChatBusy, aiChatInput, aiEnabled, selectedId]);
+  }, [activeFolder, aiChatBusy, aiChatInput, aiEnabled, selectedId, threadDetail]);
 
   const handleForward = useCallback(() => {
     if (!threadDetail?.messages?.length) return;
@@ -5130,10 +5145,8 @@ const MailAppContent = () => {
                        : "bg-white border-[#E5E5E5] text-black hover:bg-[#F0F0F0] hover:border-[#1DB954]/30"
                    )}
                  >
-                  <span className="w-7 h-7 rounded-full bg-[#1DB954] flex items-center justify-center shrink-0">
-                    <img src={arcByteLogo} alt="ArcByte" className="h-4 w-auto object-contain" />
-                  </span>
-                  Arcbyte Co-Pilot
+                  <Sparkles size={18} className="text-[#1DB954]" />
+                  Ask AI
                  </button>
                  <button
                    onClick={openAskAI}
@@ -5141,11 +5154,9 @@ const MailAppContent = () => {
                      "md:hidden p-3 rounded-full transition-colors relative border border-transparent",
                      isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A] hover:border-[#282828]" : "text-[#5E5E5E] hover:text-black hover:bg-[#F0F0F0] hover:border-[#E5E5E5]"
                    )}
-                  title="Arcbyte Co-Pilot"
+                  title="Ask AI"
                  >
-                  <span className="w-9 h-9 rounded-full bg-[#1DB954] flex items-center justify-center">
-                    <img src={arcByteLogo} alt="ArcByte" className="h-4 w-auto object-contain" />
-                  </span>
+                  <Sparkles size={20} className="text-[#1DB954]" />
                  </button>
                </>
              )}
@@ -5443,7 +5454,7 @@ const MailAppContent = () => {
               aiChatMessages={aiChatMessages}
               aiChatInput={aiChatInput}
               onAiChatInputChange={setAiChatInput}
-              onSendAiChat={() => void submitAskAI()}
+              onSendAiChat={submitAskAI}
               aiChatBusy={aiChatBusy}
               onCloseAiChat={closeAskAI}
               isMobile={isMobile}

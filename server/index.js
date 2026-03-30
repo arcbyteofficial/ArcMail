@@ -3558,28 +3558,62 @@ app.post('/api/ai/ask', requireAuth, async (req, res) => {
   if (!Number.isFinite(uid)) return res.status(400).json({ error: 'invalid_id' });
   if (!question || question.length > 1200) return res.status(400).json({ error: 'invalid_question' });
 
-  let password = '';
   try {
-    password = decryptString(req.session.encPassword);
-  } catch {
-    return res.status(401).json({ error: 'session_expired' });
-  }
+    const bodyEmail = req.body?.email;
+    const emailFromBody =
+      bodyEmail && typeof bodyEmail === 'object'
+        ? {
+            subject: typeof bodyEmail.subject === 'string' ? bodyEmail.subject : '',
+            fromName: typeof bodyEmail.fromName === 'string' ? bodyEmail.fromName : '',
+            fromAddress: typeof bodyEmail.fromAddress === 'string' ? bodyEmail.fromAddress : '',
+            to: Array.isArray(bodyEmail.to)
+              ? bodyEmail.to
+                  .map((a) =>
+                    a && typeof a === 'object'
+                      ? { name: typeof a.name === 'string' ? a.name : undefined, address: typeof a.address === 'string' ? a.address : '' }
+                      : null,
+                  )
+                  .filter((a) => a && typeof a.address === 'string' && a.address)
+              : [],
+            date: typeof bodyEmail.date === 'string' ? bodyEmail.date : '',
+            text: typeof bodyEmail.text === 'string' ? bodyEmail.text : '',
+            html: typeof bodyEmail.html === 'string' ? bodyEmail.html : '',
+          }
+        : null;
 
-  try {
     const emailKey = String(req.session.email || '').trim();
-    const email = await fetchEmailForAI({ email: emailKey, password, folder, uid });
-    if (!email) return res.status(404).json({ error: 'not_found' });
+    const email = (() => {
+      if (emailFromBody) return emailFromBody;
+      return null;
+    })();
+
+    let finalEmail = email;
+    if (!finalEmail) {
+      let password = '';
+      try {
+        password = decryptString(req.session.encPassword);
+      } catch {
+        return res.status(401).json({ error: 'session_expired' });
+      }
+      finalEmail = await fetchEmailForAI({ email: emailKey, password, folder, uid });
+      if (!finalEmail) return res.status(404).json({ error: 'not_found' });
+    }
 
     const emailText = [
-      `Subject: ${email.subject || '(no subject)'}`,
-      `From: ${[email.fromName, email.fromAddress].filter(Boolean).join(' ') || '(unknown)'}`,
-      `To: ${Array.isArray(email.to) ? email.to.map((a) => [a?.name, a?.address].filter(Boolean).join(' ').trim()).filter(Boolean).join(', ') : ''}`,
-      email.date ? `Date: ${email.date}` : '',
+      `Subject: ${finalEmail.subject || '(no subject)'}`,
+      `From: ${[finalEmail.fromName, finalEmail.fromAddress].filter(Boolean).join(' ') || '(unknown)'}`,
+      `To: ${Array.isArray(finalEmail.to) ? finalEmail.to.map((a) => [a?.name, a?.address].filter(Boolean).join(' ').trim()).filter(Boolean).join(', ') : ''}`,
+      finalEmail.date ? `Date: ${finalEmail.date}` : '',
       '',
-      email.text && email.text.trim() ? email.text : email.html && email.html.trim() ? email.html.replace(/<[^>]+>/g, ' ') : '',
+      finalEmail.text && finalEmail.text.trim()
+        ? finalEmail.text
+        : finalEmail.html && finalEmail.html.trim()
+          ? finalEmail.html.replace(/<[^>]+>/g, ' ')
+          : '',
     ]
       .filter(Boolean)
-      .join('\n');
+      .join('\n')
+      .slice(0, 6000);
 
     const prompt = [
       'Answer the user question about the email.',
@@ -3601,6 +3635,7 @@ app.post('/api/ai/ask', requireAuth, async (req, res) => {
     if (code === 'GROQ_AUTH_ERROR') return res.status(502).json({ error: 'ai_invalid_key' });
     if (code === 'GROQ_RATE_LIMIT') return res.status(502).json({ error: 'ai_rate_limited' });
     if (code === 'GROQ_PROVIDER_ERROR') return res.status(502).json({ error: 'ai_provider_error' });
+    if (code === 'GROQ_REQUEST_ERROR') return res.status(502).json({ error: 'ai_request_rejected' });
     return res.status(502).json({ error: 'ai_error' });
   }
 });
