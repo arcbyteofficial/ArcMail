@@ -14,7 +14,7 @@ import { Pool } from 'pg';
 import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
 import { URL, fileURLToPath } from 'node:url';
-import { generateReply } from './services/ai.js';
+import { generateReply, runAI } from './services/ai.js';
 import { getEmailAI, getEmailAIBatch, processIncomingEmail, scheduleProcessIncomingEmail } from './services/intelligence.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -3544,6 +3544,57 @@ app.post('/api/ai/reply', requireAuth, async (req, res) => {
     if (!email) return res.status(404).json({ error: 'not_found' });
     const reply = await generateReply(email);
     return res.json({ reply });
+  } catch {
+    return res.status(502).json({ error: 'ai_error' });
+  }
+});
+
+app.post('/api/ai/ask', requireAuth, async (req, res) => {
+  if (!requireAiEnabled(req, res)) return;
+  const folder = typeof req.body?.folder === 'string' ? req.body.folder : 'INBOX';
+  const uid = Number(req.body?.id);
+  const questionRaw = typeof req.body?.question === 'string' ? req.body.question : '';
+  const question = questionRaw.trim();
+  if (!Number.isFinite(uid)) return res.status(400).json({ error: 'invalid_id' });
+  if (!question || question.length > 1200) return res.status(400).json({ error: 'invalid_question' });
+
+  let password = '';
+  try {
+    password = decryptString(req.session.encPassword);
+  } catch {
+    return res.status(401).json({ error: 'session_expired' });
+  }
+
+  try {
+    const emailKey = String(req.session.email || '').trim();
+    const email = await fetchEmailForAI({ email: emailKey, password, folder, uid });
+    if (!email) return res.status(404).json({ error: 'not_found' });
+
+    const emailText = [
+      `Subject: ${email.subject || '(no subject)'}`,
+      `From: ${[email.fromName, email.fromAddress].filter(Boolean).join(' ') || '(unknown)'}`,
+      `To: ${Array.isArray(email.to) ? email.to.map((a) => [a?.name, a?.address].filter(Boolean).join(' ').trim()).filter(Boolean).join(', ') : ''}`,
+      email.date ? `Date: ${email.date}` : '',
+      '',
+      email.text && email.text.trim() ? email.text : email.html && email.html.trim() ? email.html.replace(/<[^>]+>/g, ' ') : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const prompt = [
+      'Answer the user question about the email.',
+      'Rules:',
+      '- Use only information from the email. If the email does not contain the answer, say you do not know.',
+      '- Be concise and specific.',
+      '',
+      `User question: ${question}`,
+      '',
+      'Email:',
+      emailText,
+    ].join('\n');
+
+    const answer = await runAI(prompt, { maxTokens: 520, temperature: 0.2 });
+    return res.json({ answer });
   } catch {
     return res.status(502).json({ error: 'ai_error' });
   }
