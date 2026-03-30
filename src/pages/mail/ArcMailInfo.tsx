@@ -105,7 +105,7 @@ const Hero = () => {
           <h1 className="text-5xl md:text-7xl lg:text-[5.5rem] font-bold tracking-tighter text-white leading-[1.05] mb-8 max-w-4xl mx-auto">
             Email infrastructure, <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-b from-white to-white/50">
-              rebuilt for operators.
+              rebuilt for enterprises.
             </span>
           </h1>
           <Text className="mx-auto mb-10 text-xl">

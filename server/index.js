@@ -430,6 +430,8 @@ const ensureAuthSchema = async () => {
     CREATE TABLE IF NOT EXISTS arcmail_users (
       email TEXT PRIMARY KEY,
       encrypted_email_password TEXT,
+      display_name TEXT,
+      avatar_data_url TEXT,
       session_version INTEGER NOT NULL DEFAULT 0,
       twofa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
       twofa_secret_enc TEXT,
@@ -442,6 +444,8 @@ const ensureAuthSchema = async () => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+  await db.query(`ALTER TABLE arcmail_users ADD COLUMN IF NOT EXISTS display_name TEXT;`);
+  await db.query(`ALTER TABLE arcmail_users ADD COLUMN IF NOT EXISTS avatar_data_url TEXT;`);
   await db.query(`CREATE INDEX IF NOT EXISTS idx_arcmail_users_twofa_enabled ON arcmail_users(twofa_enabled);`);
   await db.query(`
     CREATE TABLE IF NOT EXISTS arcmail_admin_settings (
@@ -467,11 +471,36 @@ const ensureAuthSchema = async () => {
 const dbGetUser = async (emailKey) => {
   if (!db) return null;
   const r = await db.query(
-    `SELECT email, encrypted_email_password, session_version, twofa_enabled, twofa_secret_enc, temp_twofa_secret_enc, backup_codes, failed_2fa_attempts, lockout_until, last_2fa_verified_at
+    `SELECT email, encrypted_email_password, display_name, avatar_data_url, session_version, twofa_enabled, twofa_secret_enc, temp_twofa_secret_enc, backup_codes, failed_2fa_attempts, lockout_until, last_2fa_verified_at
      FROM arcmail_users WHERE email = $1`,
     [emailKey]
   );
   return r.rows && r.rows[0] ? r.rows[0] : null;
+};
+
+const dbGetProfile = async (emailKey) => {
+  if (!db) return null;
+  const r = await db.query(`SELECT display_name, avatar_data_url FROM arcmail_users WHERE email = $1`, [emailKey]);
+  if (!r.rows || !r.rows[0]) return null;
+  const row = r.rows[0];
+  return {
+    displayName: typeof row.display_name === 'string' ? row.display_name : null,
+    avatarDataUrl: typeof row.avatar_data_url === 'string' ? row.avatar_data_url : null,
+  };
+};
+
+const dbSetProfile = async (emailKey, { displayName, avatarDataUrl }) => {
+  if (!db) return false;
+  await db.query(
+    `INSERT INTO arcmail_users (email, display_name, avatar_data_url, updated_at)
+     VALUES ($1, $2, $3, now())
+     ON CONFLICT (email) DO UPDATE
+     SET display_name = EXCLUDED.display_name,
+         avatar_data_url = EXCLUDED.avatar_data_url,
+         updated_at = now()`,
+    [emailKey, displayName || null, avatarDataUrl || null]
+  );
+  return true;
 };
 
 const dbUpsertLoginPassword = async (emailKey, encPasswordObj) => {
@@ -483,7 +512,7 @@ const dbUpsertLoginPassword = async (emailKey, encPasswordObj) => {
      ON CONFLICT (email) DO UPDATE
      SET encrypted_email_password = EXCLUDED.encrypted_email_password,
          updated_at = now()
-     RETURNING email, encrypted_email_password, session_version, twofa_enabled, twofa_secret_enc, temp_twofa_secret_enc, backup_codes, failed_2fa_attempts, lockout_until, last_2fa_verified_at`,
+     RETURNING email, encrypted_email_password, display_name, avatar_data_url, session_version, twofa_enabled, twofa_secret_enc, temp_twofa_secret_enc, backup_codes, failed_2fa_attempts, lockout_until, last_2fa_verified_at`,
     [emailKey, encString]
   );
   return r.rows && r.rows[0] ? r.rows[0] : null;
@@ -2719,6 +2748,13 @@ app.post('/api/auth/admin/reset-2fa', express.json({ limit: '50kb' }), async (re
 
 app.get('/api/account/profile', requireAuth, async (req, res) => {
   const emailKey = String(req.session.email || '').trim().toLowerCase();
+  if (db) {
+    try {
+      const profile = await dbGetProfile(emailKey);
+      if (profile) return res.json({ ok: true, profile, storage: 'db' });
+    } catch {
+    }
+  }
   const stored = await getStoredProfile(emailKey);
   if (stored) {
     const displayName = typeof stored.displayName === 'string' ? stored.displayName : null;
@@ -2740,39 +2776,43 @@ app.put('/api/account/profile', requireAuth, express.json({ limit: '600kb' }), a
   const isUrl = typeof avatarRaw === 'string' && /^https?:\/\//i.test(avatarRaw) && avatarRaw.length <= 5000;
   const parsed = typeof avatarRaw === 'string' ? parseImageDataUrl(avatarRaw) : null;
 
-  let avatarUrl = isUrl ? avatarRaw : null;
-  let storage = 'local';
+  let avatarDataUrlToStore = isUrl ? avatarRaw : null;
+  let storage = db ? 'db' : 'local';
   let persisted = false;
 
   if (parsed) {
-    if (!s3 || !S3_PUBLIC_BASE_URL) return res.status(501).json({ error: 'storage_unconfigured' });
     if (parsed.buf.length > 350_000) return res.status(400).json({ error: 'image_too_large' });
-    const extension =
-      parsed.contentType === 'image/png'
-        ? 'png'
-        : parsed.contentType === 'image/jpeg'
-          ? 'jpg'
-          : parsed.contentType === 'image/webp'
-            ? 'webp'
-            : parsed.contentType === 'image/gif'
-              ? 'gif'
-              : 'img';
-    const key = avatarObjectKey(emailKey, extension);
-    try {
-      await s3.send(
-        new PutObjectCommand({
-          Bucket: S3_BUCKET,
-          Key: key,
-          Body: parsed.buf,
-          ContentType: parsed.contentType,
-          CacheControl: 'public, max-age=31536000, immutable',
-        })
-      );
-    } catch {
-      return res.status(502).json({ error: 'storage_upload_failed' });
+    if (s3 && S3_PUBLIC_BASE_URL) {
+      const extension =
+        parsed.contentType === 'image/png'
+          ? 'png'
+          : parsed.contentType === 'image/jpeg'
+            ? 'jpg'
+            : parsed.contentType === 'image/webp'
+              ? 'webp'
+              : parsed.contentType === 'image/gif'
+                ? 'gif'
+                : 'img';
+      const key = avatarObjectKey(emailKey, extension);
+      try {
+        await s3.send(
+          new PutObjectCommand({
+            Bucket: S3_BUCKET,
+            Key: key,
+            Body: parsed.buf,
+            ContentType: parsed.contentType,
+            CacheControl: 'public, max-age=31536000, immutable',
+          })
+        );
+      } catch {
+        return res.status(502).json({ error: 'storage_upload_failed' });
+      }
+      avatarDataUrlToStore = `${S3_PUBLIC_BASE_URL}/${key}`;
+      storage = 'object';
+    } else {
+      avatarDataUrlToStore = avatarRaw;
+      storage = db ? 'db' : 'local';
     }
-    avatarUrl = `${S3_PUBLIC_BASE_URL}/${key}`;
-    storage = 'object';
   } else if (avatarRaw !== null && avatarRaw !== undefined && avatarRaw !== '' && !isUrl) {
     return res.status(400).json({ error: 'invalid_avatar' });
   }
@@ -2781,14 +2821,27 @@ app.put('/api/account/profile', requireAuth, express.json({ limit: '600kb' }), a
   const nextEntry = {
     ...prev,
     displayName: displayName || null,
-    avatarDataUrl: avatarRaw === null ? null : avatarUrl,
+    avatarDataUrl: avatarRaw === null ? null : avatarDataUrlToStore,
     updatedAt: new Date().toISOString(),
   };
 
-  if (s3) {
-    const ok = avatarRaw === null && !displayName
-      ? await deleteStoredProfile(emailKey)
-      : await putStoredProfile(emailKey, { displayName: displayName || null, avatarUrl: avatarRaw === null ? null : avatarUrl, updatedAt: nextEntry.updatedAt });
+  if (db) {
+    try {
+      persisted = await dbSetProfile(emailKey, { displayName: displayName || null, avatarDataUrl: avatarRaw === null ? null : avatarDataUrlToStore });
+      storage = 'db';
+    } catch {
+      persisted = false;
+      storage = 'db';
+    }
+  } else if (s3) {
+    const ok =
+      avatarRaw === null && !displayName
+        ? await deleteStoredProfile(emailKey)
+        : await putStoredProfile(emailKey, {
+            displayName: displayName || null,
+            avatarUrl: avatarRaw === null ? null : avatarDataUrlToStore,
+            updatedAt: nextEntry.updatedAt,
+          });
     persisted = ok;
     storage = 'object';
   } else {

@@ -367,7 +367,7 @@ const MailLogin = () => {
           <div className="flex flex-col">
             <span className="font-display font-bold text-lg tracking-tight">ArcByte</span>
             <span className="text-[10px] font-mono uppercase tracking-[0.22em] text-white/40">
-              ArcMail for Operators
+              ArcMail for Enterprises
             </span>
           </div>
         </motion.div>
@@ -400,7 +400,7 @@ const MailLogin = () => {
             <h1 className="text-5xl md:text-7xl lg:text-8xl font-display font-bold leading-[0.9] tracking-tighter text-white mb-8">
               ArcMail
               <br />
-              <span className="text-white/15">For Operators.</span>
+              <span className="text-white/15">For Enterprises.</span>
             </h1>
 
             <p className="text-lg text-white/45 max-w-xl font-light leading-relaxed">

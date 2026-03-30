@@ -565,7 +565,7 @@ const Pillars = () => (
       <SecurityCard
         icon={Activity}
         title="Live Posture"
-        desc="Per‑session activity, anomaly patterns and transport failures are monitored and surfaced to operators in real-time."
+        desc="Per‑session activity, anomaly patterns and transport failures are monitored and surfaced to Enterprises in real-time."
         delay={0.3}
       />
       <SecurityCard

@@ -9,6 +9,7 @@ import MailApp from './pages/mail/MailApp';
 import MailSecurity from './pages/mail/MailSecurity';
 import AdminLogin from './pages/admin/AdminLogin';
 import AdminDashboard from './pages/admin/AdminDashboard';
+import ArcMailAndroidApp from './pages/public/ArcMailAndroidApp.tsx';
 
 export default function App() {
   useEffect(() => {
@@ -61,6 +62,8 @@ export default function App() {
             <Route path="/admin" element={<ProtectedAdminRoute />}>
               <Route index element={<AdminDashboard />} />
             </Route>
+            <Route path="/arcmail/app" element={<ArcMailAndroidApp />} />
+            <Route path="/arcmail/app/*" element={<Navigate to="/arcmail/app" replace />} />
             <Route path="/login" element={<MailLogin />} />
             <Route path="/mail/login" element={<Navigate to="/login" replace />} />
             <Route path="/" element={<ProtectedMailRoute />}>
