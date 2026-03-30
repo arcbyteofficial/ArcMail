@@ -4321,10 +4321,10 @@ const MailAppContent = () => {
         if (!response) return 'API unreachable.';
         if (status === 401) return 'Session expired. Please sign in again.';
         if (status === 404) return 'Co-Pilot endpoint not found.';
-        if (status === 503 && code === 'ai_disabled') return 'AI is disabled on the backend.';
+        if (status === 503 && code === 'ai_disabled') return `AI is disabled on the backend.${base ? ` (API: ${base})` : ''}`;
         if (status === 400 && code === 'invalid_question') return 'Question is invalid.';
         if (status === 400 && code === 'invalid_id') return 'This email cannot be queried.';
-        if (status === 502 && code === 'ai_invalid_key') return `Groq API key is invalid for this backend.${base ? ` (API: ${base})` : ''}`;
+        if (status === 502 && code === 'ai_invalid_key') return `AI API key is invalid for this backend.${base ? ` (API: ${base})` : ''}`;
         if (status === 502 && code === 'ai_rate_limited') return 'AI rate limited. Try again.';
         if (status === 502 && code === 'ai_provider_error') return 'AI provider error. Try again.';
         if (status === 502 && code === 'ai_request_rejected') return 'AI request rejected. Try a shorter question.';

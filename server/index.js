@@ -226,12 +226,13 @@ const s3 = S3_ENABLED
 
 const DATABASE_URL = typeof process.env.DATABASE_URL === 'string' ? process.env.DATABASE_URL.trim() : '';
 const db = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL, ssl: process.env.PGSSLMODE === 'disable' ? false : undefined }) : null;
-const GROQ_API_KEY = typeof process.env.GROQ_API_KEY === 'string' ? process.env.GROQ_API_KEY.trim() : '';
+const GEMINI_API_KEY = typeof process.env.GEMINI_API_KEY === 'string' ? process.env.GEMINI_API_KEY.trim() : '';
+const GOOGLE_API_KEY = typeof process.env.GOOGLE_API_KEY === 'string' ? process.env.GOOGLE_API_KEY.trim() : '';
 const ARCMAIL_AI_DISABLED = (() => {
   const raw = typeof process.env.ARCMAIL_AI_DISABLED === 'string' ? process.env.ARCMAIL_AI_DISABLED.trim().toLowerCase() : '';
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
 })();
-const ARCMAIL_AI_ENABLED = Boolean(GROQ_API_KEY) && !ARCMAIL_AI_DISABLED;
+const ARCMAIL_AI_ENABLED = Boolean((GEMINI_API_KEY || GOOGLE_API_KEY).trim()) && !ARCMAIL_AI_DISABLED;
 const REQUIRE_PERSISTENT_2FA_STORAGE = (() => {
   if (!IS_PROD) return false;
   const raw = typeof process.env.ALLOW_EPHEMERAL_2FA_STORAGE === 'string' ? process.env.ALLOW_EPHEMERAL_2FA_STORAGE.trim().toLowerCase() : '';
@@ -1745,6 +1746,11 @@ app.get('/api/health', (_req, res) =>
     ok: true,
     routes: { forgotPassword: true },
     buildId: SERVER_BUILD_ID,
+    ai: {
+      enabled: ARCMAIL_AI_ENABLED,
+      disabledFlag: ARCMAIL_AI_DISABLED,
+      provider: 'gemini',
+    },
     auth: {
       require2FAOnLogin: REQUIRE_2FA_ON_LOGIN,
       storage: db ? 'db' : 'file',
@@ -1760,7 +1766,12 @@ app.get('/api/dev/routes', (req, res) => {
   const isLocal = host === 'localhost' || host === '127.0.0.1' || ip.includes('127.0.0.1') || ip.includes('::1');
   if (!isLocal) return res.status(401).json({ error: 'unauthorized' });
   try {
-    const stack = app && app._router && Array.isArray(app._router.stack) ? app._router.stack : [];
+    const stack =
+      app && app._router && Array.isArray(app._router.stack)
+        ? app._router.stack
+        : app && app.router && Array.isArray(app.router.stack)
+          ? app.router.stack
+          : [];
     const routes = [];
     for (const layer of stack) {
       if (!layer) continue;
@@ -1783,14 +1794,13 @@ app.get('/api/dev/ai/ping', async (req, res) => {
   const isLocal = host === 'localhost' || host === '127.0.0.1' || ip.includes('127.0.0.1') || ip.includes('::1');
   if (!isLocal) return res.status(401).json({ error: 'unauthorized' });
   try {
-    const out = await runAI('Say OK', { maxTokens: 12, temperature: 0, model: 'llama-3.1-8b-instant' });
+    const out = await runAI('Reply with exactly OK', { maxTokens: 64, temperature: 0 });
     return res.json({ ok: true, out });
   } catch (err) {
     const status = err && typeof err === 'object' && typeof err.status === 'number' ? err.status : null;
     const code = err && typeof err === 'object' && typeof err.code === 'string' ? String(err.code) : null;
-    const model = err && typeof err === 'object' && typeof err.model === 'string' ? String(err.model) : null;
     const message = err && typeof err === 'object' && typeof err.message === 'string' ? String(err.message) : 'error';
-    return res.status(500).json({ ok: false, status, code, model, message: message.slice(0, 240) });
+    return res.status(500).json({ ok: false, status, code, message: message.slice(0, 240) });
   }
 });
 
@@ -3650,7 +3660,7 @@ app.post('/api/ai/ask', requireAuth, async (req, res) => {
       answer = await runAI(prompt, { maxTokens: 520, temperature: 0.2 });
     } catch (err) {
       const code = err && typeof err === 'object' && typeof err.code === 'string' ? String(err.code) : null;
-      if (code === 'GROQ_PAYLOAD_TOO_LARGE' || code === 'GROQ_BAD_REQUEST' || code === 'GROQ_REQUEST_ERROR') {
+      if (code === 'AI_PAYLOAD_TOO_LARGE' || code === 'AI_BAD_REQUEST' || code === 'AI_REQUEST_ERROR') {
         const tighterEmailText = emailText.slice(0, 1200);
         const tighterPrompt = [
           'Answer the user question about the email.',
@@ -3663,7 +3673,7 @@ app.post('/api/ai/ask', requireAuth, async (req, res) => {
           'Email:',
           tighterEmailText,
         ].join('\n');
-        answer = await runAI(tighterPrompt, { maxTokens: 260, temperature: 0.2, model: 'llama-3.1-8b-instant' });
+        answer = await runAI(tighterPrompt, { maxTokens: 260, temperature: 0.2 });
       } else {
         throw err;
       }
@@ -3671,13 +3681,13 @@ app.post('/api/ai/ask', requireAuth, async (req, res) => {
     return res.json({ answer });
   } catch (err) {
     const code = err && typeof err === 'object' && typeof err.code === 'string' ? String(err.code) : null;
-    if (code === 'MISSING_GROQ_API_KEY') return res.status(503).json({ error: 'ai_disabled' });
-    if (code === 'GROQ_AUTH_ERROR') return res.status(502).json({ error: 'ai_invalid_key' });
-    if (code === 'GROQ_RATE_LIMIT') return res.status(502).json({ error: 'ai_rate_limited' });
-    if (code === 'GROQ_PROVIDER_ERROR') return res.status(502).json({ error: 'ai_provider_error' });
-    if (code === 'GROQ_PAYLOAD_TOO_LARGE') return res.status(502).json({ error: 'ai_request_too_large' });
-    if (code === 'GROQ_BAD_REQUEST') return res.status(502).json({ error: 'ai_request_rejected' });
-    if (code === 'GROQ_REQUEST_ERROR') return res.status(502).json({ error: 'ai_request_rejected' });
+    if (code === 'MISSING_GEMINI_API_KEY') return res.status(503).json({ error: 'ai_disabled' });
+    if (code === 'AI_AUTH_ERROR') return res.status(502).json({ error: 'ai_invalid_key' });
+    if (code === 'AI_RATE_LIMIT') return res.status(502).json({ error: 'ai_rate_limited' });
+    if (code === 'AI_PROVIDER_ERROR') return res.status(502).json({ error: 'ai_provider_error' });
+    if (code === 'AI_PAYLOAD_TOO_LARGE') return res.status(502).json({ error: 'ai_request_too_large' });
+    if (code === 'AI_BAD_REQUEST') return res.status(502).json({ error: 'ai_request_rejected' });
+    if (code === 'AI_REQUEST_ERROR') return res.status(502).json({ error: 'ai_request_rejected' });
     return res.status(502).json({ error: 'ai_error' });
   }
 });

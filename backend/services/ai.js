@@ -1,20 +1,18 @@
-import OpenAI from 'openai';
 import crypto from 'node:crypto';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const BASE_URL = 'https://api.groq.com/openai/v1';
-const MODEL = 'llama-3.3-70b-versatile';
-const MODEL_FALLBACKS = ['llama-3.1-70b-versatile', 'llama3-70b-8192', 'llama-3.1-8b-instant'];
+const MODEL = 'gemini-flash-latest';
 const SYSTEM_PROMPT =
   'You are an elite email intelligence engine. You analyze emails for importance, urgency, and actionable content. Be precise and structured. Do not hallucinate.';
 
-const getClient = () => { 
-  const apiKey = String(process.env.GROQ_API_KEY || '').trim();
+const getClient = () => {
+  const apiKey = String(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
   if (!apiKey) {
-    const err = new Error('Missing GROQ_API_KEY');
-    err.code = 'MISSING_GROQ_API_KEY';
+    const err = new Error('Missing GEMINI_API_KEY');
+    err.code = 'MISSING_GEMINI_API_KEY';
     throw err;
   }
-  return new OpenAI({ apiKey, baseURL: BASE_URL });
+  return new GoogleGenerativeAI(apiKey);
 };
 
 const clampText = (s, maxChars) => {
@@ -57,15 +55,39 @@ const normalizeEmail = (email) => {
 
 const parseFirstJsonObject = (s) => {
   const raw = String(s || '').trim();
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
+  const withoutFences = raw.replace(/```[\s\S]*?```/g, (m) => m.replace(/```[a-zA-Z]*\n?/, '').replace(/```$/, ''));
+  const start = withoutFences.indexOf('{');
+  const end = withoutFences.lastIndexOf('}');
   if (start === -1 || end === -1 || end <= start) return null;
-  const candidate = raw.slice(start, end + 1);
+  const candidate = withoutFences.slice(start, end + 1);
   try {
     return JSON.parse(candidate);
   } catch {
     return null;
   }
+};
+
+const stripMarkdownFences = (s) => {
+  const raw = String(s || '').trim();
+  const m = raw.match(/```[a-zA-Z]*\s*([\s\S]*?)\s*```/);
+  if (m && typeof m[1] === 'string') return m[1].trim();
+  return raw;
+};
+
+const parseJsonFromText = (s) => {
+  const raw = stripMarkdownFences(s);
+  const obj = parseFirstJsonObject(raw);
+  if (obj) return obj;
+  const start = raw.indexOf('[');
+  const end = raw.lastIndexOf(']');
+  if (start !== -1 && end !== -1 && end > start) {
+    try {
+      return JSON.parse(raw.slice(start, end + 1));
+    } catch {
+      return null;
+    }
+  }
+  return null;
 };
 
 const toStableJson = (value) => {
@@ -89,49 +111,38 @@ export const contentHashForEmail = (email) => {
 };
 
 export const runAI = async (prompt, options = {}) => {
-  const client = getClient();
+  const genAI = getClient();
   const temperature = Number.isFinite(options.temperature) ? options.temperature : 0.2;
-  const max_tokens = Number.isFinite(options.maxTokens) ? options.maxTokens : 900;
-  const messages = [
-    { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'user', content: String(prompt || '') },
-  ];
-  const explicitModel = typeof options.model === 'string' ? options.model.trim() : '';
-  const candidates = [explicitModel || MODEL, ...MODEL_FALLBACKS].filter(Boolean);
+  const maxOutputTokens = Number.isFinite(options.maxTokens) ? options.maxTokens : 900;
 
-  let lastError = null;
-  for (const candidate of candidates) {
-    try {
-      const res = await client.chat.completions.create({
-        model: candidate,
-        temperature,
-        max_tokens,
-        messages,
-      });
-      const text = res?.choices?.[0]?.message?.content;
-      return String(text || '').trim();
-    } catch (err) {
-      const status = err && typeof err === 'object' && typeof err.status === 'number' ? err.status : null;
-      const message = err && typeof err === 'object' && typeof err.message === 'string' ? String(err.message) : '';
-      const e = new Error(message || 'AI request failed');
-      if (status === 401 || status === 403) e.code = 'GROQ_AUTH_ERROR';
-      else if (status === 429) e.code = 'GROQ_RATE_LIMIT';
-      else if (status === 413) e.code = 'GROQ_PAYLOAD_TOO_LARGE';
-      else if (status === 400 || status === 404 || status === 422) e.code = 'GROQ_BAD_REQUEST';
-      else if (status && status >= 500) e.code = 'GROQ_PROVIDER_ERROR';
-      else e.code = 'GROQ_REQUEST_ERROR';
-      e.status = status || undefined;
-      e.model = candidate;
-      lastError = e;
+  const model = genAI.getGenerativeModel({ model: MODEL });
 
-      if (e.code === 'GROQ_AUTH_ERROR' || e.code === 'GROQ_RATE_LIMIT' || e.code === 'GROQ_PAYLOAD_TOO_LARGE') {
-        throw e;
-      }
-      if (candidate === candidates[candidates.length - 1]) throw e;
-    }
+  const fullPrompt = `${SYSTEM_PROMPT}\n\n${String(prompt || '')}`.trim();
+  const request = { contents: [{ role: 'user', parts: [{ text: fullPrompt }] }], generationConfig: { temperature, maxOutputTokens } };
+
+  try {
+    const res = await model.generateContent(request);
+    const t = res?.response?.text?.();
+    const primary = typeof t === 'string' ? t : '';
+    if (primary && primary.trim()) return primary.trim();
+    const parts = res?.response?.candidates?.[0]?.content?.parts;
+    const joined = Array.isArray(parts) ? parts.map((p) => (p && typeof p === 'object' && typeof p.text === 'string' ? p.text : '')).join('') : '';
+    return String(joined || '').trim();
+  } catch (err) {
+    const message = err && typeof err === 'object' && typeof err.message === 'string' ? String(err.message) : 'AI request failed';
+    const status = err && typeof err === 'object' && typeof err.status === 'number' ? err.status : null;
+    const lower = message.toLowerCase();
+    const e = new Error(message);
+    if (status === 401 || status === 403 || lower.includes('api key') || lower.includes('permission denied') || lower.includes('unauth')) e.code = 'AI_AUTH_ERROR';
+    else if (status === 429 || lower.includes('quota') || lower.includes('rate')) e.code = 'AI_RATE_LIMIT';
+    else if (status === 413 || lower.includes('payload') || lower.includes('too large')) e.code = 'AI_PAYLOAD_TOO_LARGE';
+    else if (status === 404 && lower.includes('models/')) e.code = 'AI_MODEL_NOT_FOUND';
+    else if (status === 400 || status === 404 || status === 422 || lower.includes('invalid') || lower.includes('bad request')) e.code = 'AI_BAD_REQUEST';
+    else if (status && status >= 500) e.code = 'AI_PROVIDER_ERROR';
+    else e.code = 'AI_REQUEST_ERROR';
+    e.status = status || undefined;
+    throw e;
   }
-
-  throw lastError || new Error('AI request failed');
 };
 
 export const summarizeEmail = async (email) => {
@@ -142,11 +153,12 @@ export const summarizeEmail = async (email) => {
     '- Use "-" bullet prefix.',
     '- Be specific and actionable.',
     '- Do not invent facts.',
+    '- Output only the 3 bullets, no extra text.',
     '',
     normalized,
   ].join('\n');
-  const out = await runAI(prompt, { maxTokens: 240 });
-  const lines = out
+  const out = stripMarkdownFences(await runAI(prompt, { maxTokens: 240 }));
+  const lines = String(out || '')
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean)
@@ -167,7 +179,7 @@ export const generateReply = async (email) => {
     '',
     normalized,
   ].join('\n');
-  return await runAI(prompt, { maxTokens: 420, temperature: 0.35 });
+  return stripMarkdownFences(await runAI(prompt, { maxTokens: 420, temperature: 0.35 }));
 };
 
 export const classifyEmail = async (email) => {
@@ -181,10 +193,11 @@ export const classifyEmail = async (email) => {
     '',
     normalized,
   ].join('\n');
-  const out = (await runAI(prompt, { maxTokens: 12, temperature: 0 })).trim();
+  const out = stripMarkdownFences(await runAI(prompt, { maxTokens: 16, temperature: 0 }));
+  const value = String(out || '').trim();
   const labels = new Set(['Work', 'Personal', 'Finance', 'Spam', 'Updates']);
-  if (labels.has(out)) return out;
-  const cleaned = out.replace(/[^A-Za-z]/g, '');
+  if (labels.has(value)) return value;
+  const cleaned = value.replace(/[^A-Za-z]/g, '');
   if (labels.has(cleaned)) return cleaned;
   return 'Updates';
 };
@@ -197,11 +210,12 @@ export const extractInfo = async (email) => {
     'Rules:',
     '- Arrays must contain strings only.',
     '- Do not hallucinate. If unknown, keep arrays empty.',
+    '- Output JSON only (no markdown, no code fences).',
     '',
     normalized,
   ].join('\n');
   const out = await runAI(prompt, { maxTokens: 350, temperature: 0 });
-  const parsed = parseFirstJsonObject(out);
+  const parsed = parseJsonFromText(out);
   const safe = (v) => (Array.isArray(v) ? v.map((x) => String(x || '').trim()).filter(Boolean).slice(0, 20) : []);
   return {
     deadlines: safe(parsed?.deadlines),
@@ -223,8 +237,8 @@ export const scoreEmailPriority = async (email) => {
     '',
     normalized,
   ].join('\n');
-  const out = await runAI(prompt, { maxTokens: 8, temperature: 0 });
-  const m = String(out).match(/-?\d+/);
+  const out = stripMarkdownFences(await runAI(prompt, { maxTokens: 16, temperature: 0 }));
+  const m = String(out || '').match(/-?\d+/);
   const n = m ? Number(m[0]) : 0;
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(100, Math.round(n)));
