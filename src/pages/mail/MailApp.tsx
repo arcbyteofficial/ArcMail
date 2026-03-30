@@ -28,6 +28,11 @@ import {
   X,
   Check,
   Mic,
+  Copy,
+  ThumbsUp,
+  Volume2,
+  RotateCcw,
+  SendHorizontal,
   ChevronRight,
   MoreVertical,
   PanelLeftClose,
@@ -91,6 +96,13 @@ type EmailAI = {
   priority: number | null;
   extractedData: EmailAIExtractedData | null;
 } | null;
+
+type AIChatMessage = {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: number;
+};
 
 type MailThreadSummary = {
   id: string;
@@ -1340,6 +1352,13 @@ const ReadingPane = ({
   showBack,
   onReply,
   onForward,
+  aiChatOpen,
+  aiChatMessages,
+  aiChatInput,
+  onAiChatInputChange,
+  onSendAiChat,
+  aiChatBusy,
+  onCloseAiChat,
   isMobile,
   onCompose,
 }: {
@@ -1349,6 +1368,13 @@ const ReadingPane = ({
   showBack: boolean;
   onReply?: () => void;
   onForward?: () => void;
+  aiChatOpen: boolean;
+  aiChatMessages: AIChatMessage[];
+  aiChatInput: string;
+  onAiChatInputChange: (value: string) => void;
+  onSendAiChat: () => void;
+  aiChatBusy: boolean;
+  onCloseAiChat: () => void;
   isMobile: boolean;
   onCompose?: () => void;
 }) => {
@@ -1358,6 +1384,22 @@ const ReadingPane = ({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [replySnoozeUntil, setReplySnoozeUntil] = useState<number>(0);
   const [expandedMsgId, setExpandedMsgId] = useState<string | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!aiChatOpen) return;
+    const el = chatScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [aiChatOpen, aiChatMessages.length]);
+
+  const copyToClipboard = useCallback(async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(String(value || ''));
+    } catch {
+      return;
+    }
+  }, []);
 
   const openAttachment = useCallback(
     async (messageId: string, attachment: MailThreadMessage['attachments'][number], folder: MailFolder) => {
@@ -1525,6 +1567,142 @@ const ReadingPane = ({
     return false;
   })();
 
+  const ChatPanel = ({ onClose }: { onClose: () => void }) => {
+    const subject = thread?.subject || 'Selected email';
+    const initial = (() => {
+      const v = thread?.messages?.[thread.messages.length - 1]?.fromName || thread?.messages?.[thread.messages.length - 1]?.fromAddress || 'U';
+      return String(v || 'U').trim().slice(0, 1).toUpperCase() || 'U';
+    })();
+
+    return (
+      <div className="h-full flex flex-col">
+        <div className={cn("px-5 py-4 border-b", isDark ? "border-white/10" : "border-black/10")}>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-[#FF76D6] shadow-[0_10px_30px_rgba(255,118,214,0.28)] flex items-center justify-center shrink-0">
+                <Sparkles size={18} className="text-black" />
+              </div>
+              <div className="min-w-0">
+                <div className={cn("text-[15px] font-bold leading-tight", isDark ? "text-white" : "text-black")}>Ask AI</div>
+                <div className={cn("text-[12px] font-semibold truncate mt-0.5", isDark ? "text-white/45" : "text-black/45")}>{subject}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <button className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-white/10" : "text-black/55 hover:text-black hover:bg-black/10")}>
+                <MoreVertical size={18} />
+              </button>
+              <button
+                onClick={onClose}
+                className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-white/10" : "text-black/55 hover:text-black hover:bg-black/10")}
+                title="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div ref={chatScrollRef} className="flex-1 overflow-y-auto custom-scrollbar px-5 py-5 space-y-4">
+          {aiChatMessages.length === 0 ? (
+            <div className="pt-6">
+              <div className={cn("text-sm font-semibold", isDark ? "text-white/70" : "text-black/70")}>Ask anything about this email.</div>
+              <div className={cn("text-xs mt-2 leading-relaxed", isDark ? "text-white/45" : "text-black/45")}>
+                Examples: summarize it, extract deadlines, identify risks, draft a response, or explain the sender’s intent.
+              </div>
+            </div>
+          ) : (
+            <>
+              {aiChatMessages.map((m) =>
+                m.role === 'user' ? (
+                  <div key={m.id} className="flex items-end justify-end gap-2">
+                    <div className={cn("max-w-[82%] rounded-[22px] px-4 py-3 text-[14px] leading-relaxed whitespace-pre-wrap", isDark ? "bg-white/10 text-white" : "bg-black/10 text-black")}>
+                      {m.content}
+                    </div>
+                    <div className={cn("w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold border shrink-0", isDark ? "bg-[#121212] text-white border-white/10" : "bg-white text-black border-black/10")}>
+                      {initial}
+                    </div>
+                  </div>
+                ) : (
+                  <div key={m.id} className="flex items-end justify-start gap-2">
+                    <div className="w-9 h-9 rounded-full bg-[#FF76D6]/15 border border-[#FF76D6]/20 flex items-center justify-center shrink-0">
+                      <Sparkles size={16} className="text-[#FF76D6]" />
+                    </div>
+                    <div className="max-w-[86%] rounded-[26px] bg-gradient-to-b from-[#FF76D6] to-[#FFB4EA] text-black px-5 py-4 shadow-[0_18px_50px_rgba(255,118,214,0.22)]">
+                      <div className="text-[14px] leading-relaxed whitespace-pre-wrap">{m.content}</div>
+                      <div className="mt-4 flex items-center gap-4 text-black/70">
+                        <button onClick={() => void copyToClipboard(m.content)} className="p-1 rounded-lg hover:bg-black/10 transition-colors" title="Copy">
+                          <Copy size={18} />
+                        </button>
+                        <button className="p-1 rounded-lg hover:bg-black/10 transition-colors" title="Like">
+                          <ThumbsUp size={18} />
+                        </button>
+                        <button className="p-1 rounded-lg hover:bg-black/10 transition-colors" title="Read aloud">
+                          <Volume2 size={18} />
+                        </button>
+                        <button className="p-1 rounded-lg hover:bg-black/10 transition-colors" title="Regenerate">
+                          <RotateCcw size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              )}
+
+              {aiChatBusy && (
+                <div className="flex items-end justify-start gap-2">
+                  <div className="w-9 h-9 rounded-full bg-[#FF76D6]/15 border border-[#FF76D6]/20 flex items-center justify-center shrink-0">
+                    <Sparkles size={16} className="text-[#FF76D6]" />
+                  </div>
+                  <div className={cn("max-w-[70%] rounded-[22px] px-4 py-3", isDark ? "bg-white/10" : "bg-black/10")}>
+                    <div className="flex items-center gap-1.5">
+                      <span className={cn("w-1.5 h-1.5 rounded-full animate-bounce", isDark ? "bg-white/50" : "bg-black/45")} />
+                      <span className={cn("w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:120ms]", isDark ? "bg-white/50" : "bg-black/45")} />
+                      <span className={cn("w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:240ms]", isDark ? "bg-white/50" : "bg-black/45")} />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className={cn("px-5 pb-5 pt-3 border-t", isDark ? "border-white/10" : "border-black/10")}>
+          <div className={cn("h-12 rounded-full border flex items-center gap-2 px-3", isDark ? "bg-[#121212] border-white/10" : "bg-white border-black/10")}>
+            <button className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-white/10" : "text-black/55 hover:text-black hover:bg-black/10")} title="Add">
+              <Plus size={18} />
+            </button>
+            <input
+              value={aiChatInput}
+              onChange={(e) => onAiChatInputChange(e.target.value)}
+              placeholder="Send message..."
+              className={cn("flex-1 bg-transparent border-none outline-none text-[14px] font-medium", isDark ? "text-white placeholder:text-white/35" : "text-black placeholder:text-black/35")}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  onSendAiChat();
+                }
+              }}
+            />
+            <button
+              onClick={aiChatInput.trim() ? onSendAiChat : undefined}
+              disabled={aiChatBusy}
+              className={cn(
+                "h-10 w-10 rounded-full flex items-center justify-center transition-all",
+                aiChatBusy ? "opacity-70 cursor-not-allowed" : "hover:scale-105 active:scale-95",
+                aiChatInput.trim()
+                  ? "bg-[#1DB954] text-black"
+                  : (isDark ? "bg-white/10 text-white/70" : "bg-black/10 text-black/70")
+              )}
+              title={aiChatInput.trim() ? "Send" : "Voice"}
+            >
+              {aiChatBusy ? <Loader2 size={18} className="animate-spin" /> : aiChatInput.trim() ? <SendHorizontal size={18} /> : <Mic size={18} />}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className={cn("flex-1 flex flex-col h-full relative overflow-hidden", isDark ? "bg-[#121212]" : "bg-white")}>
       {/* Spotify Gradient Overlay */}
@@ -1583,9 +1761,9 @@ const ReadingPane = ({
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 relative z-10">
-        <div className={cn("pb-20", isMobile ? "max-w-none mx-0" : "max-w-3xl mx-auto")}>
+      <div className="flex-1 flex min-h-0 relative z-10">
+        <div className={cn("flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8", !isMobile && aiChatOpen ? "pr-3 md:pr-5" : "")}>
+        <div className={cn("pb-20", !isMobile && !aiChatOpen ? "max-w-3xl mx-auto" : "max-w-none mx-0")}>
           {/* Subject */}
           <div className="flex items-start justify-between gap-4 mb-6 md:mb-8">
              <h1 className={cn(isMobile ? "text-[22px]" : "text-[28px]", "font-bold leading-tight", isDark ? "text-white" : "text-black")}>
@@ -1809,7 +1987,39 @@ const ReadingPane = ({
           </div>
 
         </div>
+        </div>
+
+        {!isMobile && aiChatOpen && (
+          <aside className={cn("w-[420px] shrink-0 border-l", isDark ? "border-[#1A1A1A] bg-[#0B0B0B]" : "border-[#E5E5E5] bg-white")}>
+            <ChatPanel onClose={onCloseAiChat} />
+          </aside>
+        )}
       </div>
+
+      <AnimatePresence>
+        {isMobile && aiChatOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[70]"
+          >
+            <div className="absolute inset-0 bg-black/55" onClick={onCloseAiChat} />
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className={cn(
+                "absolute inset-y-0 right-0 w-[92%] max-w-[440px] border-l shadow-2xl",
+                isDark ? "bg-[#0B0B0B] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]"
+              )}
+            >
+              <ChatPanel onClose={onCloseAiChat} />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -3667,11 +3877,10 @@ const MailAppContent = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [threadDetail, setThreadDetail] = useState<MailThreadDetail | null>(null);
   const [threadDetailLoading, setThreadDetailLoading] = useState(false);
-  const [askAiOpen, setAskAiOpen] = useState(false);
-  const [askAiQuestion, setAskAiQuestion] = useState('');
-  const [askAiAnswer, setAskAiAnswer] = useState<string | null>(null);
-  const [askAiBusy, setAskAiBusy] = useState(false);
-  const [askAiError, setAskAiError] = useState<string | null>(null);
+  const [aiChatOpen, setAiChatOpen] = useState(false);
+  const [aiChatMessages, setAiChatMessages] = useState<AIChatMessage[]>([]);
+  const [aiChatInput, setAiChatInput] = useState('');
+  const [aiChatBusy, setAiChatBusy] = useState(false);
   const [folderCounts, setFolderCounts] = useState<Partial<Record<MailFolder, number>>>({});
   const [folderUnreadCounts, setFolderUnreadCounts] = useState<Partial<Record<MailFolder, number>>>({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -3895,6 +4104,13 @@ const MailAppContent = () => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
 
+  useEffect(() => {
+    setAiChatMessages([]);
+    setAiChatInput('');
+    setAiChatBusy(false);
+    if (!selectedId) setAiChatOpen(false);
+  }, [activeFolder, selectedId]);
+
   const openCompose = useCallback((draft?: ComposeDraft) => {
     setComposeState((s) => ({ open: true, key: s.key + 1, draft }));
   }, []);
@@ -3962,25 +4178,32 @@ const MailAppContent = () => {
   const openAskAI = useCallback(() => {
     if (!aiEnabled) return;
     if (!selectedIdRef.current) return;
-    setAskAiQuestion('');
-    setAskAiAnswer(null);
-    setAskAiError(null);
-    setAskAiOpen(true);
+    setAiChatOpen((v) => !v);
   }, [aiEnabled]);
 
   const closeAskAI = useCallback(() => {
-    setAskAiOpen(false);
-    setAskAiBusy(false);
-    setAskAiError(null);
+    setAiChatOpen(false);
   }, []);
 
   const submitAskAI = useCallback(async () => {
     if (!aiEnabled) return;
     if (!selectedId) return;
-    const question = askAiQuestion.trim();
+    if (aiChatBusy) return;
+    const question = aiChatInput.trim();
     if (!question) return;
-    setAskAiBusy(true);
-    setAskAiError(null);
+
+    const now = Date.now();
+    const userMsg: AIChatMessage = {
+      id: `${now}-${Math.random().toString(16).slice(2)}`,
+      role: 'user',
+      content: question,
+      createdAt: now,
+    };
+
+    setAiChatMessages((prev) => [...prev, userMsg]);
+    setAiChatInput('');
+    setAiChatBusy(true);
+
     try {
       const res = await api.post('/ai/ask', {
         id: selectedId,
@@ -3991,26 +4214,45 @@ const MailAppContent = () => {
         res.data && typeof res.data === 'object' && 'answer' in res.data && typeof (res.data as { answer?: unknown }).answer === 'string'
           ? (res.data as { answer: string }).answer
           : '';
-      setAskAiAnswer(answer || '');
+      const msg: AIChatMessage = {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        role: 'assistant',
+        content: String(answer || '').trim() || '—',
+        createdAt: Date.now(),
+      };
+      setAiChatMessages((prev) => [...prev, msg]);
     } catch (err) {
-      const response = err && typeof err === 'object' && 'response' in err ? (err as { response?: { data?: unknown; status?: unknown } }).response : undefined;
+      const response =
+        err && typeof err === 'object' && 'response' in err ? (err as { response?: { data?: unknown; status?: unknown } }).response : undefined;
       const status = typeof response?.status === 'number' ? response.status : null;
       const data = response?.data as unknown;
       const code =
         data && typeof data === 'object' && 'error' in data && typeof (data as { error?: unknown }).error === 'string'
           ? String((data as { error: string }).error)
           : null;
-      if (status === 503 && code === 'ai_disabled') {
-        setAskAiError('AI is disabled.');
-      } else if (status === 400) {
-        setAskAiError('Invalid request.');
-      } else {
-        setAskAiError('Ask AI failed.');
-      }
+
+      const text = (() => {
+        if (!response) return 'API unreachable.';
+        if (status === 401) return 'Session expired. Please sign in again.';
+        if (status === 404) return 'Ask AI endpoint not found.';
+        if (status === 503 && code === 'ai_disabled') return 'AI is disabled on the backend.';
+        if (status === 400 && code === 'invalid_question') return 'Question is invalid.';
+        if (status === 400 && code === 'invalid_id') return 'This email cannot be queried.';
+        if (status === 502 && code === 'ai_error') return 'AI provider error. Check GROQ_API_KEY on the backend.';
+        return 'Ask AI failed.';
+      })();
+
+      const msg: AIChatMessage = {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        role: 'assistant',
+        content: text,
+        createdAt: Date.now(),
+      };
+      setAiChatMessages((prev) => [...prev, msg]);
     } finally {
-      setAskAiBusy(false);
+      setAiChatBusy(false);
     }
-  }, [activeFolder, aiEnabled, askAiQuestion, selectedId]);
+  }, [activeFolder, aiChatBusy, aiChatInput, aiEnabled, selectedId]);
 
   const handleForward = useCallback(() => {
     if (!threadDetail?.messages?.length) return;
@@ -4930,100 +5172,6 @@ const MailAppContent = () => {
           )}
         </AnimatePresence>
 
-        <AnimatePresence>
-          {askAiOpen && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[80] flex items-center justify-center p-4"
-            >
-              <div className="absolute inset-0 bg-black/60" onClick={closeAskAI} />
-              <motion.div
-                initial={{ y: 14, opacity: 0, scale: 0.98 }}
-                animate={{ y: 0, opacity: 1, scale: 1 }}
-                exit={{ y: 14, opacity: 0, scale: 0.98 }}
-                transition={{ duration: 0.18 }}
-                className={cn(
-                  "relative w-full max-w-2xl rounded-3xl border overflow-hidden shadow-2xl",
-                  isDark ? "bg-[#0F0F0F] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]"
-                )}
-              >
-                <div className={cn("px-5 py-4 flex items-start justify-between gap-4 border-b", isDark ? "border-[#1A1A1A]" : "border-[#E5E5E5]")}>
-                  <div className="min-w-0">
-                    <div className={cn("text-[11px] font-bold tracking-widest uppercase", isDark ? "text-white/45" : "text-black/45")}>Ask AI</div>
-                    <div className={cn("text-sm font-semibold mt-1 truncate", isDark ? "text-white" : "text-black")}>
-                      {threadDetail?.subject || 'Selected email'}
-                    </div>
-                  </div>
-                  <button
-                    onClick={closeAskAI}
-                    className={cn("p-2 rounded-full transition-colors", isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A]" : "text-[#5E5E5E] hover:text-black hover:bg-[#F0F0F0]")}
-                    title="Close"
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-                <div className="px-5 py-5 space-y-4">
-                  <textarea
-                    value={askAiQuestion}
-                    onChange={(e) => setAskAiQuestion(e.target.value)}
-                    placeholder="Ask any question about this email..."
-                    rows={4}
-                    className={cn(
-                      "w-full rounded-2xl border px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#1DB954]/30 resize-none",
-                      isDark ? "bg-[#121212] border-[#1A1A1A] text-white placeholder:text-white/35" : "bg-white border-[#E5E5E5] text-black placeholder:text-black/35"
-                    )}
-                    onKeyDown={(e) => {
-                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                        e.preventDefault();
-                        void submitAskAI();
-                      }
-                    }}
-                  />
-                  <div className="flex items-center justify-between gap-3">
-                    <div className={cn("text-xs", isDark ? "text-white/45" : "text-black/45")}>Ctrl/⌘ + Enter to ask</div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={closeAskAI}
-                        className={cn(
-                          "px-4 h-10 rounded-full text-xs font-semibold transition-colors border",
-                          isDark ? "bg-[#121212] border-[#282828] text-white hover:bg-[#1A1A1A]" : "bg-white border-[#E5E5E5] text-black hover:bg-[#F6F6F6]"
-                        )}
-                      >
-                        Close
-                      </button>
-                      <button
-                        onClick={() => void submitAskAI()}
-                        disabled={askAiBusy || !askAiQuestion.trim()}
-                        className={cn(
-                          "px-4 h-10 rounded-full text-xs font-semibold bg-[#1DB954] hover:bg-[#1ED760] text-black whitespace-nowrap flex items-center gap-2 transition-colors",
-                          (askAiBusy || !askAiQuestion.trim()) && "opacity-60 cursor-not-allowed"
-                        )}
-                      >
-                        {askAiBusy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                        Ask
-                      </button>
-                    </div>
-                  </div>
-
-                  {askAiError && (
-                    <div className={cn("rounded-2xl border px-4 py-3 text-sm", isDark ? "bg-[#1A1212] border-[#2A1414] text-white/85" : "bg-[#FFF3F3] border-[#FFD7D7] text-black/80")}>
-                      {askAiError}
-                    </div>
-                  )}
-
-                  {askAiAnswer !== null && (
-                    <div className={cn("rounded-2xl border px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed", isDark ? "bg-[#121212] border-[#1A1A1A] text-white/85" : "bg-[#F9F9F9] border-[#EAEAEA] text-black/80")}>
-                      {askAiAnswer || '—'}
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         <div className={cn("flex-1 flex min-h-0", isMobile && "pb-16")}>
         {isMobile && mobileProfileOpen ? (
           <MobileProfileSection
@@ -5244,6 +5392,13 @@ const MailAppContent = () => {
               onBack={() => setSelectedId(null)}
               onReply={handleReply}
               onForward={handleForward}
+              aiChatOpen={aiChatOpen}
+              aiChatMessages={aiChatMessages}
+              aiChatInput={aiChatInput}
+              onAiChatInputChange={setAiChatInput}
+              onSendAiChat={() => void submitAskAI()}
+              aiChatBusy={aiChatBusy}
+              onCloseAiChat={closeAskAI}
               isMobile={isMobile}
               onCompose={() => openCompose()}
             />
