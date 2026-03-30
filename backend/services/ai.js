@@ -110,6 +110,8 @@ export const runAI = async (prompt, options = {}) => {
     const e = new Error(message || 'AI request failed');
     if (status === 401 || status === 403) e.code = 'GROQ_AUTH_ERROR';
     else if (status === 429) e.code = 'GROQ_RATE_LIMIT';
+    else if (status === 413) e.code = 'GROQ_PAYLOAD_TOO_LARGE';
+    else if (status === 400 || status === 422) e.code = 'GROQ_BAD_REQUEST';
     else if (status && status >= 500) e.code = 'GROQ_PROVIDER_ERROR';
     else e.code = 'GROQ_REQUEST_ERROR';
     e.status = status || undefined;

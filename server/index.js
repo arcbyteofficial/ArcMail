@@ -3613,7 +3613,7 @@ app.post('/api/ai/ask', requireAuth, async (req, res) => {
     ]
       .filter(Boolean)
       .join('\n')
-      .slice(0, 6000);
+      .slice(0, 2500);
 
     const prompt = [
       'Answer the user question about the email.',
@@ -3635,6 +3635,8 @@ app.post('/api/ai/ask', requireAuth, async (req, res) => {
     if (code === 'GROQ_AUTH_ERROR') return res.status(502).json({ error: 'ai_invalid_key' });
     if (code === 'GROQ_RATE_LIMIT') return res.status(502).json({ error: 'ai_rate_limited' });
     if (code === 'GROQ_PROVIDER_ERROR') return res.status(502).json({ error: 'ai_provider_error' });
+    if (code === 'GROQ_PAYLOAD_TOO_LARGE') return res.status(502).json({ error: 'ai_request_too_large' });
+    if (code === 'GROQ_BAD_REQUEST') return res.status(502).json({ error: 'ai_request_rejected' });
     if (code === 'GROQ_REQUEST_ERROR') return res.status(502).json({ error: 'ai_request_rejected' });
     return res.status(502).json({ error: 'ai_error' });
   }

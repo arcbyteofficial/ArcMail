@@ -4296,6 +4296,7 @@ const MailAppContent = () => {
         if (status === 502 && code === 'ai_rate_limited') return 'AI rate limited. Try again.';
         if (status === 502 && code === 'ai_provider_error') return 'AI provider error. Try again.';
         if (status === 502 && code === 'ai_request_rejected') return 'AI request rejected. Try a shorter question.';
+        if (status === 502 && code === 'ai_request_too_large') return 'AI request too large. Try a shorter email or question.';
         if (status === 502 && code === 'ai_error') return 'AI request failed.';
         return 'Co-Pilot failed.';
       })();
