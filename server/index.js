@@ -1776,6 +1776,24 @@ app.get('/api/dev/routes', (req, res) => {
   }
 });
 
+app.get('/api/dev/ai/ping', async (req, res) => {
+  if (IS_PROD) return res.status(404).json({ error: 'not_found' });
+  const host = String(req.hostname || '').toLowerCase();
+  const ip = String(req.ip || '').toLowerCase();
+  const isLocal = host === 'localhost' || host === '127.0.0.1' || ip.includes('127.0.0.1') || ip.includes('::1');
+  if (!isLocal) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    const out = await runAI('Say OK', { maxTokens: 12, temperature: 0, model: 'llama-3.1-8b-instant' });
+    return res.json({ ok: true, out });
+  } catch (err) {
+    const status = err && typeof err === 'object' && typeof err.status === 'number' ? err.status : null;
+    const code = err && typeof err === 'object' && typeof err.code === 'string' ? String(err.code) : null;
+    const model = err && typeof err === 'object' && typeof err.model === 'string' ? String(err.model) : null;
+    const message = err && typeof err === 'object' && typeof err.message === 'string' ? String(err.message) : 'error';
+    return res.status(500).json({ ok: false, status, code, model, message: message.slice(0, 240) });
+  }
+});
+
 app.get('/api/notifications/vapid-public-key', (_req, res) => {
   if (!PUSH_ENABLED || !VAPID_PUBLIC_KEY) return res.status(501).json({ error: 'push_unconfigured' });
   return res.json({ publicKey: VAPID_PUBLIC_KEY });
@@ -3627,7 +3645,29 @@ app.post('/api/ai/ask', requireAuth, async (req, res) => {
       emailText,
     ].join('\n');
 
-    const answer = await runAI(prompt, { maxTokens: 520, temperature: 0.2 });
+    let answer = '';
+    try {
+      answer = await runAI(prompt, { maxTokens: 520, temperature: 0.2 });
+    } catch (err) {
+      const code = err && typeof err === 'object' && typeof err.code === 'string' ? String(err.code) : null;
+      if (code === 'GROQ_PAYLOAD_TOO_LARGE' || code === 'GROQ_BAD_REQUEST' || code === 'GROQ_REQUEST_ERROR') {
+        const tighterEmailText = emailText.slice(0, 1200);
+        const tighterPrompt = [
+          'Answer the user question about the email.',
+          'Rules:',
+          '- Use only information from the email. If the email does not contain the answer, say you do not know.',
+          '- Be concise and specific.',
+          '',
+          `User question: ${question.slice(0, 500)}`,
+          '',
+          'Email:',
+          tighterEmailText,
+        ].join('\n');
+        answer = await runAI(tighterPrompt, { maxTokens: 260, temperature: 0.2, model: 'llama-3.1-8b-instant' });
+      } else {
+        throw err;
+      }
+    }
     return res.json({ answer });
   } catch (err) {
     const code = err && typeof err === 'object' && typeof err.code === 'string' ? String(err.code) : null;

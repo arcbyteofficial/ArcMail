@@ -2,7 +2,8 @@ import OpenAI from 'openai';
 import crypto from 'node:crypto';
 
 const BASE_URL = 'https://api.groq.com/openai/v1';
-const MODEL = 'llama3-70b-8192';
+const MODEL = 'llama-3.3-70b-versatile';
+const MODEL_FALLBACKS = ['llama-3.1-70b-versatile', 'llama3-70b-8192', 'llama-3.1-8b-instant'];
 const SYSTEM_PROMPT =
   'You are an elite email intelligence engine. You analyze emails for importance, urgency, and actionable content. Be precise and structured. Do not hallucinate.';
 
@@ -95,28 +96,42 @@ export const runAI = async (prompt, options = {}) => {
     { role: 'system', content: SYSTEM_PROMPT },
     { role: 'user', content: String(prompt || '') },
   ];
-  try {
-    const res = await client.chat.completions.create({
-      model: MODEL,
-      temperature,
-      max_tokens,
-      messages,
-    });
-    const text = res?.choices?.[0]?.message?.content;
-    return String(text || '').trim();
-  } catch (err) {
-    const status = err && typeof err === 'object' && typeof err.status === 'number' ? err.status : null;
-    const message = err && typeof err === 'object' && typeof err.message === 'string' ? String(err.message) : '';
-    const e = new Error(message || 'AI request failed');
-    if (status === 401 || status === 403) e.code = 'GROQ_AUTH_ERROR';
-    else if (status === 429) e.code = 'GROQ_RATE_LIMIT';
-    else if (status === 413) e.code = 'GROQ_PAYLOAD_TOO_LARGE';
-    else if (status === 400 || status === 422) e.code = 'GROQ_BAD_REQUEST';
-    else if (status && status >= 500) e.code = 'GROQ_PROVIDER_ERROR';
-    else e.code = 'GROQ_REQUEST_ERROR';
-    e.status = status || undefined;
-    throw e;
+  const explicitModel = typeof options.model === 'string' ? options.model.trim() : '';
+  const candidates = [explicitModel || MODEL, ...MODEL_FALLBACKS].filter(Boolean);
+
+  let lastError = null;
+  for (const candidate of candidates) {
+    try {
+      const res = await client.chat.completions.create({
+        model: candidate,
+        temperature,
+        max_tokens,
+        messages,
+      });
+      const text = res?.choices?.[0]?.message?.content;
+      return String(text || '').trim();
+    } catch (err) {
+      const status = err && typeof err === 'object' && typeof err.status === 'number' ? err.status : null;
+      const message = err && typeof err === 'object' && typeof err.message === 'string' ? String(err.message) : '';
+      const e = new Error(message || 'AI request failed');
+      if (status === 401 || status === 403) e.code = 'GROQ_AUTH_ERROR';
+      else if (status === 429) e.code = 'GROQ_RATE_LIMIT';
+      else if (status === 413) e.code = 'GROQ_PAYLOAD_TOO_LARGE';
+      else if (status === 400 || status === 404 || status === 422) e.code = 'GROQ_BAD_REQUEST';
+      else if (status && status >= 500) e.code = 'GROQ_PROVIDER_ERROR';
+      else e.code = 'GROQ_REQUEST_ERROR';
+      e.status = status || undefined;
+      e.model = candidate;
+      lastError = e;
+
+      if (e.code === 'GROQ_AUTH_ERROR' || e.code === 'GROQ_RATE_LIMIT' || e.code === 'GROQ_PAYLOAD_TOO_LARGE') {
+        throw e;
+      }
+      if (candidate === candidates[candidates.length - 1]) throw e;
+    }
   }
+
+  throw lastError || new Error('AI request failed');
 };
 
 export const summarizeEmail = async (email) => {

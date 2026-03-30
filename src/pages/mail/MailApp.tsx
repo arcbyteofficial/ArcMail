@@ -113,6 +113,8 @@ const AIChatSidebar = ({
   input,
   onInputChange,
   onSend,
+  suggested,
+  onSuggested,
   onClose,
 }: {
   isDark: boolean;
@@ -123,6 +125,8 @@ const AIChatSidebar = ({
   input: string;
   onInputChange: (value: string) => void;
   onSend: () => void;
+  suggested: string[];
+  onSuggested: (value: string) => void;
   onClose: () => void;
 }) => {
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
@@ -234,6 +238,26 @@ const AIChatSidebar = ({
       </div>
 
       <div className={cn("px-5 pb-5 pt-3 border-t", isDark ? "border-white/10" : "border-black/10")} style={{ paddingBottom: 'calc(1.25rem + env(safe-area-inset-bottom))' }}>
+        {Array.isArray(suggested) && suggested.length > 0 && (
+          <div className="mb-3 flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
+            {suggested.slice(0, 6).map((s) => (
+              <button
+                key={s}
+                onClick={() => onSuggested(s)}
+                disabled={busy}
+                className={cn(
+                  "shrink-0 px-4 h-9 rounded-full text-xs font-semibold border transition-colors whitespace-nowrap",
+                  busy && "opacity-70 cursor-not-allowed",
+                  isDark
+                    ? "bg-[#121212] border-white/10 text-white/80 hover:text-white hover:bg-white/5"
+                    : "bg-white border-black/10 text-black/70 hover:text-black hover:bg-black/5"
+                )}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
         <div className={cn("min-h-12 rounded-full border flex items-center gap-2 px-3", isDark ? "bg-[#121212] border-white/10" : "bg-white border-black/10")}>
           <button className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-white/10" : "text-black/55 hover:text-black hover:bg-black/10")} title="Add">
             <Plus size={18} />
@@ -248,12 +272,12 @@ const AIChatSidebar = ({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                onSend();
+                void onSend();
               }
             }}
           />
           <button
-            onClick={input.trim() ? onSend : undefined}
+            onClick={input.trim() ? (() => void onSend()) : undefined}
             disabled={busy}
             className={cn(
               "h-10 w-10 rounded-full flex items-center justify-center transition-all",
@@ -1524,6 +1548,8 @@ const ReadingPane = ({
   onAiChatInputChange,
   onSendAiChat,
   aiChatBusy,
+  aiChatSuggested,
+  onAiChatSuggested,
   onCloseAiChat,
   isMobile,
   onCompose,
@@ -1538,8 +1564,10 @@ const ReadingPane = ({
   aiChatMessages: AIChatMessage[];
   aiChatInput: string;
   onAiChatInputChange: (value: string) => void;
-  onSendAiChat: () => void | Promise<void>;
+  onSendAiChat: (question?: string) => void | Promise<void>;
   aiChatBusy: boolean;
+  aiChatSuggested: string[];
+  onAiChatSuggested: (value: string) => void;
   onCloseAiChat: () => void;
   isMobile: boolean;
   onCompose?: () => void;
@@ -2018,7 +2046,9 @@ const ReadingPane = ({
               busy={aiChatBusy}
               input={aiChatInput}
               onInputChange={onAiChatInputChange}
-              onSend={onSendAiChat}
+              onSend={() => void onSendAiChat()}
+              suggested={aiChatSuggested}
+              onSuggested={onAiChatSuggested}
               onClose={onCloseAiChat}
             />
           </aside>
@@ -2052,7 +2082,9 @@ const ReadingPane = ({
                 busy={aiChatBusy}
                 input={aiChatInput}
                 onInputChange={onAiChatInputChange}
-                onSend={onSendAiChat}
+                onSend={() => void onSendAiChat()}
+                suggested={aiChatSuggested}
+                onSuggested={onAiChatSuggested}
                 onClose={onCloseAiChat}
               />
             </motion.div>
@@ -4224,11 +4256,11 @@ const MailAppContent = () => {
     setAiChatOpen(false);
   }, []);
 
-  const submitAskAI = useCallback(async () => {
+  const submitAskAI = useCallback(async (overrideQuestion?: string) => {
     if (!aiEnabled) return;
     if (!selectedId) return;
     if (aiChatBusy) return;
-    const question = aiChatInput.trim();
+    const question = String(overrideQuestion ?? aiChatInput).trim();
     if (!question) return;
 
     const now = Date.now();
@@ -4312,6 +4344,26 @@ const MailAppContent = () => {
       setAiChatBusy(false);
     }
   }, [activeFolder, aiChatBusy, aiChatInput, aiEnabled, selectedId, threadDetail]);
+
+  const aiChatSuggested = useMemo(() => {
+    const subject = String(threadDetail?.subject || '').toLowerCase();
+    const base = ['Summarize this email', 'What are the next steps?', 'Extract deadlines / dates', 'Draft a reply'];
+    if (subject.includes('deploy') || subject.includes('deployment') || subject.includes('crash') || subject.includes('failed')) {
+      return ['What failed and why?', 'What are the next steps?', 'Summarize this email', 'Draft a reply'];
+    }
+    if (subject.includes('invoice') || subject.includes('payment') || subject.includes('billing')) {
+      return ['What is being requested?', 'Is there a deadline?', 'Summarize this email', 'Draft a reply'];
+    }
+    return base;
+  }, [threadDetail?.subject]);
+
+  const handleAiChatSuggested = useCallback(
+    (value: string) => {
+      setAiChatOpen(true);
+      void submitAskAI(value);
+    },
+    [submitAskAI],
+  );
 
   const handleForward = useCallback(() => {
     if (!threadDetail?.messages?.length) return;
@@ -5457,6 +5509,8 @@ const MailAppContent = () => {
               onAiChatInputChange={setAiChatInput}
               onSendAiChat={submitAskAI}
               aiChatBusy={aiChatBusy}
+              aiChatSuggested={aiChatSuggested}
+              onAiChatSuggested={handleAiChatSuggested}
               onCloseAiChat={closeAskAI}
               isMobile={isMobile}
               onCompose={() => openCompose()}
