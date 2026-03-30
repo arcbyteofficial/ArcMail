@@ -37,6 +37,7 @@ import {
   Globe,
   Smartphone,
   MessageSquare,
+  Sparkles,
   type LucideIcon
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -63,6 +64,9 @@ const LanguageContext = React.createContext<{
 });
 const useLanguage = () => React.useContext(LanguageContext);
 
+const AIContext = React.createContext<{ aiEnabled: boolean; toggleAi: () => void }>({ aiEnabled: true, toggleAi: () => {} });
+const useAI = () => React.useContext(AIContext);
+
 // --- Types ---
 
 type MailFolder = 'inbox' | 'drafts' | 'sent' | 'spam' | 'trash';
@@ -74,6 +78,19 @@ const MAIL_FOLDER_IMAP_PATH: Record<MailFolder, string> = {
   spam: 'Spam',
   trash: 'Trash',
 };
+
+type EmailAIExtractedData = {
+  deadlines: string[];
+  tasks: string[];
+  important: string[];
+};
+
+type EmailAI = {
+  summary: string | null;
+  label: string | null;
+  priority: number | null;
+  extractedData: EmailAIExtractedData | null;
+} | null;
 
 type MailThreadSummary = {
   id: string;
@@ -89,6 +106,7 @@ type MailThreadSummary = {
   from?: { name?: string; address: string } | null;
   to?: { name?: string; address: string }[] | null;
   lastMessageAt?: string;
+  ai?: EmailAI;
 };
 
 type MailThreadMessage = {
@@ -121,6 +139,7 @@ type MailThreadDetail = {
   subject: string;
   folder: MailFolder;
   messages: MailThreadMessage[];
+  ai?: EmailAI;
 };
 
 type ComposeDraft = {
@@ -1209,6 +1228,21 @@ const MailListItem = ({
 }) => {
   const { isDark } = useTheme();
   const { t } = useLanguage();
+  const { aiEnabled } = useAI();
+  const ai = aiEnabled ? (thread.ai && typeof thread.ai === 'object' ? thread.ai : null) : null;
+  const priority = ai && Number.isFinite(ai.priority) ? Number(ai.priority) : null;
+  const label = ai && typeof ai.label === 'string' ? ai.label : null;
+  const urgent = priority !== null && priority > 70;
+  const priorityColor = urgent ? '#FF5555' : priority !== null && priority >= 40 ? '#FFB86B' : '#1DB954';
+  const labelBg = (() => {
+    if (!label) return null;
+    if (label === 'Spam') return 'bg-[#FF5555] text-black';
+    if (label === 'Finance') return 'bg-[#FFB86B] text-black';
+    if (label === 'Work') return 'bg-[#1DB954] text-black';
+    if (label === 'Personal') return 'bg-[#7C5CFF] text-white';
+    if (label === 'Updates') return isDark ? 'bg-[#282828] text-white' : 'bg-[#EAEAEA] text-black';
+    return isDark ? 'bg-[#282828] text-white' : 'bg-[#EAEAEA] text-black';
+  })();
   const isExternal = (() => {
     const domainOf = (addr: string) => {
       const at = addr.lastIndexOf('@');
@@ -1233,7 +1267,8 @@ const MailListItem = ({
         isDark ? 'border-[#1A1A1A]' : 'border-[#E5E5E5]',
         selected 
           ? (isDark ? 'bg-[#282828]' : 'bg-[#F0F0F0]')
-          : (isDark ? 'hover:bg-[#181818] bg-transparent' : 'hover:bg-[#F9F9F9] bg-transparent')
+          : (isDark ? 'hover:bg-[#181818] bg-transparent' : 'hover:bg-[#F9F9F9] bg-transparent'),
+        urgent && !selected && (isDark ? 'bg-[#1A1212]' : 'bg-[#FFF3F3]')
       )}
     >
       {/* Selection Line */}
@@ -1268,6 +1303,22 @@ const MailListItem = ({
               {thread.sender}
             </span>
             <div className="flex items-center gap-2 shrink-0">
+              {aiEnabled && label && labelBg && (
+                <span className={cn("px-2 h-5 rounded-full text-[10px] font-bold tracking-wide shrink-0 flex items-center", labelBg)}>
+                  {label}
+                </span>
+              )}
+              {aiEnabled && priority !== null && (
+                <span
+                  className={cn(
+                    "px-2 h-5 rounded-full text-[10px] font-bold tracking-wide shrink-0 flex items-center border",
+                    isDark ? "bg-[#121212] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black"
+                  )}
+                >
+                  <span className="inline-block w-1.5 h-1.5 rounded-full mr-2" style={{ backgroundColor: priorityColor }} />
+                  {priority}
+                </span>
+              )}
               {isExternal && (
                 <span className="px-2 h-5 rounded-full text-[10px] font-bold tracking-wide bg-[#FFB86B] text-black flex items-center">
                   {t('external')}
@@ -1321,6 +1372,10 @@ const ReadingPane = ({
   showBack,
   onReply,
   onForward,
+  onAiReply,
+  onRegenerateSummary,
+  aiReplyBusy,
+  aiSummaryBusy,
   isMobile,
   onCompose,
 }: {
@@ -1330,11 +1385,16 @@ const ReadingPane = ({
   showBack: boolean;
   onReply?: () => void;
   onForward?: () => void;
+  onAiReply?: () => void;
+  onRegenerateSummary?: () => void;
+  aiReplyBusy?: boolean;
+  aiSummaryBusy?: boolean;
   isMobile: boolean;
   onCompose?: () => void;
 }) => {
   const { isDark } = useTheme();
   const { t } = useLanguage();
+  const { aiEnabled } = useAI();
   const [attachmentBusyId, setAttachmentBusyId] = useState<string | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [replySnoozeUntil, setReplySnoozeUntil] = useState<number>(0);
@@ -1576,6 +1636,85 @@ const ReadingPane = ({
                <Star size={20} />
              </button>
           </div>
+
+          {aiEnabled && (
+            <div className={cn("mb-6 rounded-3xl border overflow-hidden", isDark ? "bg-[#0F0F0F] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]")}>
+              <div className={cn("px-5 py-4 flex items-center justify-between gap-3 border-b", isDark ? "border-[#1A1A1A]" : "border-[#E5E5E5]")}>
+                <div className="min-w-0">
+                  <div className={cn("text-[11px] font-bold tracking-widest uppercase", isDark ? "text-white/45" : "text-black/45")}>AI</div>
+                  <div className={cn("text-sm font-semibold mt-1 truncate", isDark ? "text-white" : "text-black")}>
+                    {thread.ai && typeof thread.ai === 'object' && thread.ai.label ? thread.ai.label : 'Email intelligence'}
+                  </div>
+                </div>
+                <div className="shrink-0 flex items-center gap-2">
+                  <button
+                    onClick={onRegenerateSummary}
+                    disabled={Boolean(aiSummaryBusy) || !onRegenerateSummary}
+                    className={cn(
+                      "px-4 h-9 rounded-full text-xs font-semibold transition-colors border whitespace-nowrap flex items-center gap-2",
+                      isDark ? "bg-[#121212] border-[#282828] text-white hover:bg-[#1A1A1A]" : "bg-white border-[#E5E5E5] text-black hover:bg-[#F6F6F6]",
+                      (aiSummaryBusy || !onRegenerateSummary) && "opacity-60 cursor-not-allowed"
+                    )}
+                  >
+                    {aiSummaryBusy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                    Regenerate Summary
+                  </button>
+                  <button
+                    onClick={onAiReply}
+                    disabled={Boolean(aiReplyBusy) || !onAiReply}
+                    className={cn(
+                      "px-4 h-9 rounded-full text-xs font-semibold bg-[#1DB954] hover:bg-[#1ED760] text-black whitespace-nowrap flex items-center gap-2 transition-colors",
+                      (aiReplyBusy || !onAiReply) && "opacity-60 cursor-not-allowed"
+                    )}
+                  >
+                    {aiReplyBusy ? <Loader2 size={14} className="animate-spin" /> : <Reply size={14} />}
+                    AI Reply
+                  </button>
+                </div>
+              </div>
+              <div className="px-5 py-4 space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={cn("px-2 h-6 rounded-full text-[11px] font-bold tracking-wide border flex items-center gap-2", isDark ? "bg-[#121212] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black")}>
+                    Priority
+                    <span className={cn("px-2 h-5 rounded-full text-[10px] font-bold", isDark ? "bg-[#1A1A1A] text-white" : "bg-[#F0F0F0] text-black")}>
+                      {thread.ai && typeof thread.ai === 'object' && Number.isFinite(thread.ai.priority) ? String(thread.ai.priority) : '—'}
+                    </span>
+                  </span>
+                </div>
+                <div>
+                  <div className={cn("text-[11px] font-bold tracking-widest uppercase mb-2", isDark ? "text-white/45" : "text-black/45")}>Summary</div>
+                  <div className={cn("rounded-2xl border px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed", isDark ? "bg-[#121212] border-[#1A1A1A] text-white/85" : "bg-[#F9F9F9] border-[#EAEAEA] text-black/80")}>
+                    {thread.ai && typeof thread.ai === 'object' && thread.ai.summary ? thread.ai.summary : 'AI is processing this email.'}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {(['tasks', 'deadlines', 'important'] as const).map((k) => {
+                    const list =
+                      thread.ai && typeof thread.ai === 'object' && thread.ai.extractedData && Array.isArray(thread.ai.extractedData[k])
+                        ? thread.ai.extractedData[k]
+                        : [];
+                    return (
+                      <div key={k} className={cn("rounded-2xl border p-4", isDark ? "bg-[#121212] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]")}>
+                        <div className={cn("text-[11px] font-bold tracking-widest uppercase mb-2", isDark ? "text-white/45" : "text-black/45")}>{k}</div>
+                        {list.length ? (
+                          <div className={cn("text-sm space-y-1", isDark ? "text-white/80" : "text-black/75")}>
+                            {list.slice(0, 6).map((v, i) => (
+                              <div key={`${k}-${i}`} className="flex items-start gap-2">
+                                <span className={cn("mt-1 w-1.5 h-1.5 rounded-full shrink-0", isDark ? "bg-[#1DB954]" : "bg-[#0B6B2B]")} />
+                                <span className="min-w-0 break-words">{v}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className={cn("text-sm", isDark ? "text-white/45" : "text-black/45")}>—</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
 
           {thread.folder === 'inbox' && thread.messages.some(m => !m.flags.seen) && Date.now() > replySnoozeUntil && (
             <div
@@ -3373,6 +3512,7 @@ const SettingsDropdown = () => {
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const [twoFAOpen, setTwoFAOpen] = useState(false);
   const { isDark, toggleTheme } = useTheme();
+  const { aiEnabled, toggleAi } = useAI();
   const { language, setLanguage, t } = useLanguage();
 
   return (
@@ -3481,6 +3621,22 @@ const SettingsDropdown = () => {
                        isDark ? "left-5" : "left-1"
                      )} />
                    </div>
+                </button>
+
+                <button
+                  onClick={toggleAi}
+                  className={cn(
+                    "w-full flex items-center justify-between px-3 py-2.5 text-sm rounded-xl transition-colors group",
+                    isDark ? "text-[#EAEAEA] hover:bg-[#282828]" : "text-[#121212] hover:bg-[#F5F5F5]"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <Sparkles size={18} className={cn("group-hover:text-[#1DB954]", isDark ? "text-[#787878]" : "text-[#949494]")} />
+                    <span>AI</span>
+                  </div>
+                  <div className={cn("w-9 h-5 rounded-full relative transition-colors duration-300", aiEnabled ? "bg-[#1DB954]" : (isDark ? "bg-[#282828]" : "bg-[#E0E0E0]"))}>
+                    <div className={cn("absolute top-1 w-3 h-3 rounded-full bg-white transition-transform duration-300 shadow-sm", aiEnabled ? "left-5" : "left-1")} />
+                  </div>
                 </button>
 
                 <div className={cn("h-[1px] my-1 mx-2", isDark ? "bg-[#282828]" : "bg-[#E5E5E5]")} />
@@ -3617,6 +3773,7 @@ const MailAppContent = () => {
   const navigate = useNavigate();
   const { isMobile, isDesktop } = useViewport();
   const { isDark } = useTheme();
+  const { aiEnabled } = useAI();
   const { t } = useLanguage();
   
   // State
@@ -3630,6 +3787,26 @@ const MailAppContent = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [threadDetail, setThreadDetail] = useState<MailThreadDetail | null>(null);
   const [threadDetailLoading, setThreadDetailLoading] = useState(false);
+  const [priorityInboxEnabled, setPriorityInboxEnabled] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem('arcmailPriorityInbox');
+      if (v === null) return true;
+      return v === '1';
+    } catch {
+      return true;
+    }
+  });
+  const [priorityBucket, setPriorityBucket] = useState<'all' | 'high' | 'medium' | 'low'>(() => {
+    try {
+      const v = String(localStorage.getItem('arcmailPriorityBucket') || '').toLowerCase();
+      if (v === 'high' || v === 'medium' || v === 'low' || v === 'all') return v;
+      return 'all';
+    } catch {
+      return 'all';
+    }
+  });
+  const [aiSummaryBusy, setAiSummaryBusy] = useState(false);
+  const [aiReplyBusy, setAiReplyBusy] = useState(false);
   const [folderCounts, setFolderCounts] = useState<Partial<Record<MailFolder, number>>>({});
   const [folderUnreadCounts, setFolderUnreadCounts] = useState<Partial<Record<MailFolder, number>>>({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -3916,6 +4093,76 @@ const MailAppContent = () => {
       showCcBcc: false,
     });
   }, [threadDetail, openCompose, normalizeSubjectPrefix, buildQuotedBodyHtml]);
+
+  const updateThreadAi = useCallback(
+    (id: string, folder: MailFolder, patch: Partial<NonNullable<EmailAI>>) => {
+      setThreads((prev) =>
+        prev.map((t) => {
+          if (t.id !== id || t.folder !== folder) return t;
+          const current = t.ai && typeof t.ai === 'object' ? t.ai : null;
+          const next = { summary: null, label: null, priority: null, extractedData: null, ...(current || {}), ...(patch || {}) };
+          return { ...t, ai: next };
+        })
+      );
+      setThreadDetail((prev) => {
+        if (!prev || prev.id !== id || prev.folder !== folder) return prev;
+        const current = prev.ai && typeof prev.ai === 'object' ? prev.ai : null;
+        const next = { summary: null, label: null, priority: null, extractedData: null, ...(current || {}), ...(patch || {}) };
+        return { ...prev, ai: next };
+      });
+    },
+    []
+  );
+
+  const handleRegenerateSummary = useCallback(async () => {
+    if (!aiEnabled) return;
+    if (!threadDetail?.id) return;
+    setAiSummaryBusy(true);
+    try {
+      const res = await api.post('/ai/summarize', {
+        id: threadDetail.id,
+        folder: MAIL_FOLDER_IMAP_PATH[threadDetail.folder],
+        force: true,
+      });
+      const summary =
+        res.data && typeof res.data === 'object' && 'summary' in res.data && typeof (res.data as { summary?: unknown }).summary === 'string'
+          ? (res.data as { summary: string }).summary
+          : null;
+      updateThreadAi(threadDetail.id, threadDetail.folder, { summary });
+    } catch {
+      return;
+    } finally {
+      setAiSummaryBusy(false);
+    }
+  }, [aiEnabled, threadDetail?.folder, threadDetail?.id, updateThreadAi]);
+
+  const handleAIReply = useCallback(async () => {
+    if (!aiEnabled) return;
+    if (!threadDetail?.messages?.length) return;
+    const msg = threadDetail.messages[threadDetail.messages.length - 1];
+    setAiReplyBusy(true);
+    try {
+      const res = await api.post('/ai/reply', {
+        id: threadDetail.id,
+        folder: MAIL_FOLDER_IMAP_PATH[threadDetail.folder],
+      });
+      const reply =
+        res.data && typeof res.data === 'object' && 'reply' in res.data && typeof (res.data as { reply?: unknown }).reply === 'string'
+          ? (res.data as { reply: string }).reply
+          : '';
+      const safe = escapeHtml(reply).replace(/\n/g, '<br/>');
+      openCompose({
+        to: msg.fromAddress || '',
+        subject: normalizeSubjectPrefix(threadDetail.subject, 'Re'),
+        body: `<p>${safe}</p>${buildQuotedBodyHtml(msg)}`,
+        showCcBcc: false,
+      });
+    } catch {
+      return;
+    } finally {
+      setAiReplyBusy(false);
+    }
+  }, [aiEnabled, buildQuotedBodyHtml, escapeHtml, normalizeSubjectPrefix, openCompose, threadDetail]);
 
   const handleForward = useCallback(() => {
     if (!threadDetail?.messages?.length) return;
@@ -4265,8 +4512,14 @@ const MailAppContent = () => {
       const controller = new AbortController();
       threadsAbortRef.current = controller;
       timeoutId = window.setTimeout(() => controller.abort(), 60000);
-      const res = await api.get('/mail/threads', {
-        params: { folder: imapFolder, limit: 50, cursor: reset ? undefined : threadsCursorRef.current },
+      const usePriority = Boolean(aiEnabled && priorityInboxEnabled && activeFolder === 'inbox');
+      const res = await api.get(usePriority ? '/emails/priority' : '/mail/threads', {
+        params: {
+          folder: imapFolder,
+          limit: 50,
+          cursor: reset ? undefined : threadsCursorRef.current,
+          ...(usePriority ? { bucket: priorityBucket } : {}),
+        },
         signal: controller.signal,
       });
       const data = res.data as { threads: MailThreadSummary[]; nextCursor?: string };
@@ -4280,6 +4533,7 @@ const MailAppContent = () => {
           snippet: t.snippet || '',
           timestamp: t.lastMessageAt || '',
           unread: Boolean(t.unread),
+          ai: (t as unknown as { ai?: EmailAI }).ai ?? null,
       }));
 
       setThreads(prev => {
@@ -4334,7 +4588,27 @@ const MailAppContent = () => {
       if (timeoutId) window.clearTimeout(timeoutId);
       setThreadsLoading(false);
     }
-  }, [activeFolder, isAuthenticated, user, isMobile]);
+  }, [activeFolder, aiEnabled, isAuthenticated, priorityBucket, priorityInboxEnabled, user, isMobile]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('arcmailPriorityInbox', priorityInboxEnabled ? '1' : '0');
+      localStorage.setItem('arcmailPriorityBucket', priorityBucket);
+    } catch {
+      return;
+    }
+  }, [priorityBucket, priorityInboxEnabled]);
+
+  useEffect(() => {
+    if (!aiEnabled) return;
+    if (activeFolder !== 'inbox') return;
+    if (searchQuery.trim()) return;
+    const hasFilters = Boolean(searchFilters.unread || searchFilters.flagged || searchFilters.answered || searchFilters.attachment || searchFilters.from || searchFilters.to || searchFilters.since || searchFilters.before);
+    if (hasFilters) return;
+    threadsCursorRef.current = undefined;
+    setThreadsCursor(undefined);
+    loadThreads({ reset: true });
+  }, [activeFolder, aiEnabled, loadThreads, priorityBucket, priorityInboxEnabled, searchFilters, searchQuery]);
 
   useEffect(() => {
     const q = searchQuery.trim();
@@ -4493,7 +4767,7 @@ const MailAppContent = () => {
           signal: controller.signal,
         });
         if (cancelled) return;
-        const data = res.data as { thread: MailThreadDetail | null };
+        const data = res.data as { thread: (MailThreadDetail & { ai?: EmailAI }) | null };
         if (data.thread) {
           const mapped: MailThreadDetail = {
             ...data.thread,
@@ -4837,6 +5111,40 @@ const MailAppContent = () => {
                      <span className={cn("text-sm font-medium", isDark ? "text-[#5E5E5E]" : "text-[#949494]")}>{threads.length} {t('messages')}</span>
                   </div>
                  <div className="flex items-center gap-2">
+                  {aiEnabled && activeFolder === 'inbox' && !isSearching && (
+                    <div className="flex items-center gap-2 max-w-[240px] overflow-x-auto custom-scrollbar">
+                      <button
+                        onClick={() => setPriorityInboxEnabled((v) => !v)}
+                        className={cn(
+                          "flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all group",
+                          priorityInboxEnabled
+                            ? "bg-[#1DB954] border-transparent text-black"
+                            : (isDark ? "bg-[#1A1A1A] hover:bg-[#222] border-[#282828] text-[#B3B3B3] hover:text-white" : "bg-white hover:bg-[#F9F9F9] border-[#E5E5E5] text-[#5E5E5E] hover:text-black")
+                        )}
+                      >
+                        <Sparkles size={14} />
+                        <span className="text-xs font-bold whitespace-nowrap">Priority Inbox</span>
+                      </button>
+                      {priorityInboxEnabled && (
+                        <div className="flex items-center gap-1">
+                          {(['high', 'medium', 'low', 'all'] as const).map((b) => (
+                            <button
+                              key={b}
+                              onClick={() => setPriorityBucket(b)}
+                              className={cn(
+                                "px-3 py-1.5 rounded-full text-[11px] font-bold tracking-wide border transition-colors whitespace-nowrap",
+                                priorityBucket === b
+                                  ? "bg-[#1DB954]/15 border-[#1DB954]/35 text-[#1DB954]"
+                                  : (isDark ? "bg-[#121212] border-[#282828] text-white/65 hover:text-white hover:bg-[#1A1A1A]" : "bg-white border-[#E5E5E5] text-black/60 hover:text-black hover:bg-[#F6F6F6]")
+                              )}
+                            >
+                              {b === 'all' ? 'All' : b[0].toUpperCase() + b.slice(1)}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                    <button className={cn(
                      "flex items-center gap-2 px-3 py-1.5 rounded-full border hover:border-[#1DB954]/30 transition-all group",
                      isDark ? "bg-[#1A1A1A] hover:bg-[#222] border-[#282828]" : "bg-white hover:bg-[#F9F9F9] border-[#E5E5E5]"
@@ -5023,6 +5331,10 @@ const MailAppContent = () => {
               onBack={() => setSelectedId(null)}
               onReply={handleReply}
               onForward={handleForward}
+              onAiReply={handleAIReply}
+              onRegenerateSummary={handleRegenerateSummary}
+              aiReplyBusy={aiReplyBusy}
+              aiSummaryBusy={aiSummaryBusy}
               isMobile={isMobile}
               onCompose={() => openCompose()}
             />
@@ -5415,6 +5727,26 @@ const MailApp = () => {
   const [isDark, setIsDark] = useState(true);
   const toggleTheme = () => setIsDark(!isDark);
   const [language, setLanguage] = useState<Language>('en');
+  const [aiEnabled, setAiEnabled] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem('arcmailAiEnabled');
+      if (v === null) return true;
+      return v === '1';
+    } catch {
+      return true;
+    }
+  });
+  const toggleAi = useCallback(() => {
+    setAiEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('arcmailAiEnabled', next ? '1' : '0');
+      } catch {
+        return next;
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
@@ -5432,9 +5764,11 @@ const MailApp = () => {
 
   return (
     <ThemeContext.Provider value={{ isDark, toggleTheme }}>
-      <LanguageContext.Provider value={{ language, setLanguage, t }}>
-        <MailAppContent />
-      </LanguageContext.Provider>
+      <AIContext.Provider value={{ aiEnabled, toggleAi }}>
+        <LanguageContext.Provider value={{ language, setLanguage, t }}>
+          <MailAppContent />
+        </LanguageContext.Provider>
+      </AIContext.Provider>
     </ThemeContext.Provider>
   );
 };

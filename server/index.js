@@ -14,6 +14,8 @@ import { Pool } from 'pg';
 import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
 import { URL, fileURLToPath } from 'node:url';
+import { generateReply } from './services/ai.js';
+import { getEmailAI, getEmailAIBatch, processIncomingEmail, scheduleProcessIncomingEmail } from './services/intelligence.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -224,6 +226,12 @@ const s3 = S3_ENABLED
 
 const DATABASE_URL = typeof process.env.DATABASE_URL === 'string' ? process.env.DATABASE_URL.trim() : '';
 const db = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL, ssl: process.env.PGSSLMODE === 'disable' ? false : undefined }) : null;
+const GROQ_API_KEY = typeof process.env.GROQ_API_KEY === 'string' ? process.env.GROQ_API_KEY.trim() : '';
+const ARCMAIL_AI_DISABLED = (() => {
+  const raw = typeof process.env.ARCMAIL_AI_DISABLED === 'string' ? process.env.ARCMAIL_AI_DISABLED.trim().toLowerCase() : '';
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+})();
+const ARCMAIL_AI_ENABLED = Boolean(GROQ_API_KEY) && !ARCMAIL_AI_DISABLED;
 const REQUIRE_PERSISTENT_2FA_STORAGE = (() => {
   if (!IS_PROD) return false;
   const raw = typeof process.env.ALLOW_EPHEMERAL_2FA_STORAGE === 'string' ? process.env.ALLOW_EPHEMERAL_2FA_STORAGE.trim().toLowerCase() : '';
@@ -466,6 +474,23 @@ const ensureAuthSchema = async () => {
     );
   `);
   await db.query(`CREATE INDEX IF NOT EXISTS idx_arcmail_audit_log_email_created_at ON arcmail_audit_log(email, created_at DESC);`);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS arcmail_email_ai (
+      email TEXT NOT NULL,
+      folder TEXT NOT NULL,
+      uid BIGINT NOT NULL,
+      message_id TEXT,
+      content_hash TEXT NOT NULL,
+      summary TEXT,
+      label TEXT,
+      priority INTEGER,
+      extracted_data JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (email, folder, uid)
+    );
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_arcmail_email_ai_email_priority ON arcmail_email_ai(email, priority DESC, updated_at DESC);`);
 };
 
 const dbGetUser = async (emailKey) => {
@@ -3233,11 +3258,294 @@ app.get('/api/mail/threads', requireAuth, async (req, res) => {
       return { threads, nextCursor };
     });
 
-    return res.json(result);
+    const emailKey = String(req.session.email || '').trim();
+    if (ARCMAIL_AI_ENABLED && result && Array.isArray(result.threads) && result.threads.length > 0) {
+      const uids = result.threads.map((t) => Number(t?.id)).filter((n) => Number.isFinite(n));
+      const aiMap = await getEmailAIBatch({ db, emailKey, folder, uids });
+      const threads = result.threads.map((t) => {
+        const ai = aiMap.get(String(t.id)) || null;
+        return {
+          ...t,
+          ai: ai
+            ? {
+                summary: ai.summary || null,
+                label: ai.label || null,
+                priority: Number.isFinite(ai.priority) ? ai.priority : null,
+                extractedData: ai.extractedData || null,
+              }
+            : null,
+        };
+      });
+
+      const needs = threads.filter((t) => !t.ai || !Number.isFinite(t.ai.priority)).slice(0, 12);
+      for (const t of needs) {
+        const uid = Number(t.id);
+        if (!Number.isFinite(uid)) continue;
+        scheduleProcessIncomingEmail({
+          db,
+          emailKey,
+          folder,
+          uid,
+          messageId: null,
+          getEmail: async () => {
+            const thread = await withImap({ email: emailKey, password, folder }, async (client) => {
+              let msg = null;
+              try {
+                msg = await client.fetchOne(uid, { envelope: true, source: true }, { uid: true });
+              } catch {
+                msg = null;
+              }
+              if (!msg || !msg.source) return null;
+              const parsed = await simpleParser(msg.source);
+              const from = msg.envelope?.from?.[0] || null;
+              const to = msg.envelope?.to || [];
+              const date = (msg.envelope?.date || parsed?.date || new Date()).toISOString();
+              return {
+                subject: msg.envelope?.subject || parsed?.subject || '(no subject)',
+                fromName: from?.name || '',
+                fromAddress: String(from?.address || ''),
+                to: to.map((a) => ({ name: a.name || undefined, address: String(a.address || '') })),
+                date,
+                text: parsed?.text || '',
+                html: typeof parsed?.html === 'string' ? parsed.html : '',
+              };
+            });
+            return thread;
+          },
+          force: false,
+        }).catch(() => null);
+      }
+
+      return res.json({ ...result, threads });
+    }
+
+    return res.json({ ...result, threads: result?.threads?.map((t) => ({ ...t, ai: null })) || [] });
   } catch (err) {
     if (isImapAuthFailure(err)) return res.status(401).json({ error: 'invalid_credentials' });
     const code = getErrorCode(err);
     return res.status(502).json({ error: 'imap_error', code, details: imapErrorDetails(err) });
+  }
+});
+
+app.get('/api/emails/priority', requireAuth, async (req, res) => {
+  const folder = typeof req.query?.folder === 'string' ? req.query.folder : 'INBOX';
+  const bucket = typeof req.query?.bucket === 'string' ? String(req.query.bucket).toLowerCase() : 'all';
+  const limitRaw = typeof req.query?.limit === 'string' ? Number(req.query.limit) : 50;
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, limitRaw)) : 50;
+  const cursor = typeof req.query?.cursor === 'string' ? req.query.cursor : undefined;
+
+  let password = '';
+  try {
+    password = decryptString(req.session.encPassword);
+  } catch {
+    return res.status(401).json({ error: 'session_expired' });
+  }
+
+  try {
+    const result = await withImap({ email: req.session.email, password, folder }, async (client) => {
+      const exists = Number(client.mailbox?.exists || 0);
+      const cursorNum = cursor ? Number(cursor) : NaN;
+      const endSeq = Number.isFinite(cursorNum) ? Math.min(exists, cursorNum) : exists;
+      if (!endSeq || endSeq < 1) return { threads: [], nextCursor: undefined };
+
+      const startSeq = Math.max(1, endSeq - limit + 1);
+      const range = `${startSeq}:${endSeq}`;
+
+      const threads = [];
+      for await (const msg of client.fetch(range, { envelope: true, flags: true, internalDate: true })) {
+        const from = msg.envelope?.from?.[0] || null;
+        const to = msg.envelope?.to || [];
+        threads.push({
+          id: String(msg.uid),
+          subject: msg.envelope?.subject || '(no subject)',
+          snippet: '',
+          unread: !(msg.flags instanceof Set ? msg.flags.has('\\Seen') : false),
+          from: from ? { name: from.name || undefined, address: String(from.address || '') } : null,
+          to: to.map((a) => ({ name: a.name || undefined, address: String(a.address || '') })),
+          lastMessageAt: (msg.envelope?.date || msg.internalDate || new Date()).toISOString(),
+        });
+      }
+
+      const nextCursor = startSeq > 1 ? String(startSeq - 1) : undefined;
+      return { threads, nextCursor };
+    });
+
+    const emailKey = String(req.session.email || '').trim();
+    const uids = (result.threads || []).map((t) => Number(t?.id)).filter((n) => Number.isFinite(n));
+    const aiMap = ARCMAIL_AI_ENABLED ? await getEmailAIBatch({ db, emailKey, folder, uids }) : new Map();
+
+    const withAi = (result.threads || []).map((t) => {
+      const ai = aiMap.get(String(t.id)) || null;
+      const priority = ai && Number.isFinite(ai.priority) ? Number(ai.priority) : 0;
+      const out = {
+        ...t,
+        ai: ai
+          ? {
+              summary: ai.summary || null,
+              label: ai.label || null,
+              priority: Number.isFinite(ai.priority) ? ai.priority : null,
+              extractedData: ai.extractedData || null,
+            }
+          : null,
+        _priority: priority,
+      };
+      return out;
+    });
+
+    const filtered = withAi.filter((t) => {
+      const p = Number(t._priority || 0);
+      if (bucket === 'high') return p > 70;
+      if (bucket === 'medium') return p >= 40 && p <= 70;
+      if (bucket === 'low') return p < 40;
+      return true;
+    });
+
+    filtered.sort((a, b) => {
+      const ap = Number(a._priority || 0);
+      const bp = Number(b._priority || 0);
+      if (bp !== ap) return bp - ap;
+      return a.lastMessageAt > b.lastMessageAt ? -1 : a.lastMessageAt < b.lastMessageAt ? 1 : 0;
+    });
+
+    const threads = filtered.map(({ _priority, ...rest }) => rest);
+    return res.json({ threads, nextCursor: result.nextCursor });
+  } catch (err) {
+    if (isImapAuthFailure(err)) return res.status(401).json({ error: 'invalid_credentials' });
+    const code = getErrorCode(err);
+    return res.status(502).json({ error: 'imap_error', code, details: imapErrorDetails(err) });
+  }
+});
+
+const requireAiEnabled = (_req, res) => {
+  if (!ARCMAIL_AI_ENABLED) {
+    res.status(503).json({ error: 'ai_disabled' });
+    return false;
+  }
+  return true;
+};
+
+const fetchEmailForAI = async ({ email, password, folder, uid }) => {
+  const msg = await withImap({ email, password, folder }, async (client) => {
+    let m = null;
+    try {
+      m = await client.fetchOne(uid, { envelope: true, source: true }, { uid: true });
+    } catch {
+      m = null;
+    }
+    if (!m || !m.source) return null;
+    const parsed = await simpleParser(m.source);
+    const from = m.envelope?.from?.[0] || null;
+    const to = m.envelope?.to || [];
+    const date = (m.envelope?.date || parsed?.date || new Date()).toISOString();
+    return {
+      subject: m.envelope?.subject || parsed?.subject || '(no subject)',
+      fromName: from?.name || '',
+      fromAddress: String(from?.address || ''),
+      to: to.map((a) => ({ name: a.name || undefined, address: String(a.address || '') })),
+      date,
+      text: typeof parsed?.text === 'string' ? parsed.text : '',
+      html: typeof parsed?.html === 'string' ? parsed.html : '',
+    };
+  });
+  return msg;
+};
+
+app.post('/api/ai/summarize', requireAuth, async (req, res) => {
+  if (!requireAiEnabled(req, res)) return;
+  const folder = typeof req.body?.folder === 'string' ? req.body.folder : 'INBOX';
+  const uid = Number(req.body?.id);
+  const force = Boolean(req.body?.force);
+  if (!Number.isFinite(uid)) return res.status(400).json({ error: 'invalid_id' });
+
+  let password = '';
+  try {
+    password = decryptString(req.session.encPassword);
+  } catch {
+    return res.status(401).json({ error: 'session_expired' });
+  }
+
+  try {
+    const emailKey = String(req.session.email || '').trim();
+    const email = await fetchEmailForAI({ email: emailKey, password, folder, uid });
+    if (!email) return res.status(404).json({ error: 'not_found' });
+    const result = await processIncomingEmail({ db, emailKey, folder, uid, messageId: null, email, force });
+    return res.json({ summary: result.ai.summary });
+  } catch {
+    return res.status(502).json({ error: 'ai_error' });
+  }
+});
+
+app.post('/api/ai/classify', requireAuth, async (req, res) => {
+  if (!requireAiEnabled(req, res)) return;
+  const folder = typeof req.body?.folder === 'string' ? req.body.folder : 'INBOX';
+  const uid = Number(req.body?.id);
+  const force = Boolean(req.body?.force);
+  if (!Number.isFinite(uid)) return res.status(400).json({ error: 'invalid_id' });
+
+  let password = '';
+  try {
+    password = decryptString(req.session.encPassword);
+  } catch {
+    return res.status(401).json({ error: 'session_expired' });
+  }
+
+  try {
+    const emailKey = String(req.session.email || '').trim();
+    const email = await fetchEmailForAI({ email: emailKey, password, folder, uid });
+    if (!email) return res.status(404).json({ error: 'not_found' });
+    const result = await processIncomingEmail({ db, emailKey, folder, uid, messageId: null, email, force });
+    return res.json({ label: result.ai.label });
+  } catch {
+    return res.status(502).json({ error: 'ai_error' });
+  }
+});
+
+app.post('/api/ai/extract', requireAuth, async (req, res) => {
+  if (!requireAiEnabled(req, res)) return;
+  const folder = typeof req.body?.folder === 'string' ? req.body.folder : 'INBOX';
+  const uid = Number(req.body?.id);
+  const force = Boolean(req.body?.force);
+  if (!Number.isFinite(uid)) return res.status(400).json({ error: 'invalid_id' });
+
+  let password = '';
+  try {
+    password = decryptString(req.session.encPassword);
+  } catch {
+    return res.status(401).json({ error: 'session_expired' });
+  }
+
+  try {
+    const emailKey = String(req.session.email || '').trim();
+    const email = await fetchEmailForAI({ email: emailKey, password, folder, uid });
+    if (!email) return res.status(404).json({ error: 'not_found' });
+    const result = await processIncomingEmail({ db, emailKey, folder, uid, messageId: null, email, force });
+    return res.json({ extractedData: result.ai.extractedData });
+  } catch {
+    return res.status(502).json({ error: 'ai_error' });
+  }
+});
+
+app.post('/api/ai/reply', requireAuth, async (req, res) => {
+  if (!requireAiEnabled(req, res)) return;
+  const folder = typeof req.body?.folder === 'string' ? req.body.folder : 'INBOX';
+  const uid = Number(req.body?.id);
+  if (!Number.isFinite(uid)) return res.status(400).json({ error: 'invalid_id' });
+
+  let password = '';
+  try {
+    password = decryptString(req.session.encPassword);
+  } catch {
+    return res.status(401).json({ error: 'session_expired' });
+  }
+
+  try {
+    const emailKey = String(req.session.email || '').trim();
+    const email = await fetchEmailForAI({ email: emailKey, password, folder, uid });
+    if (!email) return res.status(404).json({ error: 'not_found' });
+    const reply = await generateReply(email);
+    return res.json({ reply });
+  } catch {
+    return res.status(502).json({ error: 'ai_error' });
   }
 });
 
@@ -3458,7 +3766,44 @@ app.get('/api/mail/threads/:id', requireAuth, async (req, res) => {
       };
     });
 
-    return res.json({ thread });
+    if (!thread) return res.json({ thread: null });
+    if (!ARCMAIL_AI_ENABLED) return res.json({ thread: { ...thread, ai: null } });
+
+    const emailKey = String(req.session.email || '').trim();
+    const cached = await getEmailAI({ db, emailKey, folder, uid });
+    const ai = cached
+      ? {
+          summary: cached.summary || null,
+          label: cached.label || null,
+          priority: Number.isFinite(cached.priority) ? cached.priority : null,
+          extractedData: cached.extractedData || null,
+        }
+      : null;
+
+    if (!ai || !Number.isFinite(ai.priority)) {
+      const m = Array.isArray(thread.messages) ? thread.messages[0] : null;
+      if (m && (typeof m.text === 'string' || typeof m.html === 'string')) {
+        scheduleProcessIncomingEmail({
+          db,
+          emailKey,
+          folder,
+          uid,
+          messageId: null,
+          getEmail: async () => ({
+            subject: String(m.subject || thread.subject || '(no subject)'),
+            fromName: String(m.fromName || ''),
+            fromAddress: String(m.fromAddress || ''),
+            to: Array.isArray(m.to) ? m.to : [],
+            date: String(m.date || ''),
+            text: typeof m.text === 'string' ? m.text : '',
+            html: typeof m.html === 'string' ? m.html : '',
+          }),
+          force: false,
+        }).catch(() => null);
+      }
+    }
+
+    return res.json({ thread: { ...thread, ai } });
   } catch (err) {
     if (isImapAuthFailure(err)) return res.status(401).json({ error: 'invalid_credentials' });
     const code = getErrorCode(err);

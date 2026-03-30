@@ -34,6 +34,7 @@
     "lucide-react": "^0.563.0",
     "mailparser": "^3.7.4",
     "nodemailer": "^7.0.9",
+    "openai": "^4.79.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.0",
