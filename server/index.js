@@ -3595,7 +3595,12 @@ app.post('/api/ai/ask', requireAuth, async (req, res) => {
 
     const answer = await runAI(prompt, { maxTokens: 520, temperature: 0.2 });
     return res.json({ answer });
-  } catch {
+  } catch (err) {
+    const code = err && typeof err === 'object' && typeof err.code === 'string' ? String(err.code) : null;
+    if (code === 'MISSING_GROQ_API_KEY') return res.status(503).json({ error: 'ai_disabled' });
+    if (code === 'GROQ_AUTH_ERROR') return res.status(502).json({ error: 'ai_invalid_key' });
+    if (code === 'GROQ_RATE_LIMIT') return res.status(502).json({ error: 'ai_rate_limited' });
+    if (code === 'GROQ_PROVIDER_ERROR') return res.status(502).json({ error: 'ai_provider_error' });
     return res.status(502).json({ error: 'ai_error' });
   }
 });

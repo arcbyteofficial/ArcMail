@@ -1,23 +1,6 @@
 import axios from 'axios';
 
 const envApiUrl = import.meta.env.VITE_API_URL as string | undefined;
-const allowRemoteApiOnLocalhost = String(import.meta.env.VITE_ALLOW_REMOTE_API_ON_LOCALHOST || '').trim().toLowerCase();
-const allowRemoteEnv = allowRemoteApiOnLocalhost === '1' || allowRemoteApiOnLocalhost === 'true' || allowRemoteApiOnLocalhost === 'yes';
-const allowRemoteStorage = (() => {
-  try {
-    const v = localStorage.getItem('arcmailAllowRemoteApi');
-    if (v === null) {
-      const host = window.location.hostname;
-      const isLocal = host === 'localhost' || host === '127.0.0.1';
-      if (import.meta.env.DEV && isLocal) return true;
-      return false;
-    }
-    return v === '1';
-  } catch {
-    return false;
-  }
-})();
-const allowRemote = allowRemoteEnv || allowRemoteStorage;
 
 const cleanEnvUrl = (value: string) => {
   const trimmed = value.trim();
@@ -27,15 +10,6 @@ const cleanEnvUrl = (value: string) => {
 const normalizeBase = (base: string) => {
   const b = cleanEnvUrl(base).replace(/\/+$/, '');
   return b.endsWith('/api') ? b : `${b}/api`;
-};
-
-const isLocalBaseUrl = (value: string) => {
-  try {
-    const u = new URL(value);
-    return u.hostname === 'localhost' || u.hostname === '127.0.0.1';
-  } catch {
-    return false;
-  }
 };
 
 const inferApiBase = () => {
@@ -51,35 +25,13 @@ const inferApiBase = () => {
   }
 };
 
-const isLocalHost = () => {
-  try {
-    const host = window.location.hostname;
-    return host === 'localhost' || host === '127.0.0.1';
-  } catch {
-    return false;
-  }
-};
-
 const API_URL = (() => {
-  if (import.meta.env.DEV && isLocalHost()) {
-    if (!allowRemote) return inferApiBase() || 'http://localhost:5050/api';
-    if (envApiUrl) {
-      const cleaned = cleanEnvUrl(envApiUrl);
-      if (/^https?:\/\//i.test(cleaned) && !isLocalBaseUrl(cleaned)) return normalizeBase(cleaned);
-    }
-    return 'https://api.arcbyte.co/api';
-  }
   if (envApiUrl) {
     const cleaned = cleanEnvUrl(envApiUrl);
-    if (/^https?:\/\//i.test(cleaned)) {
-      if (!isLocalHost() && isLocalBaseUrl(cleaned)) {
-        return inferApiBase() || 'https://api.arcbyte.co/api';
-      }
-      return normalizeBase(cleaned);
-    }
-    if (cleaned.startsWith('/') && !isLocalHost()) return cleaned;
+    if (/^https?:\/\//i.test(cleaned)) return normalizeBase(cleaned);
+    if (cleaned.startsWith('/')) return cleaned;
   }
-  return inferApiBase() || (isLocalHost() ? 'http://localhost:5050/api' : 'https://api.arcbyte.co/api');
+  return inferApiBase() || 'https://api.arcbyte.co/api';
 })();
 
 export const api = axios.create({

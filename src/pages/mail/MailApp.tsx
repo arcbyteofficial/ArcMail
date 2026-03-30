@@ -104,6 +104,172 @@ type AIChatMessage = {
   createdAt: number;
 };
 
+const AIChatSidebar = ({
+  isDark,
+  subject,
+  userInitial,
+  messages,
+  busy,
+  input,
+  onInputChange,
+  onSend,
+  onClose,
+}: {
+  isDark: boolean;
+  subject: string;
+  userInitial: string;
+  messages: AIChatMessage[];
+  busy: boolean;
+  input: string;
+  onInputChange: (value: string) => void;
+  onSend: () => void;
+  onClose: () => void;
+}) => {
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [busy, messages.length]);
+
+  const copyToClipboard = useCallback(async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(String(value || ''));
+    } catch {
+      return;
+    }
+  }, []);
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className={cn("px-5 py-4 border-b", isDark ? "border-white/10" : "border-black/10")}>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-[#1DB954] shadow-[0_10px_30px_rgba(29,185,84,0.25)] flex items-center justify-center shrink-0">
+              <img src={arcByteLogo} alt="ArcByte" className="h-5 w-auto object-contain" />
+            </div>
+            <div className="min-w-0">
+              <div className={cn("text-[15px] font-bold leading-tight", isDark ? "text-white" : "text-black")}>Arcbyte Co-Pilot</div>
+              <div className={cn("text-[12px] font-semibold truncate mt-0.5", isDark ? "text-white/45" : "text-black/45")}>{subject}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <button className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-white/10" : "text-black/55 hover:text-black hover:bg-black/10")}>
+              <MoreVertical size={18} />
+            </button>
+            <button
+              onClick={onClose}
+              className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-white/10" : "text-black/55 hover:text-black hover:bg-black/10")}
+              title="Close"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div ref={chatScrollRef} className="flex-1 overflow-y-auto custom-scrollbar px-5 py-5 space-y-4">
+        {messages.length === 0 ? (
+          <div className="pt-6">
+            <div className={cn("text-sm font-semibold", isDark ? "text-white/70" : "text-black/70")}>Ask anything about this email.</div>
+            <div className={cn("text-xs mt-2 leading-relaxed", isDark ? "text-white/45" : "text-black/45")}>
+              Examples: summarize it, extract deadlines, identify risks, draft a response, or explain the sender’s intent.
+            </div>
+          </div>
+        ) : (
+          <>
+            {messages.map((m) =>
+              m.role === 'user' ? (
+                <div key={m.id} className="flex items-end justify-end gap-2">
+                  <div className={cn("max-w-[82%] rounded-[22px] px-4 py-3 text-[14px] leading-relaxed whitespace-pre-wrap", isDark ? "bg-white/10 text-white" : "bg-black/10 text-black")}>
+                    {m.content}
+                  </div>
+                  <div className={cn("w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold border shrink-0", isDark ? "bg-[#121212] text-white border-white/10" : "bg-white text-black border-black/10")}>
+                    {userInitial}
+                  </div>
+                </div>
+              ) : (
+                <div key={m.id} className="flex items-end justify-start gap-2">
+                  <div className="w-9 h-9 rounded-full bg-[#1DB954]/15 border border-[#1DB954]/20 flex items-center justify-center shrink-0">
+                    <img src={arcByteLogo} alt="ArcByte" className="h-4 w-auto object-contain" />
+                  </div>
+                  <div className="max-w-[86%] rounded-[26px] bg-[#1DB954] text-black px-5 py-4 shadow-[0_18px_50px_rgba(29,185,84,0.18)]">
+                    <div className="text-[14px] leading-relaxed whitespace-pre-wrap">{m.content}</div>
+                    <div className="mt-4 flex items-center gap-4 text-black/70">
+                      <button onClick={() => void copyToClipboard(m.content)} className="p-1 rounded-lg hover:bg-black/10 transition-colors" title="Copy">
+                        <Copy size={18} />
+                      </button>
+                      <button className="p-1 rounded-lg hover:bg-black/10 transition-colors" title="Like">
+                        <ThumbsUp size={18} />
+                      </button>
+                      <button className="p-1 rounded-lg hover:bg-black/10 transition-colors" title="Read aloud">
+                        <Volume2 size={18} />
+                      </button>
+                      <button className="p-1 rounded-lg hover:bg-black/10 transition-colors" title="Regenerate">
+                        <RotateCcw size={18} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            )}
+
+            {busy && (
+              <div className="flex items-end justify-start gap-2">
+                <div className="w-9 h-9 rounded-full bg-[#1DB954]/15 border border-[#1DB954]/20 flex items-center justify-center shrink-0">
+                  <img src={arcByteLogo} alt="ArcByte" className="h-4 w-auto object-contain" />
+                </div>
+                <div className={cn("max-w-[70%] rounded-[22px] px-4 py-3", isDark ? "bg-white/10" : "bg-black/10")}>
+                  <div className="flex items-center gap-1.5">
+                    <span className={cn("w-1.5 h-1.5 rounded-full animate-bounce", isDark ? "bg-white/50" : "bg-black/45")} />
+                    <span className={cn("w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:120ms]", isDark ? "bg-white/50" : "bg-black/45")} />
+                    <span className={cn("w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:240ms]", isDark ? "bg-white/50" : "bg-black/45")} />
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <div className={cn("px-5 pb-5 pt-3 border-t", isDark ? "border-white/10" : "border-black/10")} style={{ paddingBottom: 'calc(1.25rem + env(safe-area-inset-bottom))' }}>
+        <div className={cn("min-h-12 rounded-full border flex items-center gap-2 px-3", isDark ? "bg-[#121212] border-white/10" : "bg-white border-black/10")}>
+          <button className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-white/10" : "text-black/55 hover:text-black hover:bg-black/10")} title="Add">
+            <Plus size={18} />
+          </button>
+          <textarea
+            value={input}
+            onChange={(e) => onInputChange(e.target.value)}
+            placeholder="Send message..."
+            rows={1}
+            spellCheck={false}
+            className={cn("flex-1 min-w-0 bg-transparent border-none outline-none text-[14px] font-medium resize-none py-3 leading-[18px]", isDark ? "text-white placeholder:text-white/35" : "text-black placeholder:text-black/35")}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                onSend();
+              }
+            }}
+          />
+          <button
+            onClick={input.trim() ? onSend : undefined}
+            disabled={busy}
+            className={cn(
+              "h-10 w-10 rounded-full flex items-center justify-center transition-all",
+              busy ? "opacity-70 cursor-not-allowed" : "hover:scale-105 active:scale-95",
+              input.trim() ? "bg-[#1DB954] text-black" : (isDark ? "bg-white/10 text-white/70" : "bg-black/10 text-black/70")
+            )}
+            title={input.trim() ? "Send" : "Voice"}
+          >
+            {busy ? <Loader2 size={18} className="animate-spin" /> : input.trim() ? <SendHorizontal size={18} /> : <Mic size={18} />}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 type MailThreadSummary = {
   id: string;
   folder: MailFolder;
@@ -1384,22 +1550,6 @@ const ReadingPane = ({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [replySnoozeUntil, setReplySnoozeUntil] = useState<number>(0);
   const [expandedMsgId, setExpandedMsgId] = useState<string | null>(null);
-  const chatScrollRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!aiChatOpen) return;
-    const el = chatScrollRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [aiChatOpen, aiChatMessages.length]);
-
-  const copyToClipboard = useCallback(async (value: string) => {
-    try {
-      await navigator.clipboard.writeText(String(value || ''));
-    } catch {
-      return;
-    }
-  }, []);
 
   const openAttachment = useCallback(
     async (messageId: string, attachment: MailThreadMessage['attachments'][number], folder: MailFolder) => {
@@ -1566,142 +1716,11 @@ const ReadingPane = ({
     }
     return false;
   })();
-
-  const ChatPanel = ({ onClose }: { onClose: () => void }) => {
-    const subject = thread?.subject || 'Selected email';
-    const initial = (() => {
-      const v = thread?.messages?.[thread.messages.length - 1]?.fromName || thread?.messages?.[thread.messages.length - 1]?.fromAddress || 'U';
-      return String(v || 'U').trim().slice(0, 1).toUpperCase() || 'U';
-    })();
-
-    return (
-      <div className="h-full flex flex-col">
-        <div className={cn("px-5 py-4 border-b", isDark ? "border-white/10" : "border-black/10")}>
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-[#FF76D6] shadow-[0_10px_30px_rgba(255,118,214,0.28)] flex items-center justify-center shrink-0">
-                <Sparkles size={18} className="text-black" />
-              </div>
-              <div className="min-w-0">
-                <div className={cn("text-[15px] font-bold leading-tight", isDark ? "text-white" : "text-black")}>Ask AI</div>
-                <div className={cn("text-[12px] font-semibold truncate mt-0.5", isDark ? "text-white/45" : "text-black/45")}>{subject}</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <button className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-white/10" : "text-black/55 hover:text-black hover:bg-black/10")}>
-                <MoreVertical size={18} />
-              </button>
-              <button
-                onClick={onClose}
-                className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-white/10" : "text-black/55 hover:text-black hover:bg-black/10")}
-                title="Close"
-              >
-                <X size={18} />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div ref={chatScrollRef} className="flex-1 overflow-y-auto custom-scrollbar px-5 py-5 space-y-4">
-          {aiChatMessages.length === 0 ? (
-            <div className="pt-6">
-              <div className={cn("text-sm font-semibold", isDark ? "text-white/70" : "text-black/70")}>Ask anything about this email.</div>
-              <div className={cn("text-xs mt-2 leading-relaxed", isDark ? "text-white/45" : "text-black/45")}>
-                Examples: summarize it, extract deadlines, identify risks, draft a response, or explain the sender’s intent.
-              </div>
-            </div>
-          ) : (
-            <>
-              {aiChatMessages.map((m) =>
-                m.role === 'user' ? (
-                  <div key={m.id} className="flex items-end justify-end gap-2">
-                    <div className={cn("max-w-[82%] rounded-[22px] px-4 py-3 text-[14px] leading-relaxed whitespace-pre-wrap", isDark ? "bg-white/10 text-white" : "bg-black/10 text-black")}>
-                      {m.content}
-                    </div>
-                    <div className={cn("w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold border shrink-0", isDark ? "bg-[#121212] text-white border-white/10" : "bg-white text-black border-black/10")}>
-                      {initial}
-                    </div>
-                  </div>
-                ) : (
-                  <div key={m.id} className="flex items-end justify-start gap-2">
-                    <div className="w-9 h-9 rounded-full bg-[#FF76D6]/15 border border-[#FF76D6]/20 flex items-center justify-center shrink-0">
-                      <Sparkles size={16} className="text-[#FF76D6]" />
-                    </div>
-                    <div className="max-w-[86%] rounded-[26px] bg-gradient-to-b from-[#FF76D6] to-[#FFB4EA] text-black px-5 py-4 shadow-[0_18px_50px_rgba(255,118,214,0.22)]">
-                      <div className="text-[14px] leading-relaxed whitespace-pre-wrap">{m.content}</div>
-                      <div className="mt-4 flex items-center gap-4 text-black/70">
-                        <button onClick={() => void copyToClipboard(m.content)} className="p-1 rounded-lg hover:bg-black/10 transition-colors" title="Copy">
-                          <Copy size={18} />
-                        </button>
-                        <button className="p-1 rounded-lg hover:bg-black/10 transition-colors" title="Like">
-                          <ThumbsUp size={18} />
-                        </button>
-                        <button className="p-1 rounded-lg hover:bg-black/10 transition-colors" title="Read aloud">
-                          <Volume2 size={18} />
-                        </button>
-                        <button className="p-1 rounded-lg hover:bg-black/10 transition-colors" title="Regenerate">
-                          <RotateCcw size={18} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              )}
-
-              {aiChatBusy && (
-                <div className="flex items-end justify-start gap-2">
-                  <div className="w-9 h-9 rounded-full bg-[#FF76D6]/15 border border-[#FF76D6]/20 flex items-center justify-center shrink-0">
-                    <Sparkles size={16} className="text-[#FF76D6]" />
-                  </div>
-                  <div className={cn("max-w-[70%] rounded-[22px] px-4 py-3", isDark ? "bg-white/10" : "bg-black/10")}>
-                    <div className="flex items-center gap-1.5">
-                      <span className={cn("w-1.5 h-1.5 rounded-full animate-bounce", isDark ? "bg-white/50" : "bg-black/45")} />
-                      <span className={cn("w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:120ms]", isDark ? "bg-white/50" : "bg-black/45")} />
-                      <span className={cn("w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:240ms]", isDark ? "bg-white/50" : "bg-black/45")} />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        <div className={cn("px-5 pb-5 pt-3 border-t", isDark ? "border-white/10" : "border-black/10")}>
-          <div className={cn("h-12 rounded-full border flex items-center gap-2 px-3", isDark ? "bg-[#121212] border-white/10" : "bg-white border-black/10")}>
-            <button className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-white/10" : "text-black/55 hover:text-black hover:bg-black/10")} title="Add">
-              <Plus size={18} />
-            </button>
-            <input
-              value={aiChatInput}
-              onChange={(e) => onAiChatInputChange(e.target.value)}
-              placeholder="Send message..."
-              className={cn("flex-1 bg-transparent border-none outline-none text-[14px] font-medium", isDark ? "text-white placeholder:text-white/35" : "text-black placeholder:text-black/35")}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  onSendAiChat();
-                }
-              }}
-            />
-            <button
-              onClick={aiChatInput.trim() ? onSendAiChat : undefined}
-              disabled={aiChatBusy}
-              className={cn(
-                "h-10 w-10 rounded-full flex items-center justify-center transition-all",
-                aiChatBusy ? "opacity-70 cursor-not-allowed" : "hover:scale-105 active:scale-95",
-                aiChatInput.trim()
-                  ? "bg-[#1DB954] text-black"
-                  : (isDark ? "bg-white/10 text-white/70" : "bg-black/10 text-black/70")
-              )}
-              title={aiChatInput.trim() ? "Send" : "Voice"}
-            >
-              {aiChatBusy ? <Loader2 size={18} className="animate-spin" /> : aiChatInput.trim() ? <SendHorizontal size={18} /> : <Mic size={18} />}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
+  const chatSubject = thread?.subject || 'Selected email';
+  const chatUserInitial = (() => {
+    const v = thread?.messages?.[thread.messages.length - 1]?.fromName || thread?.messages?.[thread.messages.length - 1]?.fromAddress || 'U';
+    return String(v || 'U').trim().slice(0, 1).toUpperCase() || 'U';
+  })();
 
   return (
     <div className={cn("flex-1 flex flex-col h-full relative overflow-hidden", isDark ? "bg-[#121212]" : "bg-white")}>
@@ -1991,7 +2010,17 @@ const ReadingPane = ({
 
         {!isMobile && aiChatOpen && (
           <aside className={cn("w-[420px] shrink-0 border-l", isDark ? "border-[#1A1A1A] bg-[#0B0B0B]" : "border-[#E5E5E5] bg-white")}>
-            <ChatPanel onClose={onCloseAiChat} />
+            <AIChatSidebar
+              isDark={isDark}
+              subject={chatSubject}
+              userInitial={chatUserInitial}
+              messages={aiChatMessages}
+              busy={aiChatBusy}
+              input={aiChatInput}
+              onInputChange={onAiChatInputChange}
+              onSend={onSendAiChat}
+              onClose={onCloseAiChat}
+            />
           </aside>
         )}
       </div>
@@ -2015,7 +2044,17 @@ const ReadingPane = ({
                 isDark ? "bg-[#0B0B0B] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]"
               )}
             >
-              <ChatPanel onClose={onCloseAiChat} />
+              <AIChatSidebar
+                isDark={isDark}
+                subject={chatSubject}
+                userInitial={chatUserInitial}
+                messages={aiChatMessages}
+                busy={aiChatBusy}
+                input={aiChatInput}
+                onInputChange={onAiChatInputChange}
+                onSend={onSendAiChat}
+                onClose={onCloseAiChat}
+              />
             </motion.div>
           </motion.div>
         )}
@@ -4232,14 +4271,18 @@ const MailAppContent = () => {
           : null;
 
       const text = (() => {
+        const base = typeof api.defaults.baseURL === 'string' ? api.defaults.baseURL : '';
         if (!response) return 'API unreachable.';
         if (status === 401) return 'Session expired. Please sign in again.';
-        if (status === 404) return 'Ask AI endpoint not found.';
+        if (status === 404) return 'Co-Pilot endpoint not found.';
         if (status === 503 && code === 'ai_disabled') return 'AI is disabled on the backend.';
         if (status === 400 && code === 'invalid_question') return 'Question is invalid.';
         if (status === 400 && code === 'invalid_id') return 'This email cannot be queried.';
-        if (status === 502 && code === 'ai_error') return 'AI provider error. Check GROQ_API_KEY on the backend.';
-        return 'Ask AI failed.';
+        if (status === 502 && code === 'ai_invalid_key') return `Groq API key is invalid for this backend.${base ? ` (API: ${base})` : ''}`;
+        if (status === 502 && code === 'ai_rate_limited') return 'AI rate limited. Try again.';
+        if (status === 502 && code === 'ai_provider_error') return 'AI provider error. Try again.';
+        if (status === 502 && code === 'ai_error') return 'AI request failed.';
+        return 'Co-Pilot failed.';
       })();
 
       const msg: AIChatMessage = {
@@ -5087,8 +5130,10 @@ const MailAppContent = () => {
                        : "bg-white border-[#E5E5E5] text-black hover:bg-[#F0F0F0] hover:border-[#1DB954]/30"
                    )}
                  >
-                   <Sparkles size={18} className="text-[#1DB954]" />
-                   Ask AI
+                  <span className="w-7 h-7 rounded-full bg-[#1DB954] flex items-center justify-center shrink-0">
+                    <img src={arcByteLogo} alt="ArcByte" className="h-4 w-auto object-contain" />
+                  </span>
+                  Arcbyte Co-Pilot
                  </button>
                  <button
                    onClick={openAskAI}
@@ -5096,9 +5141,11 @@ const MailAppContent = () => {
                      "md:hidden p-3 rounded-full transition-colors relative border border-transparent",
                      isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A] hover:border-[#282828]" : "text-[#5E5E5E] hover:text-black hover:bg-[#F0F0F0] hover:border-[#E5E5E5]"
                    )}
-                   title="Ask AI"
+                  title="Arcbyte Co-Pilot"
                  >
-                   <Sparkles size={20} />
+                  <span className="w-9 h-9 rounded-full bg-[#1DB954] flex items-center justify-center">
+                    <img src={arcByteLogo} alt="ArcByte" className="h-4 w-auto object-contain" />
+                  </span>
                  </button>
                </>
              )}

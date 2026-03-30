@@ -95,14 +95,26 @@ export const runAI = async (prompt, options = {}) => {
     { role: 'system', content: SYSTEM_PROMPT },
     { role: 'user', content: String(prompt || '') },
   ];
-  const res = await client.chat.completions.create({
-    model: MODEL,
-    temperature,
-    max_tokens,
-    messages,
-  });
-  const text = res?.choices?.[0]?.message?.content;
-  return String(text || '').trim();
+  try {
+    const res = await client.chat.completions.create({
+      model: MODEL,
+      temperature,
+      max_tokens,
+      messages,
+    });
+    const text = res?.choices?.[0]?.message?.content;
+    return String(text || '').trim();
+  } catch (err) {
+    const status = err && typeof err === 'object' && typeof err.status === 'number' ? err.status : null;
+    const message = err && typeof err === 'object' && typeof err.message === 'string' ? String(err.message) : '';
+    const e = new Error(message || 'AI request failed');
+    if (status === 401 || status === 403) e.code = 'GROQ_AUTH_ERROR';
+    else if (status === 429) e.code = 'GROQ_RATE_LIMIT';
+    else if (status && status >= 500) e.code = 'GROQ_PROVIDER_ERROR';
+    else e.code = 'GROQ_REQUEST_ERROR';
+    e.status = status || undefined;
+    throw e;
+  }
 };
 
 export const summarizeEmail = async (email) => {
