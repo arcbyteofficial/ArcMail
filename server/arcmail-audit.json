@@ -1,0 +1,14 @@
+[
+  {
+    "id": "1774903518083-29af6352b361",
+    "createdAt": "2026-03-30T20:45:18.083Z",
+    "eventType": "login",
+    "email": "ceo@arcbyte.co",
+    "ip": "::1",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+    "meta": {
+      "twoFactorVerified": false,
+      "sessionId": "9027859d-58c9-4342-be03-110ebe172c3d"
+    }
+  }
+]

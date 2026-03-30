@@ -1,14 +1,14 @@
 {
   "ceo@arcbyte.co": {
-    "encrypted_email_password": "{\"iv\":\"3r9dNWFPRHDH0je9\",\"tag\":\"sRgnEqmTwY74MziE8W3d8Q==\",\"ciphertext\":\"GtaXxHlz9RAJDHOYyS3jYMMc78guV6uFyo1x\"}",
+    "encrypted_email_password": "{\"iv\":\"PmWYTdn5m39mnn+1\",\"tag\":\"HBttmywAUyy5kf98MUKYzw==\",\"ciphertext\":\"5wB7vSus7lTwoZRpMTVHLWzUJvOKvPICv03j\"}",
     "session_version": 0,
     "twofa_enabled": false,
     "twofa_secret_enc": null,
-    "temp_twofa_secret_enc": "{\"iv\":\"3rHAIIK1fuNjgpQ5\",\"tag\":\"ai3rJ7T54EP00alwpDanGA==\",\"ciphertext\":\"/tm9EQQTlGic+5UZhWmRcqWGeckybfYDgIeWKgz0vZ4=\"}",
+    "temp_twofa_secret_enc": "{\"iv\":\"KFCvF5nWl6efXs4+\",\"tag\":\"upmerKc4jNiM2fJAlWglzw==\",\"ciphertext\":\"iez91d/RlTe5nHVlKIn7S8Rhj5L+zfwsSJDMugQD9eQ=\"}",
     "backup_codes": [],
     "failed_2fa_attempts": 0,
     "lockout_until": null,
     "last_2fa_verified_at": null,
-    "updated_at": "2026-03-30T20:32:35.023Z"
+    "updated_at": "2026-03-30T21:10:13.193Z"
   }
 }

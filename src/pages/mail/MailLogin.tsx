@@ -444,6 +444,24 @@ const MailLogin = () => {
                   onClick={() => {
                     try {
                       localStorage.setItem('arcmailAllowRemoteApi', allowRemote ? '0' : '1');
+                      const keys = [
+                        'token',
+                        'isAuthenticated',
+                        'userRole',
+                        'userName',
+                        'userEmail',
+                        'userId',
+                        'userStatus',
+                        'clientId',
+                        'mailCsrf',
+                        'mailSessionId',
+                        'mailAccounts',
+                        'activeMailAccountId',
+                      ];
+                      keys.forEach((k) => {
+                        localStorage.removeItem(k);
+                        sessionStorage.removeItem(k);
+                      });
                     } catch {
                       void 0;
                     }
