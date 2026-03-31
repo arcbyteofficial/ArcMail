@@ -2746,23 +2746,37 @@ const ComposeModal = ({
              </button>
              
              <div className="flex items-center gap-3">
-               <button
+              <motion.button
                  onClick={() => {
                    setAiComposeError(null);
                    setAiComposeOpen(true);
                  }}
                  disabled={sending || aiComposeBusy}
-                 className={cn(
-                  "px-4 py-2.5 rounded-full border text-[12px] font-bold tracking-wide flex items-center gap-2 transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap min-w-0",
-                  isMobile && "px-3 text-[11px] gap-1.5",
-                   isDark
-                     ? "bg-[#1A1A1A] border-[#282828] text-white/85 hover:text-white hover:bg-[#222]"
-                     : "bg-[#F6F6F6] border-[#E5E5E5] text-black/80 hover:text-black hover:bg-[#EFEFEF]"
-                 )}
+                className={cn(
+                  "rounded-full p-[2px] bg-gradient-to-r from-[#00C2FF] via-[#00E3B5] to-[#CFFF3A] shadow-[0_10px_30px_rgba(0,0,0,0.10)] transition-opacity disabled:opacity-50 disabled:cursor-not-allowed",
+                  isMobile && "shadow-[0_8px_24px_rgba(0,0,0,0.10)]"
+                )}
+                whileHover={sending || aiComposeBusy ? undefined : { scale: 1.04 }}
+                whileTap={sending || aiComposeBusy ? undefined : { scale: 0.92 }}
+                transition={{ type: 'spring', stiffness: 520, damping: 32 }}
                >
-                 <Sparkles size={16} className="text-[#1DB954]" />
-                 <span className="whitespace-nowrap leading-none">AI Compose</span>
-               </button>
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-2 h-10 px-4 rounded-full font-semibold whitespace-nowrap min-w-0",
+                    isMobile && "h-9 px-3 text-[12px]",
+                    isDark ? "bg-[#0B0B0B] text-white border border-white/10" : "bg-white text-black"
+                  )}
+                >
+                  <span className={cn("inline-flex items-center justify-center", isMobile ? "h-4 w-4" : "h-5 w-5")}>
+                    <img
+                      src={isDark ? "https://img.icons8.com/glyph-neue/64/FFFFFF/bard--v1.png" : "https://img.icons8.com/glyph-neue/64/1A1A1A/bard--v1.png"}
+                      alt="AI"
+                      className={cn(isMobile ? "h-4 w-4" : "h-5 w-5", "object-contain")}
+                    />
+                  </span>
+                  <span className={cn("leading-none", isMobile ? "text-[12px]" : "text-[13px]")}>AI Compose</span>
+                </span>
+              </motion.button>
 
                <button
                  onClick={handleSend}
