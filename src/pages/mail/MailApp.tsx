@@ -2664,7 +2664,7 @@ const MobileNavItem = ({
     <motion.button
       onClick={onClick}
       className={cn(
-        "relative w-12 h-12 rounded-full flex items-center justify-center",
+        "relative w-[clamp(42px,11vw,48px)] h-[clamp(42px,11vw,48px)] rounded-full flex items-center justify-center",
         isDark ? "text-black" : "text-white"
       )}
       whileTap={{ scale: 0.92 }}
@@ -2687,7 +2687,7 @@ const MobileNavItem = ({
     <motion.button
       onClick={onClick}
       className={cn(
-        "w-12 h-12 rounded-full flex items-center justify-center",
+        "w-[clamp(42px,11vw,48px)] h-[clamp(42px,11vw,48px)] rounded-full flex items-center justify-center",
         isDark ? "bg-transparent text-white/65 hover:text-white" : "bg-transparent text-black/55 hover:text-black"
       )}
       whileTap={{ scale: 0.92 }}
@@ -2716,13 +2716,12 @@ const MobileNav = ({
 
   return (
     <>
-      <div className="fixed bottom-6 inset-x-4 z-40 flex justify-center">
+      <div className="fixed inset-x-3 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 flex justify-center sm:inset-x-4">
         <div
           className={cn(
-            "w-full max-w-md h-[74px] rounded-[28px] flex items-center justify-between px-4 border",
+            "w-full max-w-md h-[clamp(64px,18vw,74px)] rounded-[28px] grid grid-cols-5 place-items-center px-[clamp(10px,3.5vw,16px)] border",
             isDark ? "bg-[#0B0B0B] border-white/20 shadow-[0_30px_90px_rgba(0,0,0,0.75)]" : "bg-white border-black/10 shadow-[0_18px_60px_rgba(0,0,0,0.12)]"
           )}
-          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
           <MobileNavItem icon={Inbox} label={t('inbox')} isActive={!profileActive && activeFolder === 'inbox'} onClick={() => onFolderChange('inbox')} isDark={isDark} />
           <MobileNavItem icon={Send} label={t('sent')} isActive={!profileActive && activeFolder === 'sent'} onClick={() => onFolderChange('sent')} isDark={isDark} />
@@ -2730,7 +2729,7 @@ const MobileNav = ({
           <motion.button
             onClick={onCompose}
             className={cn(
-              "w-12 h-12 rounded-2xl flex items-center justify-center transition-transform active:scale-95 border",
+              "w-[clamp(46px,12vw,54px)] h-[clamp(46px,12vw,54px)] rounded-2xl flex items-center justify-center transition-transform active:scale-95 border",
               isDark ? "bg-[#111111] border-white/20 text-white shadow-[0_18px_50px_rgba(0,0,0,0.55)]" : "bg-white border-black/10 text-black shadow-[0_14px_44px_rgba(0,0,0,0.10)]"
             )}
             whileTap={{ scale: 0.92 }}
@@ -3961,7 +3960,7 @@ const SettingsDropdown = ({ onOpenProfile }: { onOpenProfile?: () => void }) => 
   const { accounts, activeAccountId } = useAuth();
   const activeAccount = useMemo(() => accounts.find((a) => a.id === activeAccountId) || accounts[0] || null, [accounts, activeAccountId]);
   const [mobileView, setMobileView] = useState<'main' | 'language'>('main');
-  const mobileIsDark = true;
+  const mobileIsDark = isDark;
   const close = () => {
     setIsOpen(false);
     setLangMenuOpen(false);
