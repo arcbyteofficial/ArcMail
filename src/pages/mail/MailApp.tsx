@@ -289,7 +289,7 @@ const AIChatSidebar = ({
                   <div
                     className={cn(
                       "max-w-[78%] rounded-[22px] px-5 py-4 text-[14px] leading-relaxed whitespace-pre-wrap shadow-[0_18px_50px_rgba(0,0,0,0.10)]",
-                      isDark ? "bg-[#10314B] text-white" : "bg-[#CFEFFF] text-black"
+                      isDark ? "bg-[#141414] text-white border border-white/10" : "bg-[#CFEFFF] text-black"
                     )}
                   >
                     {m.content}
@@ -5938,7 +5938,11 @@ const MailAppContent = () => {
                   )}
                 >
                    <span className="inline-flex items-center justify-center h-5 w-5">
-                      <img src="https://img.icons8.com/glyph-neue/64/FFFFFF/bard--v1.png" alt="AI" className="h-5 w-5 object-contain" />
+                      <img
+                        src={isDark ? "https://img.icons8.com/glyph-neue/64/FFFFFF/bard--v1.png" : "https://img.icons8.com/glyph-neue/64/1A1A1A/bard--v1.png"}
+                        alt="AI"
+                        className="h-5 w-5 object-contain"
+                      />
                    </span>
                    <span className="text-[13px]">Ask AI</span>
                 </span>
@@ -5957,7 +5961,11 @@ const MailAppContent = () => {
                     isDark ? "bg-[#0B0B0B] border border-white/10" : "bg-white"
                   )}
                 >
-                  <img src="https://img.icons8.com/glyph-neue/64/FFFFFF/bard--v1.png" alt="Ask AI" className="h-4 w-4 object-contain" />
+                  <img
+                    src={isDark ? "https://img.icons8.com/glyph-neue/64/FFFFFF/bard--v1.png" : "https://img.icons8.com/glyph-neue/64/1A1A1A/bard--v1.png"}
+                    alt="Ask AI"
+                    className="h-4 w-4 object-contain"
+                  />
                  </span>
                 </motion.button>
                </>
