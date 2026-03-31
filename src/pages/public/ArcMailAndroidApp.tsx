@@ -1,8 +1,9 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
-import { Activity, ArrowRight, Check, Globe, Lock, Mail, Moon, Shield, Sun, Users, Zap } from 'lucide-react';
+import { Activity, ArrowRight, Check, Clock, FileText, Filter, Globe, Lock, Mail, MessageSquare, Moon, Search, Shield, Sparkles, Sun, Users, Zap } from 'lucide-react';
 import arcByteLogo from '../../assets/arcbyte.co Logo_white_transparent.png';
 import arcMailPreview from '../../assets/arcmail.png';
+import geminiLogo from '../../assets/Google-Gemini-Logo-Transparent.png';
 import heroImg1 from '../../assets/1.jpeg';
 import heroImg2 from '../../assets/2.jpeg';
 import heroImg3 from '../../assets/3.jpeg';
@@ -136,6 +137,12 @@ export default function ArcMailAndroidApp() {
       return 'dark';
     }
   });
+  const [health, setHealth] = useState<null | {
+    ai?: { enabled?: boolean; provider?: string };
+    buildId?: string;
+    auth?: { require2FAOnLogin?: boolean; storage?: string; nodeEnv?: string };
+  }>(null);
+  const [healthChecked, setHealthChecked] = useState(false);
   const downloadUrl = getAndroidDownloadUrl();
   const downloadDisabled = !downloadUrl;
   const isDark = mode === 'dark';
@@ -148,6 +155,25 @@ export default function ArcMailAndroidApp() {
     }
     document.documentElement.style.colorScheme = mode;
   }, [mode]);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    fetch('/api/health', { signal: ac.signal, cache: 'no-store' })
+      .then(async (r) => {
+        if (!r.ok) return null;
+        const data = (await r.json()) as unknown;
+        if (!data || typeof data !== 'object') return null;
+        return data as {
+          ai?: { enabled?: boolean; provider?: string };
+          buildId?: string;
+          auth?: { require2FAOnLogin?: boolean; storage?: string; nodeEnv?: string };
+        };
+      })
+      .then((data) => setHealth(data))
+      .catch(() => setHealth(null))
+      .finally(() => setHealthChecked(true));
+    return () => ac.abort();
+  }, []);
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -220,6 +246,9 @@ export default function ArcMailAndroidApp() {
                 </a>
                 <a href="#features" className={cx('transition-colors', isDark ? 'hover:text-white' : 'hover:text-black')}>
                   Features
+                </a>
+                <a href="#ai" className={cx('transition-colors', isDark ? 'hover:text-white' : 'hover:text-black')}>
+                  AI
                 </a>
                 <a href="#security" className={cx('transition-colors', isDark ? 'hover:text-white' : 'hover:text-black')}>
                   Security
@@ -865,6 +894,235 @@ export default function ArcMailAndroidApp() {
                         <div className="mt-5 text-[12px] text-white/50">{x.meta}</div>
                       </div>
                     ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </FadeIn>
+      </Section>
+
+      <Section id="ai" className="py-10 sm:py-16">
+        <FadeIn>
+          <div
+            className={cx(
+              'rounded-[34px] border overflow-hidden transition-colors duration-300',
+              isDark ? 'bg-[#0B0B0B] border-white/10' : 'bg-white border-black/10',
+            )}
+          >
+            <div className="p-8 sm:p-12">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
+                <div className="lg:col-span-7">
+                  <div className={cx('inline-flex items-center gap-2 h-8 px-3 rounded-full text-[11px] font-semibold tracking-wide', isDark ? 'bg-[#B8FF2C] text-black' : 'bg-[#0B0B0B] text-white')}>
+                    <Sparkles size={14} />
+                    Inbox Intelligence
+                  </div>
+                  <div className={cx('mt-6 text-[clamp(30px,4.2vw,54px)] font-extrabold leading-[1.02] tracking-tight', isDark ? 'text-white' : 'text-black')}>
+                    The calm way
+                    <br />
+                    to handle volume.
+                  </div>
+                  <div className={cx('mt-5 text-[13px] leading-relaxed max-w-[68ch]', isDark ? 'text-white/65' : 'text-black/65')}>
+                    ArcMail AI is designed like an assistant, not an autopilot. It reduces reading time and decision friction while keeping the final
+                    action in your hands.
+                  </div>
+                  <div className={cx('mt-5 text-[13px] leading-relaxed max-w-[68ch]', isDark ? 'text-white/60' : 'text-black/60')}>
+                    When enabled, ArcMail can summarize threads, score urgency, classify messages, extract deadlines, and draft replies. Everything is
+                    reviewable before you apply it.
+                  </div>
+
+                  <div className={cx('mt-10 border-t pt-10', isDark ? 'border-white/10' : 'border-black/10')}>
+                    <div className={cx('text-[11px] font-semibold tracking-[0.24em] uppercase', isDark ? 'text-white/45' : 'text-black/45')}>
+                      Capabilities
+                    </div>
+                    <div className={cx('mt-5 border-t', isDark ? 'border-white/10' : 'border-black/10')}>
+                      {[
+                        {
+                          n: '01',
+                          icon: <FileText size={14} className={isDark ? 'text-white/65' : 'text-black/65'} />,
+                          t: 'Thread summaries',
+                          d: 'Turn long conversations into a compact set of bullets you can scan in seconds.',
+                          meta: 'Output: 3 focused bullets',
+                        },
+                        {
+                          n: '02',
+                          icon: <Zap size={14} className={isDark ? 'text-white/65' : 'text-black/65'} />,
+                          t: 'Priority scoring',
+                          d: 'Score urgency from 0–100 so high-impact mail rises without guesswork.',
+                          meta: 'Output: 0–100 priority',
+                        },
+                        {
+                          n: '03',
+                          icon: <Filter size={14} className={isDark ? 'text-white/65' : 'text-black/65'} />,
+                          t: 'Smart labels',
+                          d: 'Classify messages into stable, predictable buckets you can filter.',
+                          meta: 'Work • Personal • Finance • Spam • Updates',
+                        },
+                        {
+                          n: '04',
+                          icon: <Clock size={14} className={isDark ? 'text-white/65' : 'text-black/65'} />,
+                          t: 'Deadlines & tasks',
+                          d: 'Extract dates, tasks, and “must not miss” details into a clean list.',
+                          meta: 'Deadlines • Tasks • Important',
+                        },
+                        {
+                          n: '05',
+                          icon: <MessageSquare size={14} className={isDark ? 'text-white/65' : 'text-black/65'} />,
+                          t: 'Draft replies',
+                          d: 'Generate a professional reply that stays concise and asks for missing details when needed.',
+                          meta: 'Output: reply draft',
+                        },
+                        {
+                          n: '06',
+                          icon: <Search size={14} className={isDark ? 'text-white/65' : 'text-black/65'} />,
+                          t: 'Ask about an email',
+                          d: 'Ask questions like “what’s the risk?”, “what should I do next?”, or “summarize intent”.',
+                          meta: 'Output: context-aware answer',
+                        },
+                      ].map((x) => (
+                        <div key={x.n} className={cx('py-7 border-b', isDark ? 'border-white/10' : 'border-black/10')}>
+                          <div className="flex items-start gap-5">
+                            <div className={cx('w-10 flex-none text-[11px] font-semibold tracking-[0.22em] pt-[2px]', isDark ? 'text-white/40' : 'text-black/40')}>
+                              {x.n}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <div className="flex-none">{x.icon}</div>
+                                <div className={cx('text-[16px] font-semibold tracking-tight', isDark ? 'text-white' : 'text-black')}>{x.t}</div>
+                              </div>
+                              <div className={cx('mt-2 text-[13px] leading-relaxed max-w-[74ch]', isDark ? 'text-white/60' : 'text-black/60')}>{x.d}</div>
+                              <div className={cx('mt-4 text-[12px]', isDark ? 'text-white/45' : 'text-black/45')}>{x.meta}</div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className={cx('mt-10 border-l-2 pl-5 text-[13px] leading-relaxed', isDark ? 'border-white/10 text-white/60' : 'border-black/10 text-black/60')}>
+                      “AI is best when it makes the next decision easier—without making the decision for you.”
+                    </div>
+                  </div>
+                </div>
+
+                <div className="lg:col-span-5">
+                  <div className={cx('lg:sticky lg:top-24 lg:border-l lg:pl-8', isDark ? 'lg:border-white/10' : 'lg:border-black/10')}>
+                    <div className={cx('text-[11px] font-semibold tracking-[0.24em] uppercase', isDark ? 'text-white/45' : 'text-black/45')}>
+                      System notes
+                    </div>
+
+                    <div className={cx('mt-6 border-t pt-6', isDark ? 'border-white/10' : 'border-black/10')}>
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <div className={cx('text-[12px] font-semibold tracking-wide', isDark ? 'text-white/55' : 'text-black/55')}>AI status</div>
+                          <div className={cx('mt-1 text-[18px] font-semibold tracking-tight', isDark ? 'text-white' : 'text-black')}>
+                            {healthChecked ? (health?.ai?.enabled ? 'Online' : 'Off') : 'Checking…'}
+                          </div>
+                        </div>
+                        <div className={cx('h-10 w-10 rounded-full border flex items-center justify-center flex-none', isDark ? 'border-white/10' : 'border-black/10')}>
+                          {healthChecked && health?.ai?.enabled ? <Zap size={18} className={isDark ? 'text-[#B8FF2C]' : 'text-black'} /> : <Activity size={18} className={isDark ? 'text-white/60' : 'text-black/60'} />}
+                        </div>
+                      </div>
+
+                      <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-4 text-[12px]">
+                        <div className={cx('text-[11px] font-semibold tracking-[0.22em] uppercase', isDark ? 'text-white/40' : 'text-black/40')}>Provider</div>
+                        <div className={cx('font-semibold inline-flex items-center gap-2', isDark ? 'text-white' : 'text-black')}>
+                          <img src={geminiLogo} alt="Gemini" className={cx('h-4 w-4 object-contain', !isDark && 'brightness-0')} />
+                          Gemini
+                        </div>
+
+                        <div className={cx('text-[11px] font-semibold tracking-[0.22em] uppercase', isDark ? 'text-white/40' : 'text-black/40')}>Build</div>
+                        <div className={cx('font-semibold', isDark ? 'text-white' : 'text-black')}>
+                          {healthChecked && typeof health?.buildId === 'string' && health.buildId.trim() ? health.buildId : '—'}
+                        </div>
+
+                        <div className={cx('text-[11px] font-semibold tracking-[0.22em] uppercase', isDark ? 'text-white/40' : 'text-black/40')}>2FA</div>
+                        <div className={cx('font-semibold', isDark ? 'text-white' : 'text-black')}>
+                          {healthChecked && typeof health?.auth?.require2FAOnLogin === 'boolean'
+                            ? health.auth.require2FAOnLogin
+                              ? 'Required'
+                              : 'Optional'
+                            : '—'}
+                        </div>
+                      </div>
+
+                      <div className={cx('mt-7 border-t pt-7', isDark ? 'border-white/10' : 'border-black/10')}>
+                        {[
+                          'AI can be disabled server-side when not configured or when policies require it.',
+                          'Nothing is sent automatically—drafts and insights are reviewable before you act.',
+                          'You still press Send. AI reduces effort; it does not change ownership.',
+                        ].map((x) => (
+                          <div key={x} className={cx('flex items-start gap-3 text-[12px] leading-relaxed mt-3 first:mt-0', isDark ? 'text-white/60' : 'text-black/60')}>
+                            <div className="h-5 w-5 rounded-full bg-[#B8FF2C] border border-black/10 text-black flex items-center justify-center flex-none mt-[2px]">
+                              <Check size={12} className="text-black" />
+                            </div>
+                            <div className="min-w-0">{x}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className={cx('mt-8 border-t pt-8', isDark ? 'border-white/10' : 'border-black/10')}>
+                        <div className={cx('text-[11px] font-semibold tracking-[0.24em] uppercase', isDark ? 'text-white/40' : 'text-black/40')}>
+                          Where it shows up
+                        </div>
+                        <div className={cx('mt-4 text-[12px] leading-relaxed', isDark ? 'text-white/60' : 'text-black/60')}>
+                          You’ll see AI details inline, close to the action—so you don’t have to open extra panels to stay oriented.
+                        </div>
+                        <div className="mt-5 space-y-3 text-[12px]">
+                          {[
+                            'Thread list: priority + label at a glance.',
+                            'Thread view: summary + extracted tasks/deadlines.',
+                            'Compose: draft reply that you can edit before sending.',
+                            'Ask: quick questions about intent, risk, and next steps.',
+                          ].map((x) => (
+                            <div key={x} className={cx('flex items-start gap-3 leading-relaxed', isDark ? 'text-white/60' : 'text-black/60')}>
+                              <div className={cx('mt-[7px] h-[6px] w-[6px] rounded-full flex-none', isDark ? 'bg-[#B8FF2C]' : 'bg-black')} />
+                              <div className="min-w-0">{x}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className={cx('mt-8 border-t pt-8', isDark ? 'border-white/10' : 'border-black/10')}>
+                        <div className={cx('text-[11px] font-semibold tracking-[0.24em] uppercase', isDark ? 'text-white/40' : 'text-black/40')}>
+                          Example
+                        </div>
+                        <div className={cx('mt-5 border-l-2 pl-4', isDark ? 'border-white/10' : 'border-black/10')}>
+                          <div className={cx('text-[12px] leading-relaxed', isDark ? 'text-white/60' : 'text-black/60')}>
+                            “Can you send the revised contract by Friday? We need final approval before procurement closes.”
+                          </div>
+                        </div>
+                        <div className="mt-6 grid grid-cols-1 gap-5">
+                          <div className={cx('border-t pt-5', isDark ? 'border-white/10' : 'border-black/10')}>
+                            <div className={cx('text-[11px] font-semibold tracking-[0.22em] uppercase', isDark ? 'text-white/40' : 'text-black/40')}>
+                              Summary
+                            </div>
+                            <div className={cx('mt-3 text-[12px] leading-relaxed whitespace-pre-line', isDark ? 'text-white/60' : 'text-black/60')}>
+                              - Request for revised contract and confirmation of changes{'\n'}- Deadline: Friday, before procurement closes{'\n'}- Next step: send revision or clarify remaining blockers
+                            </div>
+                          </div>
+                          <div className={cx('border-t pt-5', isDark ? 'border-white/10' : 'border-black/10')}>
+                            <div className={cx('text-[11px] font-semibold tracking-[0.22em] uppercase', isDark ? 'text-white/40' : 'text-black/40')}>
+                              Extracted
+                            </div>
+                            <div className="mt-3 space-y-2 text-[12px] leading-relaxed">
+                              <div className={cx('flex items-start gap-3', isDark ? 'text-white/60' : 'text-black/60')}>
+                                <div className={cx('mt-[7px] h-[6px] w-[6px] rounded-full flex-none', isDark ? 'bg-[#B8FF2C]' : 'bg-black')} />
+                                <div className="min-w-0">
+                                  Deadline: <span className={cx('font-semibold', isDark ? 'text-white' : 'text-black')}>Friday</span>
+                                </div>
+                              </div>
+                              <div className={cx('flex items-start gap-3', isDark ? 'text-white/60' : 'text-black/60')}>
+                                <div className={cx('mt-[7px] h-[6px] w-[6px] rounded-full flex-none', isDark ? 'bg-[#B8FF2C]' : 'bg-black')} />
+                                <div className="min-w-0">Task: send revised contract</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div className={cx('mt-6 text-[12px] leading-relaxed', isDark ? 'text-white/55' : 'text-black/55')}>
+                          This is representative output. Actual results depend on the email content and your organization’s policies.
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>

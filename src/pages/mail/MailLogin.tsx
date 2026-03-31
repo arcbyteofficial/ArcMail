@@ -772,7 +772,8 @@ const MailLogin = () => {
                         onClick={() => {
                           if (isLoading) return;
                           const clean = String(otp || '').replace(/\D/g, '').slice(0, 6);
-                          setOtp(clean.slice(0, -1));
+                          if (clean.length >= 6) return;
+                          setOtp(`${clean}0`);
                         }}
                         className="w-14 h-14 rounded-full border border-white/15 text-white/90 text-lg font-semibold active:scale-95 transition-transform"
                       >

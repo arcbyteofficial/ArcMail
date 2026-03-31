@@ -12,10 +12,16 @@ import {
   Star,
   Archive,
   ArrowLeft,
+  ArrowRight,
+  Bot,
+  Share2,
+  AlignJustify,
   Reply,
   Forward,
   LogOut,
   Plus,
+  Camera,
+  Image,
   Mail,
   KeyRound,
   Eye,
@@ -130,6 +136,12 @@ const AIChatSidebar = ({
   onClose: () => void;
 }) => {
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const [attachOpen, setAttachOpen] = useState(false);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const documentInputRef = useRef<HTMLInputElement | null>(null);
+  const { user } = useAuth();
+  const displayName = String(user?.name || user?.email || '').trim() || 'there';
 
   useEffect(() => {
     const el = chatScrollRef.current;
@@ -146,57 +158,119 @@ const AIChatSidebar = ({
   }, []);
 
   return (
-    <div className="h-full flex flex-col">
-      <div className={cn("px-5 py-4 border-b", isDark ? "border-white/10" : "border-black/10")}>
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0">
-              <img src={arcByteLogo} alt="ArcByte" className="h-7 w-auto object-contain" />
-            </div>
-            <div className="min-w-0">
-              <div className={cn("text-[15px] font-bold leading-tight", isDark ? "text-white" : "text-black")}>ArcByte AI</div>
-              <div className={cn("text-[12px] font-semibold truncate mt-0.5", isDark ? "text-white/45" : "text-black/45")}>{subject}</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <button className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-white/10" : "text-black/55 hover:text-black hover:bg-black/10")}>
-              <MoreVertical size={18} />
+    <div
+      className={cn("h-full flex flex-col relative", isDark ? "bg-[#0B0B0B] text-white" : "bg-[#F4F5EE] text-black")}
+      style={
+        isDark
+          ? {
+              backgroundImage:
+                'radial-gradient(circle at 20% 0%, rgba(29,185,84,0.06), transparent 42%), radial-gradient(circle at 100% 100%, rgba(29,185,84,0.035), transparent 44%)',
+            }
+          : undefined
+      }
+    >
+      <motion.div
+        className="px-6 pt-6 pb-4"
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: 'spring', stiffness: 420, damping: 30 }}
+      >
+        <div className="flex items-center justify-between gap-4">
+          <button
+            onClick={onClose}
+            className={cn(
+              "h-11 w-11 rounded-full flex items-center justify-center",
+              isDark
+                ? "bg-[#121212] border border-white/10 shadow-[0_18px_60px_rgba(0,0,0,0.65)]"
+                : "bg-white shadow-[0_14px_40px_rgba(0,0,0,0.10)]"
+            )}
+            aria-label="Back"
+            title="Back"
+          >
+            <ArrowLeft size={18} className={cn(isDark ? "text-white" : "text-black")} />
+          </button>
+          <div className="flex items-center gap-3">
+            <button
+              className={cn(
+                "h-11 w-11 rounded-full flex items-center justify-center",
+                isDark
+                  ? "bg-[#121212] border border-white/10 shadow-[0_18px_60px_rgba(0,0,0,0.65)]"
+                  : "bg-white shadow-[0_14px_40px_rgba(0,0,0,0.10)]"
+              )}
+              aria-label="Menu"
+              title="Menu"
+            >
+              <AlignJustify size={18} className={cn(isDark ? "text-white" : "text-black")} />
             </button>
             <button
-              onClick={onClose}
-              className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-white/10" : "text-black/55 hover:text-black hover:bg-black/10")}
-              title="Close"
+              className={cn(
+                "h-11 w-11 rounded-full flex items-center justify-center",
+                isDark
+                  ? "bg-[#121212] border border-white/10 shadow-[0_18px_60px_rgba(0,0,0,0.65)]"
+                  : "bg-white shadow-[0_14px_40px_rgba(0,0,0,0.10)]"
+              )}
+              aria-label="Share"
+              title="Share"
             >
-              <X size={18} />
+              <Share2 size={18} className={cn(isDark ? "text-white" : "text-black")} />
             </button>
           </div>
         </div>
-      </div>
 
-      <div ref={chatScrollRef} className="flex-1 overflow-y-auto custom-scrollbar px-5 py-5 space-y-4">
+        <div className="mt-6">
+          <div className={cn("text-[34px] leading-[1.02] font-semibold tracking-tight", isDark ? "text-white" : "text-black")}>Hi, {displayName}</div>
+          <div className={cn("mt-2 text-[26px] leading-[1.06] font-semibold tracking-tight", isDark ? "text-white/85" : "text-black/85")}>How can I help you today?</div>
+          <div title={subject} className={cn("mt-3 text-[13px] truncate", isDark ? "text-white/45" : "text-black/50")}>
+            About: {subject}
+          </div>
+        </div>
+      </motion.div>
+
+      <div ref={chatScrollRef} className="flex-1 overflow-y-auto custom-scrollbar px-6 pb-6 space-y-4">
         {messages.length === 0 ? (
-          <div className="pt-6">
-            <div className={cn("text-sm font-semibold", isDark ? "text-white/70" : "text-black/70")}>Ask anything about this email.</div>
-            <div className={cn("text-xs mt-2 leading-relaxed", isDark ? "text-white/45" : "text-black/45")}>
-              Examples: summarize it, extract deadlines, identify risks, draft a response, or explain the sender’s intent.
+          <div className="pt-2">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-full bg-[#1DB954] flex items-center justify-center shrink-0">
+                <Bot size={22} className="text-black" />
+              </div>
+              <div className="flex-1 pt-1">
+                <div className={cn("text-[12px] font-semibold tracking-[0.24em] uppercase", isDark ? "text-white/40" : "text-black/45")}>
+                  Assistant
+                </div>
+                <div className={cn("mt-2 text-[14px] leading-relaxed", isDark ? "text-white/70" : "text-black/80")}>
+                  Ask anything about this email—summaries, deadlines, risks, and reply drafts. You can edit everything before you send.
+                </div>
+              </div>
             </div>
+
             {Array.isArray(suggested) && suggested.length > 0 && (
-              <div className="mt-5 flex flex-wrap gap-3">
-                {suggested.slice(0, 6).map((s) => (
-                  <button
+              <div className={cn("mt-7 border-t", isDark ? "border-white/10" : "border-black/10")}>
+                {suggested.slice(0, 4).map((s, idx) => (
+                  <motion.button
                     key={s}
                     onClick={() => onSuggested(s)}
                     disabled={busy}
                     className={cn(
-                      "px-4 py-2 rounded-[999px] text-[12px] font-semibold border whitespace-nowrap leading-none transition-all",
-                      busy && "opacity-70 cursor-not-allowed",
-                      isDark
-                        ? "bg-white/5 border-white/10 text-white/80 hover:text-white hover:bg-white/8 hover:border-[#1DB954]/35 hover:shadow-[0_10px_30px_rgba(29,185,84,0.18)]"
-                        : "bg-black/5 border-black/10 text-black/70 hover:text-black hover:bg-black/8 hover:border-[#1DB954]/35 hover:shadow-[0_10px_30px_rgba(29,185,84,0.14)]"
+                      "w-full py-5 border-b flex items-center gap-4 text-left transition-colors",
+                      isDark ? "border-white/10 hover:bg-white/5" : "border-black/10 hover:bg-black/5",
+                      busy && "opacity-70 cursor-not-allowed"
                     )}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    whileTap={{ scale: 0.98 }}
+                    transition={{ type: 'spring', stiffness: 520, damping: 34, delay: idx * 0.04 }}
                   >
-                    {s}
-                  </button>
+                    <div className={cn("w-8 flex-none text-[11px] font-semibold tracking-[0.22em]", isDark ? "text-white/35" : "text-black/40")}>
+                      {String(idx + 1).padStart(2, '0')}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className={cn("text-[14px] font-semibold leading-snug", isDark ? "text-white" : "text-black")}>{s}</div>
+                      <div className={cn("mt-1 text-[12px]", isDark ? "text-white/45" : "text-black/45")}>Tap to run</div>
+                    </div>
+                    <div className="flex-none h-9 w-9 rounded-full bg-[#1DB954] border border-black/10 flex items-center justify-center">
+                      <ArrowRight size={16} className="text-black" />
+                    </div>
+                  </motion.button>
                 ))}
               </div>
             )}
@@ -205,70 +279,117 @@ const AIChatSidebar = ({
           <>
             {messages.map((m) =>
               m.role === 'user' ? (
-                <div key={m.id} className="flex items-end justify-end gap-2">
-                  <div className={cn("max-w-[82%] rounded-[22px] px-4 py-3 text-[14px] leading-relaxed whitespace-pre-wrap", isDark ? "bg-white/10 text-white" : "bg-black/10 text-black")}>
+                <motion.div
+                  key={m.id}
+                  className="flex items-end justify-end gap-3"
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ type: 'spring', stiffness: 520, damping: 34 }}
+                >
+                  <div
+                    className={cn(
+                      "max-w-[78%] rounded-[22px] px-5 py-4 text-[14px] leading-relaxed whitespace-pre-wrap shadow-[0_18px_50px_rgba(0,0,0,0.10)]",
+                      isDark ? "bg-[#10314B] text-white" : "bg-[#CFEFFF] text-black"
+                    )}
+                  >
                     {m.content}
                   </div>
-                  <div className={cn("w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold border shrink-0", isDark ? "bg-[#121212] text-white border-white/10" : "bg-white text-black border-black/10")}>
+                  <div className="w-10 h-10 rounded-full bg-[#1DB954] flex items-center justify-center text-[12px] font-bold text-black shrink-0">
                     {userInitial}
                   </div>
-                </div>
+                </motion.div>
               ) : (
-                <div key={m.id} className="flex items-end justify-start gap-2">
-                  <div className={cn("w-9 h-9 rounded-full border flex items-center justify-center shrink-0", isDark ? "bg-transparent border-white/10" : "bg-transparent border-black/10")}>
-                    <img src={arcByteLogo} alt="ArcByte" className="h-4 w-auto object-contain" />
+                <motion.div
+                  key={m.id}
+                  className="flex items-end justify-start gap-3"
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ type: 'spring', stiffness: 520, damping: 34 }}
+                >
+                  <div className="w-12 h-12 rounded-full bg-[#1DB954] flex items-center justify-center shrink-0">
+                    <Bot size={22} className="text-black" />
                   </div>
-                  <div className="max-w-[86%] rounded-[26px] bg-[#1DB954] text-black px-5 py-4 shadow-[0_18px_50px_rgba(29,185,84,0.18)]">
-                    <div className="text-[14px] leading-relaxed whitespace-pre-wrap">{m.content}</div>
-                    <div className="mt-4 flex items-center gap-4 text-black/70">
-                      <button onClick={() => void copyToClipboard(m.content)} className="p-1 rounded-lg hover:bg-black/10 transition-colors" title="Copy">
+                  <div className={cn("max-w-[78%] rounded-[22px] px-5 py-4 shadow-[0_18px_50px_rgba(0,0,0,0.10)]", isDark ? "bg-[#121212]" : "bg-white")}>
+                    <div className={cn("text-[14px] leading-relaxed whitespace-pre-wrap", isDark ? "text-white/70" : "text-black/80")}>{m.content}</div>
+                    <div className={cn("mt-4 flex items-center gap-4", isDark ? "text-white/45" : "text-black/50")}>
+                      <button
+                        onClick={() => void copyToClipboard(m.content)}
+                        className={cn("p-1 rounded-lg transition-colors", isDark ? "hover:bg-white/5" : "hover:bg-black/5")}
+                        title="Copy"
+                      >
                         <Copy size={18} />
                       </button>
-                      <button className="p-1 rounded-lg hover:bg-black/10 transition-colors" title="Like">
+                      <button className={cn("p-1 rounded-lg transition-colors", isDark ? "hover:bg-white/5" : "hover:bg-black/5")} title="Like">
                         <ThumbsUp size={18} />
                       </button>
-                      <button className="p-1 rounded-lg hover:bg-black/10 transition-colors" title="Read aloud">
+                      <button className={cn("p-1 rounded-lg transition-colors", isDark ? "hover:bg-white/5" : "hover:bg-black/5")} title="Read aloud">
                         <Volume2 size={18} />
                       </button>
-                      <button className="p-1 rounded-lg hover:bg-black/10 transition-colors" title="Regenerate">
+                      <button className={cn("p-1 rounded-lg transition-colors", isDark ? "hover:bg-white/5" : "hover:bg-black/5")} title="Regenerate">
                         <RotateCcw size={18} />
                       </button>
                     </div>
                   </div>
-                </div>
+                </motion.div>
               )
             )}
 
             {busy && (
-              <div className="flex items-end justify-start gap-2">
-                <div className={cn("w-9 h-9 rounded-full border flex items-center justify-center shrink-0", isDark ? "bg-transparent border-white/10" : "bg-transparent border-black/10")}>
-                  <img src={arcByteLogo} alt="ArcByte" className="h-4 w-auto object-contain" />
+              <motion.div
+                className="flex items-end justify-start gap-3"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ type: 'spring', stiffness: 520, damping: 34 }}
+              >
+                <div className="w-12 h-12 rounded-full bg-[#1DB954] flex items-center justify-center shrink-0">
+                  <Bot size={22} className="text-black" />
                 </div>
-                <div className={cn("max-w-[70%] rounded-[22px] px-4 py-3", isDark ? "bg-white/10" : "bg-black/10")}>
-                  <div className="flex items-center gap-1.5">
-                    <span className={cn("w-1.5 h-1.5 rounded-full animate-bounce", isDark ? "bg-white/50" : "bg-black/45")} />
-                    <span className={cn("w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:120ms]", isDark ? "bg-white/50" : "bg-black/45")} />
-                    <span className={cn("w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:240ms]", isDark ? "bg-white/50" : "bg-black/45")} />
-                  </div>
+                <div className="flex items-center gap-2">
+                  <motion.span
+                    className={cn("w-3 h-3 rounded-full", isDark ? "bg-white/70" : "bg-black/70")}
+                    animate={{ y: [0, -5, 0] }}
+                    transition={{ duration: 0.9, repeat: Infinity, ease: 'easeInOut' }}
+                  />
+                  <motion.span
+                    className={cn("w-3 h-3 rounded-full", isDark ? "bg-white/25" : "bg-black/25")}
+                    animate={{ y: [0, -5, 0] }}
+                    transition={{ duration: 0.9, repeat: Infinity, ease: 'easeInOut', delay: 0.12 }}
+                  />
+                  <motion.span
+                    className={cn("w-3 h-3 rounded-full", isDark ? "bg-white/25" : "bg-black/25")}
+                    animate={{ y: [0, -5, 0] }}
+                    transition={{ duration: 0.9, repeat: Infinity, ease: 'easeInOut', delay: 0.24 }}
+                  />
                 </div>
-              </div>
+              </motion.div>
             )}
           </>
         )}
       </div>
 
-      <div className={cn("px-5 pb-5 pt-3 border-t", isDark ? "border-white/10" : "border-black/10")} style={{ paddingBottom: 'calc(1.25rem + env(safe-area-inset-bottom))' }}>
-        <div className={cn("min-h-12 rounded-full border flex items-center gap-2 px-3", isDark ? "bg-[#121212] border-white/10" : "bg-white border-black/10")}>
-          <button className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-white/10" : "text-black/55 hover:text-black hover:bg-black/10")} title="Add">
-            <Plus size={18} />
+      <div className={cn("px-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-4 shrink-0", isDark ? "bg-[#0B0B0B]" : "bg-[#F4F5EE]")}>
+        <div className={cn("h-14 rounded-full flex items-center gap-3 px-3", isDark ? "bg-[#121212] border border-white/10 shadow-[0_18px_60px_rgba(0,0,0,0.65)]" : "bg-white shadow-[0_18px_50px_rgba(0,0,0,0.12)]")}>
+          <button
+            onClick={() => setAttachOpen(true)}
+            className={cn(
+              "h-11 w-11 rounded-full flex items-center justify-center",
+              isDark ? "bg-[#121212] border border-white/10" : "bg-white border border-black/10"
+            )}
+            title="Add"
+            aria-label="Add"
+          >
+            <Plus size={18} className={cn(isDark ? "text-white" : "text-black")} />
           </button>
           <textarea
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
-            placeholder="Send message..."
+            placeholder="Ask me anything..."
             rows={1}
             spellCheck={false}
-            className={cn("flex-1 min-w-0 bg-transparent border-none outline-none text-[14px] font-medium resize-none py-3 leading-[18px]", isDark ? "text-white placeholder:text-white/35" : "text-black placeholder:text-black/35")}
+            className={cn(
+              "flex-1 min-w-0 bg-transparent border-none outline-none text-[14px] font-medium resize-none leading-[18px] pt-[16px] pb-[16px]",
+              isDark ? "text-white/80 placeholder:text-white/30" : "text-black/80 placeholder:text-black/35"
+            )}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -280,16 +401,137 @@ const AIChatSidebar = ({
             onClick={input.trim() ? (() => void onSend()) : undefined}
             disabled={busy}
             className={cn(
-              "h-10 w-10 rounded-full flex items-center justify-center transition-all",
-              busy ? "opacity-70 cursor-not-allowed" : "hover:scale-105 active:scale-95",
-              input.trim() ? "bg-[#1DB954] text-black" : (isDark ? "bg-white/10 text-white/70" : "bg-black/10 text-black/70")
+              "h-11 w-11 rounded-full flex items-center justify-center",
+              busy ? "opacity-70 cursor-not-allowed" : "",
+              "bg-[#1DB954] text-black"
             )}
-            title={input.trim() ? "Send" : "Voice"}
+            title="Send"
           >
-            {busy ? <Loader2 size={18} className="animate-spin" /> : input.trim() ? <SendHorizontal size={18} /> : <Mic size={18} />}
+            {busy ? <Loader2 size={18} className="animate-spin" /> : <SendHorizontal size={18} />}
           </button>
         </div>
       </div>
+
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          e.currentTarget.value = '';
+          setAttachOpen(false);
+        }}
+      />
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          e.currentTarget.value = '';
+          setAttachOpen(false);
+        }}
+      />
+      <input
+        ref={documentInputRef}
+        type="file"
+        accept=".pdf,.doc,.docx,.txt,.rtf,.csv,.xlsx,.ppt,.pptx,.md,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
+        className="hidden"
+        onChange={(e) => {
+          e.currentTarget.value = '';
+          setAttachOpen(false);
+        }}
+      />
+
+      <AnimatePresence>
+        {attachOpen && (
+          <motion.div
+            className="absolute inset-0 z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/20"
+              aria-label="Close attachments"
+              onClick={() => setAttachOpen(false)}
+            />
+
+            <motion.div
+              className="absolute inset-x-0 bottom-0 pb-[calc(1rem+env(safe-area-inset-bottom))]"
+              initial={{ y: 24, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 24, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 36 }}
+            >
+              <div
+                className={cn(
+                  "relative mx-5 mb-2 rounded-[30px] px-6 pt-10 pb-6",
+                  isDark ? "bg-[#121212] border border-white/10 shadow-[0_30px_110px_rgba(0,0,0,0.75)]" : "bg-white shadow-[0_30px_110px_rgba(0,0,0,0.22)]"
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => setAttachOpen(false)}
+                  className={cn(
+                    "absolute left-1/2 -translate-x-1/2 -top-6 h-12 w-12 rounded-full flex items-center justify-center",
+                    isDark ? "bg-[#121212] border border-white/10 shadow-[0_18px_60px_rgba(0,0,0,0.65)]" : "bg-white border border-black/10 shadow-[0_14px_40px_rgba(0,0,0,0.12)]"
+                  )}
+                  aria-label="Close"
+                >
+                  <X size={18} className={cn(isDark ? "text-white" : "text-black")} />
+                </button>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <button
+                    type="button"
+                    onClick={() => cameraInputRef.current?.click()}
+                    className={cn(
+                      "rounded-[22px] h-[108px] flex flex-col items-center justify-center gap-3",
+                      isDark ? "bg-[#0F0F0F] border border-white/10" : "bg-[#F5F6F2]"
+                    )}
+                  >
+                    <div className="h-12 w-12 rounded-full bg-[#1DB954] flex items-center justify-center">
+                      <Camera size={20} className="text-black" />
+                    </div>
+                    <div className={cn("text-[13px] font-semibold", isDark ? "text-white/75" : "text-black/75")}>Camera</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => photoInputRef.current?.click()}
+                    className={cn(
+                      "rounded-[22px] h-[108px] flex flex-col items-center justify-center gap-3",
+                      isDark ? "bg-[#0F0F0F] border border-white/10" : "bg-[#F5F6F2]"
+                    )}
+                  >
+                    <div className="h-12 w-12 rounded-full bg-[#CFEFFF] flex items-center justify-center">
+                      <Image size={20} className="text-black" />
+                    </div>
+                    <div className={cn("text-[13px] font-semibold", isDark ? "text-white/75" : "text-black/75")}>Photo</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => documentInputRef.current?.click()}
+                    className={cn(
+                      "rounded-[22px] h-[108px] flex flex-col items-center justify-center gap-3",
+                      isDark ? "bg-[#0F0F0F] border border-white/10" : "bg-[#F5F6F2]"
+                    )}
+                  >
+                    <div className="h-12 w-12 rounded-full bg-[#ECEFF3] flex items-center justify-center">
+                      <FileText size={20} className="text-black" />
+                    </div>
+                    <div className={cn("text-[13px] font-semibold", isDark ? "text-white/75" : "text-black/75")}>Document</div>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -2036,23 +2278,31 @@ const ReadingPane = ({
         </div>
         </div>
 
-        {!isMobile && aiChatOpen && (
-          <aside className={cn("w-[420px] shrink-0 border-l", isDark ? "border-[#1A1A1A] bg-[#121212]" : "border-[#E5E5E5] bg-white")}>
-            <AIChatSidebar
-              isDark={isDark}
-              subject={chatSubject}
-              userInitial={chatUserInitial}
-              messages={aiChatMessages}
-              busy={aiChatBusy}
-              input={aiChatInput}
-              onInputChange={onAiChatInputChange}
-              onSend={() => void onSendAiChat()}
-              suggested={aiChatSuggested}
-              onSuggested={onAiChatSuggested}
-              onClose={onCloseAiChat}
-            />
-          </aside>
-        )}
+        <AnimatePresence>
+          {!isMobile && aiChatOpen && (
+            <motion.aside
+              initial={{ opacity: 0, x: 24 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 24 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+              className={cn("w-[420px] shrink-0 border-l", isDark ? "border-[#1A1A1A] bg-[#0B0B0B]" : "border-[#E5E5E5] bg-white")}
+            >
+              <AIChatSidebar
+                isDark={isDark}
+                subject={chatSubject}
+                userInitial={chatUserInitial}
+                messages={aiChatMessages}
+                busy={aiChatBusy}
+                input={aiChatInput}
+                onInputChange={onAiChatInputChange}
+                onSend={() => void onSendAiChat()}
+                suggested={aiChatSuggested}
+                onSuggested={onAiChatSuggested}
+                onClose={onCloseAiChat}
+              />
+            </motion.aside>
+          )}
+        </AnimatePresence>
       </div>
 
       <AnimatePresence>
@@ -2063,16 +2313,12 @@ const ReadingPane = ({
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[70]"
           >
-            <div className="absolute inset-0 bg-black/55" onClick={onCloseAiChat} />
             <motion.div
-              initial={{ x: '100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '100%' }}
-              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-              className={cn(
-                "absolute inset-y-0 right-0 w-[92%] max-w-[440px] border-l shadow-2xl",
-                isDark ? "bg-[#121212] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]"
-              )}
+              initial={{ x: '100%', opacity: 0.95, scale: 0.985 }}
+              animate={{ x: 0, opacity: 1, scale: 1 }}
+              exit={{ x: '100%', opacity: 0.92, scale: 0.985 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 36 }}
+              className={cn("absolute inset-0", isDark ? "bg-[#0B0B0B]" : "bg-white")}
             >
               <AIChatSidebar
                 isDark={isDark}
@@ -2719,8 +2965,8 @@ const MobileNav = ({
       <div className="fixed inset-x-3 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 flex justify-center sm:inset-x-4">
         <div
           className={cn(
-            "w-full max-w-md h-[clamp(64px,18vw,74px)] rounded-[28px] grid grid-cols-5 place-items-center px-[clamp(10px,3.5vw,16px)] border",
-            isDark ? "bg-[#0B0B0B] border-white/20 shadow-[0_30px_90px_rgba(0,0,0,0.75)]" : "bg-white border-black/10 shadow-[0_18px_60px_rgba(0,0,0,0.12)]"
+            "w-full max-w-md h-[clamp(64px,18vw,74px)] rounded-[28px] grid grid-cols-5 place-items-center px-[clamp(10px,3.5vw,16px)]",
+            isDark ? "bg-[#111111] shadow-[0_26px_80px_rgba(0,0,0,0.65)]" : "bg-white border border-black/10 shadow-[0_18px_60px_rgba(0,0,0,0.12)]"
           )}
         >
           <MobileNavItem icon={Inbox} label={t('inbox')} isActive={!profileActive && activeFolder === 'inbox'} onClick={() => onFolderChange('inbox')} isDark={isDark} />
@@ -2730,7 +2976,7 @@ const MobileNav = ({
             onClick={onCompose}
             className={cn(
               "w-[clamp(46px,12vw,54px)] h-[clamp(46px,12vw,54px)] rounded-2xl flex items-center justify-center transition-transform active:scale-95 border",
-              isDark ? "bg-[#111111] border-white/20 text-white shadow-[0_18px_50px_rgba(0,0,0,0.55)]" : "bg-white border-black/10 text-black shadow-[0_14px_44px_rgba(0,0,0,0.10)]"
+              isDark ? "bg-[#141414] border-[#2A2A2A] text-white shadow-[0_18px_50px_rgba(0,0,0,0.45)]" : "bg-white border-black/10 text-black shadow-[0_14px_44px_rgba(0,0,0,0.10)]"
             )}
             whileTap={{ scale: 0.92 }}
             transition={{ type: "spring", stiffness: 520, damping: 34 }}
@@ -4445,6 +4691,8 @@ const MailAppContent = () => {
   const threadsAbortRef = useRef<AbortController | null>(null);
   const threadsCursorRef = useRef<string | undefined>(undefined);
   const selectedIdRef = useRef<string | null>(null);
+  const prevInitialLoadFolderRef = useRef<MailFolder | null>(null);
+  const prevInitialLoadAuthedRef = useRef(false);
   const composeOpen = composeState.open;
   const prevInboxUnseenRef = useRef<number>(0);
   const notifPromptedRef = useRef(false);
@@ -4473,6 +4721,10 @@ const MailAppContent = () => {
       notificationsEnabledRef.current = true;
     }
   }, []);
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -5263,6 +5515,7 @@ const MailAppContent = () => {
   useEffect(() => {
     const q = searchQuery.trim();
     const hasFilters = Boolean(searchFilters.unread || searchFilters.flagged || searchFilters.answered || searchFilters.attachment || searchFilters.from || searchFilters.to || searchFilters.since || searchFilters.before);
+    if (selectedIdRef.current) return;
     if (q || hasFilters) return;
     threadsCursorRef.current = undefined;
     setThreadsCursor(undefined);
@@ -5272,13 +5525,22 @@ const MailAppContent = () => {
   // Initial load
   useEffect(() => {
     if (!isLoading && isAuthenticated && user?.role === 'MAIL_USER') {
+      const justAuthed = !prevInitialLoadAuthedRef.current;
+      const folderChanged = prevInitialLoadFolderRef.current !== activeFolder;
+      prevInitialLoadAuthedRef.current = true;
+      prevInitialLoadFolderRef.current = activeFolder;
+      if (!justAuthed && !folderChanged) return;
+
       const hasLocalSent =
         activeFolder === 'sent' && readPendingSent().length > 0;
       if (!hasLocalSent) {
         setThreadsCursor(undefined);
         threadsCursorRef.current = undefined;
-        setSelectedId(null);
-        setThreadDetail(null);
+        if (folderChanged || justAuthed) {
+          setSelectedId(null);
+          setThreadDetail(null);
+          selectedIdRef.current = null;
+        }
       }
       loadThreads({ reset: true });
     }
@@ -5287,6 +5549,7 @@ const MailAppContent = () => {
   useEffect(() => {
     if (!isLoading && isAuthenticated && user?.role === 'MAIL_USER') {
       const intervalId = window.setInterval(() => {
+        if (selectedIdRef.current) return;
         loadThreads({ reset: true });
       }, 15000);
       return () => window.clearInterval(intervalId);
@@ -5660,28 +5923,43 @@ const MailAppContent = () => {
 
              {aiEnabled && selectedId && (
                <>
-                 <button
+                <motion.button
                    onClick={openAskAI}
-                   className={cn(
-                     "hidden md:flex items-center gap-2 px-4 h-11 rounded-full border transition-all font-semibold text-sm whitespace-nowrap",
-                     isDark
-                       ? "bg-[#121212] border-[#282828] text-white hover:bg-[#181818] hover:border-[#1DB954]/30"
-                       : "bg-white border-[#E5E5E5] text-black hover:bg-[#F0F0F0] hover:border-[#1DB954]/30"
-                   )}
-                 >
-                  <Sparkles size={18} className="text-[#1DB954]" />
-                  Ask AI
-                 </button>
-                 <button
-                   onClick={openAskAI}
-                   className={cn(
-                     "md:hidden p-2.5 rounded-full transition-colors relative border border-transparent",
-                     isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A] hover:border-[#282828]" : "text-[#5E5E5E] hover:text-black hover:bg-[#F0F0F0] hover:border-[#E5E5E5]"
-                   )}
+                 className="hidden md:inline-flex rounded-full p-[2px] bg-gradient-to-r from-[#00C2FF] via-[#00E3B5] to-[#CFFF3A] shadow-[0_10px_30px_rgba(0,0,0,0.10)]"
                   title="Ask AI"
+                  whileHover={{ scale: 1.04 }}
+                  whileTap={{ scale: 0.92 }}
+                  transition={{ type: 'spring', stiffness: 520, damping: 32 }}
                  >
-                  <Sparkles size={20} className="text-[#1DB954]" />
-                 </button>
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-2 h-10 px-4 rounded-full font-semibold",
+                    isDark ? "bg-[#0B0B0B] text-white border border-white/10" : "bg-white text-black"
+                  )}
+                >
+                   <span className="inline-flex items-center justify-center h-5 w-5">
+                      <img src="https://img.icons8.com/glyph-neue/64/FFFFFF/bard--v1.png" alt="AI" className="h-5 w-5 object-contain" />
+                   </span>
+                   <span className="text-[13px]">Ask AI</span>
+                </span>
+                </motion.button>
+                <motion.button
+                   onClick={openAskAI}
+                 className="md:hidden inline-flex rounded-full p-[2px] bg-gradient-to-r from-[#00C2FF] via-[#00E3B5] to-[#CFFF3A] shadow-[0_10px_30px_rgba(0,0,0,0.10)]"
+                  title="Ask AI"
+                  whileHover={{ scale: 1.06 }}
+                  whileTap={{ scale: 0.9 }}
+                  transition={{ type: 'spring', stiffness: 560, damping: 34 }}
+                 >
+                <span
+                  className={cn(
+                    "inline-flex items-center justify-center h-9 w-9 rounded-full",
+                    isDark ? "bg-[#0B0B0B] border border-white/10" : "bg-white"
+                  )}
+                >
+                  <img src="https://img.icons8.com/glyph-neue/64/FFFFFF/bard--v1.png" alt="Ask AI" className="h-4 w-4 object-contain" />
+                 </span>
+                </motion.button>
                </>
              )}
 
@@ -5882,6 +6160,7 @@ const MailAppContent = () => {
                             thread={t} 
                             selected={selectedId === t.id}
                             onClick={() => {
+                              selectedIdRef.current = t.id;
                               setSelectedId(t.id);
                               setThreads(prev => prev.map(p => p.id === t.id ? { ...p, unread: false } : p));
                               markThreadRead(t.id);
