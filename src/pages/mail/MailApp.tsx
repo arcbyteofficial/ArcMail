@@ -2659,38 +2659,44 @@ const MobileNavItem = ({
   isActive?: boolean;
   onClick: () => void;
   isDark: boolean;
-}) => (
-  <button
-    onClick={onClick}
-    className={cn(
-      "relative flex flex-col items-center justify-center w-14 h-full transition-all duration-300",
-      isActive
-        ? (isDark ? "text-white" : "text-black")
-        : (isDark ? "text-[#787878] hover:text-white" : "text-[#949494] hover:text-black")
-    )}
-  >
-    <div
+}) =>
+  isActive ? (
+    <motion.button
+      onClick={onClick}
       className={cn(
-        "absolute -top-1 w-8 h-1 rounded-b-full bg-[#1DB954] transition-all duration-300",
-        isActive ? "opacity-100 shadow-[0_2px_10px_#1DB954]" : "opacity-0 -translate-y-2"
+        "relative w-12 h-12 rounded-full flex items-center justify-center",
+        isDark ? "text-black" : "text-white"
       )}
-    />
-
-    <Icon
-      size={22}
-      strokeWidth={isActive ? 2.5 : 2}
-      className={cn("transition-transform duration-300", isActive && "scale-110")}
-    />
-    <span
-      className={cn(
-        "text-[10px] font-medium mt-1 transition-all duration-300",
-        isActive ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 hidden"
-      )}
+      whileTap={{ scale: 0.92 }}
+      transition={{ type: "spring", stiffness: 520, damping: 34 }}
+      aria-label={label}
     >
-      {label}
-    </span>
-  </button>
-);
+      <motion.div
+        layoutId="mobileNavActiveCircle"
+        className={cn(
+          "absolute inset-0 rounded-full",
+          isDark ? "bg-white shadow-[0_18px_50px_rgba(0,0,0,0.55)]" : "bg-black shadow-[0_14px_44px_rgba(0,0,0,0.10)]"
+        )}
+        transition={{ type: "spring", stiffness: 520, damping: 38 }}
+      />
+      <motion.div className="relative z-10" initial={{ scale: 0.96, opacity: 0.9 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: 0.16 }}>
+        <Icon size={22} strokeWidth={2.4} />
+      </motion.div>
+    </motion.button>
+  ) : (
+    <motion.button
+      onClick={onClick}
+      className={cn(
+        "w-12 h-12 rounded-full flex items-center justify-center",
+        isDark ? "bg-transparent text-white/65 hover:text-white" : "bg-transparent text-black/55 hover:text-black"
+      )}
+      whileTap={{ scale: 0.92 }}
+      transition={{ type: "spring", stiffness: 520, damping: 34 }}
+      aria-label={label}
+    >
+      <Icon size={22} strokeWidth={2.2} />
+    </motion.button>
+  );
 
 const MobileNav = ({
   activeFolder,
@@ -2710,60 +2716,35 @@ const MobileNav = ({
 
   return (
     <>
-    <div className="fixed bottom-6 inset-x-4 z-40 flex justify-center">
-      <div className={cn(
-        "w-full max-w-md h-16 rounded-2xl flex items-center justify-between px-6 backdrop-blur-xl border shadow-2xl relative",
-        isDark 
-          ? "bg-[#121212]/85 border-[#282828] shadow-black/50" 
-          : "bg-white/85 border-[#E5E5E5] shadow-black/10"
-      )}>
-        <MobileNavItem 
-          icon={Inbox} 
-          label={t('inbox')} 
-          isActive={!profileActive && activeFolder === 'inbox'} 
-          onClick={() => onFolderChange('inbox')}
-          isDark={isDark}
-        />
-        
-        <MobileNavItem 
-          icon={Send} 
-          label={t('sent')} 
-          isActive={!profileActive && activeFolder === 'sent'} 
-          onClick={() => onFolderChange('sent')}
-          isDark={isDark}
-        />
+      <div className="fixed bottom-6 inset-x-4 z-40 flex justify-center">
+        <div
+          className={cn(
+            "w-full max-w-md h-[74px] rounded-[28px] flex items-center justify-between px-4 border",
+            isDark ? "bg-[#0B0B0B] border-white/20 shadow-[0_30px_90px_rgba(0,0,0,0.75)]" : "bg-white border-black/10 shadow-[0_18px_60px_rgba(0,0,0,0.12)]"
+          )}
+          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        >
+          <MobileNavItem icon={Inbox} label={t('inbox')} isActive={!profileActive && activeFolder === 'inbox'} onClick={() => onFolderChange('inbox')} isDark={isDark} />
+          <MobileNavItem icon={Send} label={t('sent')} isActive={!profileActive && activeFolder === 'sent'} onClick={() => onFolderChange('sent')} isDark={isDark} />
 
-        {/* Floating Compose Button */}
-        <div className="relative -top-6">
-           <div className={cn(
-             "absolute inset-0 rounded-full blur-xl opacity-40 bg-[#1DB954]"
-           )} />
-           <button 
-             onClick={onCompose}
-             className="relative w-14 h-14 bg-gradient-to-tr from-[#1DB954] to-[#1ED760] rounded-full flex items-center justify-center shadow-[0_8px_20px_rgba(29,185,84,0.3)] text-black transition-transform active:scale-95 group border-4 border-transparent bg-clip-padding"
-             style={{ borderColor: isDark ? '#000' : '#fff' }}
-           >
-             <Pencil size={24} strokeWidth={2.5} className="group-hover:rotate-12 transition-transform duration-300" />
-           </button>
+          <motion.button
+            onClick={onCompose}
+            className={cn(
+              "w-12 h-12 rounded-2xl flex items-center justify-center transition-transform active:scale-95 border",
+              isDark ? "bg-[#111111] border-white/20 text-white shadow-[0_18px_50px_rgba(0,0,0,0.55)]" : "bg-white border-black/10 text-black shadow-[0_14px_44px_rgba(0,0,0,0.10)]"
+            )}
+            whileTap={{ scale: 0.92 }}
+            transition={{ type: "spring", stiffness: 520, damping: 34 }}
+            aria-label="Compose"
+            title="Compose"
+          >
+            <Pencil size={22} strokeWidth={2.4} />
+          </motion.button>
+
+          <MobileNavItem icon={FileText} label={t('drafts')} isActive={!profileActive && activeFolder === 'drafts'} onClick={() => onFolderChange('drafts')} isDark={isDark} />
+          <MobileNavItem icon={UserRound} label="Profile" isActive={profileActive} onClick={onOpenProfile} isDark={isDark} />
         </div>
-
-        <MobileNavItem 
-          icon={FileText} 
-          label={t('drafts')} 
-          isActive={!profileActive && activeFolder === 'drafts'} 
-          onClick={() => onFolderChange('drafts')}
-          isDark={isDark}
-        />
-        
-        <MobileNavItem
-          icon={UserRound}
-          label="Profile"
-          isActive={profileActive}
-          onClick={onOpenProfile}
-          isDark={isDark}
-        />
       </div>
-    </div>
     </>
   );
 };
@@ -2798,6 +2779,9 @@ const MobileProfileSection = ({
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [accountsOpen, setAccountsOpen] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(true);
   const [twoFAOpen, setTwoFAOpen] = useState(false);
   const [addEmail, setAddEmail] = useState('');
   const [addPassword, setAddPassword] = useState('');
@@ -2832,6 +2816,13 @@ const MobileProfileSection = ({
     Boolean(activeAccountId) &&
     ((displayName || '').trim() !== (active?.name || '').trim() || draftAvatar !== undefined);
 
+  const profileCompletion = useMemo(() => {
+    let pct = 50;
+    if (String(displayName || '').trim()) pct += 25;
+    if (effectiveAvatar) pct += 25;
+    return Math.max(0, Math.min(100, pct));
+  }, [displayName, effectiveAvatar]);
+
   const resetAddFlow = () => {
     setAddStep('form');
     setAddPreAuthToken('');
@@ -2845,237 +2836,361 @@ const MobileProfileSection = ({
   };
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-[calc(7.5rem+env(safe-area-inset-bottom))]">
-      <div className="px-4 pt-5 pb-4">
-        <div className="flex items-center gap-3">
+    <div className={cn("flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-[calc(7.5rem+env(safe-area-inset-bottom))]", isDark ? "bg-[#0B0B0B]" : "bg-[#F6F6F6]")}>
+      <div className="px-6 pt-6">
+        <div className="relative flex items-center justify-between">
           <button
             onClick={onClose}
             className={cn(
-              "w-10 h-10 rounded-2xl flex items-center justify-center transition-colors border",
-              isDark ? "bg-[#121212] border-[#282828] text-white hover:bg-[#1A1A1A]" : "bg-white border-[#E5E5E5] text-black hover:bg-[#F6F6F6]"
+              "w-10 h-10 rounded-full flex items-center justify-center transition-colors border",
+              isDark ? "bg-[#121212] border-[#282828] text-white/80 hover:text-white hover:bg-[#1A1A1A]" : "bg-white border-[#E5E5E5] text-black/70 hover:text-black hover:bg-[#F6F6F6]"
             )}
+            title="Back"
           >
             <ArrowLeft size={18} />
           </button>
-          <div className="min-w-0">
-            <div className={cn("text-xl font-bold tracking-tight", isDark ? "text-white" : "text-black")}>Profile</div>
-            <div className={cn("text-sm mt-0.5 truncate", isDark ? "text-white/55" : "text-black/55")}>Edit name & photo.</div>
+          <div className={cn("absolute left-1/2 -translate-x-1/2 text-base font-semibold tracking-tight", isDark ? "text-white/85" : "text-black/85")}>
+            Profile
           </div>
+          <button
+            onClick={() => {
+              try {
+                window.dispatchEvent(new CustomEvent('arcmail:openSettings'));
+              } catch {
+                setEditOpen(true);
+              }
+            }}
+            className={cn(
+              "w-10 h-10 rounded-full flex items-center justify-center transition-colors border",
+              isDark ? "bg-[#121212] border-[#282828] text-white/80 hover:text-white hover:bg-[#1A1A1A]" : "bg-white border-[#E5E5E5] text-black/70 hover:text-black hover:bg-[#F6F6F6]"
+            )}
+            title="Settings"
+          >
+            <Settings size={18} />
+          </button>
         </div>
       </div>
 
-      <div className="px-4 space-y-4">
-        <div className={cn("rounded-3xl border overflow-hidden", isDark ? "bg-[#0B0B0B] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]")}>
-          <div className="h-[2px] bg-gradient-to-r from-transparent via-[#1DB954]/90 to-transparent" />
-          <div className="p-5">
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-[#1DB954] to-[#1ED760] p-[2px] shrink-0">
-                <div className={cn("w-full h-full rounded-full overflow-hidden flex items-center justify-center", isDark ? "bg-[#0B0B0B]" : "bg-white")}>
-                  {effectiveAvatar ? (
-                    <img src={effectiveAvatar} alt={active?.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <span className={cn("font-bold text-xl", isDark ? "text-white" : "text-black")}>{(active?.email || '?')[0].toUpperCase()}</span>
-                  )}
-                </div>
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className={cn("text-[12px] font-bold tracking-widest uppercase truncate", isDark ? "text-white/45" : "text-black/45")}>{active?.email || ''}</div>
-                <div className={cn("text-base font-bold mt-1 truncate", isDark ? "text-white" : "text-black")}>{active?.name || ''}</div>
-              </div>
-            </div>
-
-            {photoError && (
-              <div className="mt-4 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-                {photoError}
-              </div>
-            )}
-            {saveError && (
-              <div className="mt-4 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-                {saveError}
-              </div>
-            )}
-
-            <div className="mt-4 flex items-center gap-2">
-              <label
-                className={cn(
-                  "flex-1 px-3 h-10 rounded-xl font-bold text-[12px] flex items-center justify-center gap-2 cursor-pointer border transition-colors",
-                  isDark ? "bg-[#121212] border-[#282828] text-white hover:bg-[#1A1A1A]" : "bg-white border-[#E5E5E5] text-black hover:bg-[#F6F6F6]"
-                )}
-              >
-                <ImagePlus size={16} />
-                Change photo
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = '';
-                    setPhotoError(null);
-                    setSaveError(null);
-                    if (!file || !activeAccountId) return;
-                    if (!file.type.startsWith('image/')) return setPhotoError('Choose an image file.');
-                    if (file.size > 200_000) return setPhotoError('Image is too large. Use a smaller image.');
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                      const result = typeof reader.result === 'string' ? reader.result : '';
-                      if (!result) return;
-                      setDraftAvatar(result);
-                    };
-                    reader.readAsDataURL(file);
-                  }}
-                />
-              </label>
-              <button
-                onClick={() => {
-                  setPhotoError(null);
-                  setSaveError(null);
-                  if (!activeAccountId) return;
-                  setDraftAvatar(null);
-                }}
-                className={cn(
-                  "px-3 h-10 rounded-xl font-bold text-[12px] flex items-center justify-center gap-2 transition-colors border",
-                  isDark ? "bg-transparent border-[#282828] text-white/70 hover:bg-[#1A1A1A] hover:text-white" : "bg-transparent border-[#E5E5E5] text-black/70 hover:bg-[#F6F6F6] hover:text-black"
-                )}
-              >
-                <Trash2 size={16} />
-                Remove
-              </button>
-            </div>
-
-            <div className="mt-4">
-              <div className={cn("text-[11px] font-bold tracking-widest uppercase mb-2", isDark ? "text-white/45" : "text-black/45")}>Display name</div>
-              <div className={cn("group flex items-center gap-3 rounded-2xl px-4 h-12 border transition-all", isDark ? "bg-[#111111] border-white/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25" : "bg-white border-black/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/20")}>
-                <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
-                  <UserRound size={16} strokeWidth={2.2} />
-                </div>
-                <input
-                  value={displayName}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setDisplayName(v);
-                  }}
-                  className={cn("flex-1 min-w-0 bg-transparent outline-none text-base", isDark ? "text-white placeholder-white/20" : "text-black placeholder-black/30")}
-                  placeholder="Your name"
-                />
-              </div>
-              <button
-                disabled={!hasUnsaved || saveBusy || !activeAccountId}
-                onClick={async () => {
-                  if (!activeAccountId) return;
-                  setSaveBusy(true);
-                  setSaveError(null);
-                  try {
-                    const payload: { displayName?: string; avatarDataUrl?: string | null } = {};
-                    payload.displayName = displayName;
-                    if (draftAvatar !== undefined) payload.avatarDataUrl = draftAvatar;
-                    const res = await onUpdateAccountProfile(activeAccountId, payload);
-                    if (!res.ok) {
-                      setSaveError(res.error || 'Save failed. Please try again.');
-                      return;
-                    }
-                    setDraftAvatar(undefined);
-                  } finally {
-                    setSaveBusy(false);
-                  }
-                }}
-                className={cn(
-                  "mt-3 w-full h-11 rounded-2xl text-[11px] font-extrabold tracking-[0.18em] uppercase border transition-colors disabled:opacity-60 disabled:cursor-not-allowed",
-                  isDark
-                    ? "bg-[#1DB954] text-black border-transparent hover:bg-[#1ED760]"
-                    : "bg-[#1DB954] text-black border-transparent hover:bg-[#1ED760]"
-                )}
-              >
-                {saveBusy ? 'Saving' : hasUnsaved ? 'Save changes' : 'Saved'}
-              </button>
-              <button
-                onClick={() => setTwoFAOpen(true)}
-                className={cn(
-                  "mt-3 w-full h-11 rounded-2xl text-[11px] font-extrabold tracking-[0.18em] uppercase border transition-colors",
-                  isDark
-                    ? "bg-[#121212] border-[#282828] text-white/85 hover:bg-[#1A1A1A] hover:text-white"
-                    : "bg-white border-[#E5E5E5] text-black/80 hover:bg-[#F6F6F6] hover:text-black"
-                )}
-              >
-                Two‑Factor Auth
-              </button>
+      <div className="px-4 space-y-4 mt-6">
+        <div className="flex flex-col items-center text-center pt-2">
+          <div
+            className="w-28 h-28 rounded-full p-[3px]"
+            style={{
+              background: `conic-gradient(#FACC15 0deg, #FACC15 ${Math.round((profileCompletion / 100) * 360)}deg, rgba(255,255,255,0.12) ${Math.round((profileCompletion / 100) * 360)}deg, rgba(255,255,255,0.12) 360deg)`,
+            }}
+          >
+            <div className={cn("w-full h-full rounded-full overflow-hidden flex items-center justify-center", isDark ? "bg-[#0B0B0B]" : "bg-white")}>
+              {effectiveAvatar ? (
+                <img src={effectiveAvatar} alt={active?.name} className="w-full h-full object-cover" />
+              ) : (
+                <span className={cn("font-bold text-2xl", isDark ? "text-white" : "text-black")}>{(active?.email || '?')[0].toUpperCase()}</span>
+              )}
             </div>
           </div>
-        </div>
-
-        <div className={cn("rounded-3xl border overflow-hidden", isDark ? "bg-[#0B0B0B] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]")}>
-          <div
+          <div className="mt-2 inline-flex items-center justify-center px-3 h-7 rounded-full bg-[#FACC15] text-black text-xs font-bold">
+            {profileCompletion}%
+          </div>
+          <div className={cn("text-2xl font-bold tracking-tight mt-4", isDark ? "text-white" : "text-black")}>{active?.name || active?.email || ''}</div>
+          <div className={cn("text-sm mt-1 truncate max-w-[260px]", isDark ? "text-white/50" : "text-black/50")}>{active?.email || ''}</div>
+          <button
+            onClick={() => {
+              setEditOpen(true);
+              setPhotoError(null);
+              setSaveError(null);
+            }}
             className={cn(
-              "px-5 py-4 text-[11px] font-bold tracking-widest uppercase flex items-center justify-between",
-              isDark ? "text-white/45" : "text-black/45"
+              "mt-4 px-8 h-11 rounded-full font-bold text-[12px] border transition-colors",
+              isDark ? "bg-[#121212] border-[#282828] text-white/85 hover:text-white hover:bg-[#1A1A1A]" : "bg-white border-[#E5E5E5] text-black/80 hover:text-black hover:bg-[#F6F6F6]"
             )}
           >
-            <span>Accounts</span>
+            Edit profile
+          </button>
+        </div>
+
+        <div className={cn("rounded-3xl border overflow-hidden", isDark ? "bg-[#0B0B0B] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]")}>
+          <button
+            onClick={() => setAccountsOpen((v) => !v)}
+            className={cn("w-full px-5 py-4 flex items-center gap-3 transition-colors", isDark ? "hover:bg-white/5" : "hover:bg-black/5")}
+          >
+            <div className={cn("w-10 h-10 rounded-2xl flex items-center justify-center border", isDark ? "bg-white/5 border-white/10 text-white/80" : "bg-white border-black/10 text-black/70")}>
+              <Mail size={18} />
+            </div>
+            <div className="flex-1 min-w-0 text-left">
+              <div className={cn("text-sm font-bold", isDark ? "text-white" : "text-black")}>My accounts</div>
+              <div className={cn("text-xs", isDark ? "text-white/40" : "text-black/40")}>Manage mailboxes</div>
+            </div>
+            <div className={cn("px-2.5 h-7 rounded-full text-xs font-bold flex items-center", isDark ? "bg-white/5 text-white/75 border border-white/10" : "bg-black/5 text-black/70 border border-black/10")}>
+              {accounts.length}
+            </div>
+            <ChevronRight size={18} className={cn("transition-transform", accountsOpen ? "rotate-90" : "")} />
+          </button>
+          <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
+
+          <AnimatePresence initial={false}>
+            {accountsOpen && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.18 }}
+                className="overflow-hidden"
+              >
+                <div className="px-3 py-3 space-y-2">
+                  {accounts.map((a) => {
+                    const isActive = a.id === activeAccountId;
+                    return (
+                      <div key={a.id} className={cn("flex items-center gap-3 rounded-2xl border px-3 py-3", isDark ? "border-[#1A1A1A] bg-[#111111]" : "border-[#E5E5E5] bg-[#FAFAFA]")}>
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#1DB954] to-[#1ED760] p-[2px] shrink-0">
+                          <div className={cn("w-full h-full rounded-full overflow-hidden flex items-center justify-center", isDark ? "bg-[#0B0B0B]" : "bg-white")}>
+                            {a.avatarDataUrl ? (
+                              <img src={a.avatarDataUrl} alt={a.name} className="w-full h-full object-cover" />
+                            ) : (
+                              <span className={cn("font-bold", isDark ? "text-white" : "text-black")}>{(a.email || '?')[0].toUpperCase()}</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className={cn("text-[14px] font-bold truncate", isDark ? "text-white" : "text-black")}>{a.name || a.email}</div>
+                          <div className={cn("text-[12px] truncate", isDark ? "text-white/50" : "text-black/50")}>{a.email}</div>
+                        </div>
+                        <div className="shrink-0 flex items-center gap-2">
+                          {isActive ? (
+                            <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center border", isDark ? "bg-[#121212] border-[#282828] text-[#1DB954]" : "bg-white border-[#E5E5E5] text-[#1DB954]")}>
+                              <Check size={16} />
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => onSwitchAccount(a.id)}
+                                className={cn("px-3 h-9 rounded-xl font-bold text-[12px] transition-colors border", isDark ? "bg-[#121212] border-[#282828] text-white hover:bg-[#1A1A1A]" : "bg-white border-[#E5E5E5] text-black hover:bg-[#F6F6F6]")}
+                              >
+                                Switch
+                              </button>
+                              <button
+                                onClick={() => setRemoveConfirm({ id: a.id, email: a.email })}
+                                className={cn("w-9 h-9 rounded-xl flex items-center justify-center transition-colors border", isDark ? "bg-transparent border-[#282828] text-white/55 hover:text-[#FF5555] hover:bg-[#1A1A1A]" : "bg-transparent border-[#E5E5E5] text-black/55 hover:text-[#FF5555] hover:bg-[#F6F6F6]")}
+                                title="Remove"
+                              >
+                                <X size={16} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  <button
+                    onClick={() => {
+                      resetAddFlow();
+                      setAddOpen(true);
+                      window.setTimeout(() => {
+                        addSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        window.setTimeout(() => addEmailRef.current?.focus(), 250);
+                      }, 0);
+                    }}
+                    className={cn("w-full rounded-2xl border px-4 py-3 flex items-center gap-3 transition-colors", isDark ? "bg-[#111111] border-white/10 text-white/80 hover:bg-[#1A1A1A]" : "bg-[#FAFAFA] border-black/10 text-black/80 hover:bg-[#F2F2F2]")}
+                  >
+                    <div className={cn("w-10 h-10 rounded-2xl flex items-center justify-center border", isDark ? "bg-white/5 border-white/10 text-white/80" : "bg-white border-black/10 text-black/70")}>
+                      <Plus size={18} />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <div className={cn("text-sm font-bold", isDark ? "text-white" : "text-black")}>Add account</div>
+                      <div className={cn("text-xs", isDark ? "text-white/40" : "text-black/40")}>Sign in to another mailbox</div>
+                    </div>
+                    <ChevronRight size={18} />
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        <div className={cn("rounded-3xl border overflow-hidden", isDark ? "bg-[#0B0B0B] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]")}>
+          <div className="px-5 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={cn("w-10 h-10 rounded-2xl flex items-center justify-center border", isDark ? "bg-white/5 border-white/10 text-white/80" : "bg-white border-black/10 text-black/70")}>
+                <Smartphone size={18} />
+              </div>
+              <div className="text-left">
+                <div className={cn("text-sm font-bold", isDark ? "text-white" : "text-black")}>Push notifications</div>
+              </div>
+            </div>
             <button
-              onClick={() => {
-                resetAddFlow();
-                setAddOpen(true);
-                window.setTimeout(() => {
-                  addSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                  window.setTimeout(() => addEmailRef.current?.focus(), 250);
-                }, 0);
-              }}
+              type="button"
+              onClick={() => setPushEnabled((v) => !v)}
               className={cn(
-                "w-9 h-9 rounded-xl flex items-center justify-center transition-colors border",
-                isDark
-                  ? "bg-transparent border-[#282828] text-white/55 hover:text-white hover:bg-[#1A1A1A]"
-                  : "bg-transparent border-[#E5E5E5] text-black/55 hover:text-black hover:bg-[#F6F6F6]"
+                "w-12 h-7 rounded-full border transition-colors flex items-center px-1",
+                pushEnabled ? "bg-[#1DB954] border-[#1DB954]" : isDark ? "bg-[#121212] border-[#282828]" : "bg-white border-[#E5E5E5]"
               )}
-              title="Add account"
             >
-              <Plus size={18} />
+              <div className={cn("w-5 h-5 rounded-full transition-transform", pushEnabled ? "bg-black translate-x-5" : isDark ? "bg-white/60 translate-x-0" : "bg-black/40 translate-x-0")} />
             </button>
           </div>
-          <div className="px-3 pb-4 space-y-2">
-            {accounts.map((a) => {
-              const isActive = a.id === activeAccountId;
-              return (
-                <div key={a.id} className={cn("flex items-center gap-3 rounded-2xl border px-3 py-3", isDark ? "border-[#1A1A1A] bg-[#111111]" : "border-[#E5E5E5] bg-[#FAFAFA]")}>
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#1DB954] to-[#1ED760] p-[2px] shrink-0">
-                    <div className={cn("w-full h-full rounded-full overflow-hidden flex items-center justify-center", isDark ? "bg-[#0B0B0B]" : "bg-white")}>
-                      {a.avatarDataUrl ? (
-                        <img src={a.avatarDataUrl} alt={a.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <span className={cn("font-bold", isDark ? "text-white" : "text-black")}>{(a.email || '?')[0].toUpperCase()}</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className={cn("text-[14px] font-bold truncate", isDark ? "text-white" : "text-black")}>{a.name || a.email}</div>
-                    <div className={cn("text-[12px] truncate", isDark ? "text-white/50" : "text-black/50")}>{a.email}</div>
-                  </div>
-                  <div className="shrink-0 flex items-center gap-2">
-                    {isActive ? (
-                      <div className={cn("px-3 h-9 rounded-xl font-bold text-[11px] tracking-widest uppercase flex items-center border", isDark ? "bg-[#121212] border-[#282828] text-[#1DB954]" : "bg-white border-[#E5E5E5] text-[#1DB954]")}>
-                        Active
-                      </div>
-                    ) : (
-                      <>
-                      <button
-                        onClick={() => onSwitchAccount(a.id)}
-                        className={cn("px-3 h-9 rounded-xl font-bold text-[12px] transition-colors border", isDark ? "bg-[#121212] border-[#282828] text-white hover:bg-[#1A1A1A]" : "bg-white border-[#E5E5E5] text-black hover:bg-[#F6F6F6]")}
-                      >
-                        Switch
-                      </button>
+          <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
+          <button
+            onClick={() => setTwoFAOpen(true)}
+            className={cn("w-full px-5 py-4 flex items-center gap-3 transition-colors", isDark ? "hover:bg-white/5" : "hover:bg-black/5")}
+          >
+            <div className={cn("w-10 h-10 rounded-2xl flex items-center justify-center border", isDark ? "bg-white/5 border-white/10 text-white/80" : "bg-white border-black/10 text-black/70")}>
+              <KeyRound size={18} />
+            </div>
+            <div className="flex-1 text-left">
+              <div className={cn("text-sm font-bold", isDark ? "text-white" : "text-black")}>Two‑Factor Auth</div>
+            </div>
+            <ChevronRight size={18} />
+          </button>
+          <div className={cn("h-px", isDark ? "bg-white/10" : "bg-black/10")} />
+          <button
+            onClick={onLogoutCurrent}
+            className={cn("w-full px-5 py-4 flex items-center gap-3 transition-colors", isDark ? "hover:bg-white/5" : "hover:bg-black/5")}
+          >
+            <div className={cn("w-10 h-10 rounded-2xl flex items-center justify-center border", isDark ? "bg-red-500/15 border-red-500/20 text-red-200" : "bg-red-500/10 border-red-500/20 text-red-700")}>
+              <LogOut size={18} />
+            </div>
+            <div className="flex-1 text-left">
+              <div className={cn("text-sm font-bold", isDark ? "text-red-200" : "text-red-700")}>Logout</div>
+            </div>
+          </button>
+        </div>
+
+        <AnimatePresence>
+          {editOpen && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm"
+                onClick={() => setEditOpen(false)}
+              />
+              <motion.div
+                initial={{ opacity: 0, y: 18, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 18, scale: 0.98 }}
+                transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                className="fixed inset-x-4 top-[10vh] z-[100] mx-auto max-w-md"
+              >
+                <div className={cn("rounded-3xl border overflow-hidden", isDark ? "bg-[#0B0B0B] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]")}>
+                  <div className="h-[2px] bg-gradient-to-r from-transparent via-[#1DB954]/90 to-transparent" />
+                  <div className="px-5 pt-5 pb-4 flex items-center justify-between">
+                    <div className={cn("text-base font-bold", isDark ? "text-white" : "text-black")}>Edit profile</div>
                     <button
-                      onClick={() => setRemoveConfirm({ id: a.id, email: a.email })}
-                      className={cn("w-9 h-9 rounded-xl flex items-center justify-center transition-colors border", isDark ? "bg-transparent border-[#282828] text-white/55 hover:text-[#FF5555] hover:bg-[#1A1A1A]" : "bg-transparent border-[#E5E5E5] text-black/55 hover:text-[#FF5555] hover:bg-[#F6F6F6]")}
+                      onClick={() => setEditOpen(false)}
+                      className={cn("w-10 h-10 rounded-full flex items-center justify-center transition-colors border", isDark ? "bg-[#121212] border-[#282828] text-white/70 hover:text-white hover:bg-[#1A1A1A]" : "bg-white border-[#E5E5E5] text-black/60 hover:text-black hover:bg-[#F6F6F6]")}
                     >
-                      <X size={16} />
+                      <X size={18} />
                     </button>
-                      </>
-                    )}
+                  </div>
+                  <div className="px-5 pb-5 space-y-4">
+                    {photoError && <div className="rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">{photoError}</div>}
+                    {saveError && <div className="rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">{saveError}</div>}
+                    <div className="flex items-center gap-2">
+                      <label
+                        className={cn(
+                          "flex-1 px-3 h-10 rounded-xl font-bold text-[12px] flex items-center justify-center gap-2 cursor-pointer border transition-colors",
+                          isDark ? "bg-[#121212] border-[#282828] text-white hover:bg-[#1A1A1A]" : "bg-white border-[#E5E5E5] text-black hover:bg-[#F6F6F6]"
+                        )}
+                      >
+                        <ImagePlus size={16} />
+                        Change photo
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = '';
+                            setPhotoError(null);
+                            setSaveError(null);
+                            if (!file || !activeAccountId) return;
+                            if (!file.type.startsWith('image/')) return setPhotoError('Choose an image file.');
+                            if (file.size > 200_000) return setPhotoError('Image is too large. Use a smaller image.');
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              const result = typeof reader.result === 'string' ? reader.result : '';
+                              if (!result) return;
+                              setDraftAvatar(result);
+                            };
+                            reader.readAsDataURL(file);
+                          }}
+                        />
+                      </label>
+                      <button
+                        onClick={() => {
+                          setPhotoError(null);
+                          setSaveError(null);
+                          if (!activeAccountId) return;
+                          setDraftAvatar(null);
+                        }}
+                        className={cn(
+                          "px-3 h-10 rounded-xl font-bold text-[12px] flex items-center justify-center gap-2 transition-colors border",
+                          isDark ? "bg-transparent border-[#282828] text-white/70 hover:bg-[#1A1A1A] hover:text-white" : "bg-transparent border-[#E5E5E5] text-black/70 hover:bg-[#F6F6F6] hover:text-black"
+                        )}
+                      >
+                        <Trash2 size={16} />
+                        Remove
+                      </button>
+                    </div>
+                    <div>
+                      <div className={cn("text-[11px] font-bold tracking-widest uppercase mb-2", isDark ? "text-white/45" : "text-black/45")}>Display name</div>
+                      <div className={cn("group flex items-center gap-3 rounded-2xl px-4 h-12 border transition-all", isDark ? "bg-[#111111] border-white/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/25" : "bg-white border-black/10 focus-within:border-[#1DB954]/35 focus-within:ring-1 focus-within:ring-[#1DB954]/20")}>
+                        <div className="w-9 h-9 rounded-xl bg-[#1DB954] text-black flex items-center justify-center shrink-0">
+                          <UserRound size={16} strokeWidth={2.2} />
+                        </div>
+                        <input
+                          value={displayName}
+                          onChange={(e) => setDisplayName(e.target.value)}
+                          className={cn("flex-1 min-w-0 bg-transparent outline-none text-base", isDark ? "text-white placeholder-white/20" : "text-black placeholder-black/30")}
+                          placeholder="Your name"
+                        />
+                      </div>
+                      <button
+                        disabled={!hasUnsaved || saveBusy || !activeAccountId}
+                        onClick={async () => {
+                          if (!activeAccountId) return;
+                          setSaveBusy(true);
+                          setSaveError(null);
+                          try {
+                            const payload: { displayName?: string; avatarDataUrl?: string | null } = {};
+                            payload.displayName = displayName;
+                            if (draftAvatar !== undefined) payload.avatarDataUrl = draftAvatar;
+                            const res = await onUpdateAccountProfile(activeAccountId, payload);
+                            if (!res.ok) {
+                              setSaveError(res.error || 'Save failed. Please try again.');
+                              return;
+                            }
+                            setDraftAvatar(undefined);
+                          } finally {
+                            setSaveBusy(false);
+                          }
+                        }}
+                        className={cn(
+                          "mt-3 w-full h-11 rounded-2xl text-[11px] font-extrabold tracking-[0.18em] uppercase border transition-colors disabled:opacity-60 disabled:cursor-not-allowed",
+                          "bg-[#1DB954] text-black border-transparent hover:bg-[#1ED760]"
+                        )}
+                      >
+                        {saveBusy ? 'Saving' : hasUnsaved ? 'Save changes' : 'Saved'}
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setEditOpen(false);
+                        setTwoFAOpen(true);
+                      }}
+                      className={cn(
+                        "w-full h-11 rounded-2xl text-[11px] font-extrabold tracking-[0.18em] uppercase border transition-colors",
+                        isDark ? "bg-[#121212] border-[#282828] text-white/85 hover:bg-[#1A1A1A] hover:text-white" : "bg-white border-[#E5E5E5] text-black/80 hover:bg-[#F6F6F6] hover:text-black"
+                      )}
+                    >
+                      Two‑Factor Auth
+                    </button>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
 
         <AnimatePresence>
           {removeConfirm && (
@@ -3391,25 +3506,6 @@ const MobileProfileSection = ({
           )}
         </AnimatePresence>
 
-        <button
-          onClick={onLogoutCurrent}
-          className={cn(
-            "group relative w-full h-12 rounded-2xl font-extrabold tracking-[0.18em] text-[11px] uppercase overflow-hidden transition-all duration-300 active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
-            isDark
-              ? "bg-gradient-to-r from-[#FF3B3B] via-[#FF4D6D] to-[#FF7A59] text-black shadow-[0_18px_55px_rgba(255,85,85,0.22)] hover:shadow-[0_24px_75px_rgba(255,85,85,0.32)] focus-visible:ring-[#FF6B6B]/70 focus-visible:ring-offset-[#0A0A0A]"
-              : "bg-gradient-to-r from-[#FF3B3B] via-[#FF4D6D] to-[#FF7A59] text-white shadow-[0_14px_44px_rgba(255,60,60,0.18)] hover:shadow-[0_20px_64px_rgba(255,60,60,0.26)] focus-visible:ring-[#FF3B3B]/55 focus-visible:ring-offset-white"
-          )}
-        >
-          <span className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-            <span className="absolute -inset-8 bg-white/20 blur-2xl" />
-            <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/25 to-white/0 translate-x-[-120%] group-hover:translate-x-[120%] transition-transform duration-700" />
-          </span>
-          <span className="absolute inset-[1px] rounded-[15px] bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-          <span className="relative z-10 flex items-center justify-center gap-2">
-            <LogOut size={16} strokeWidth={2.6} />
-            Log out
-          </span>
-        </button>
       </div>
       <TwoFactorModal open={twoFAOpen} onClose={() => setTwoFAOpen(false)} />
     </div>
@@ -3854,18 +3950,41 @@ function TwoFactorModal({ open, onClose }: { open: boolean; onClose: () => void 
   );
 }
 
-const SettingsDropdown = () => {
+const SettingsDropdown = ({ onOpenProfile }: { onOpenProfile?: () => void }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const [twoFAOpen, setTwoFAOpen] = useState(false);
+  const { isMobile } = useViewport();
   const { isDark, toggleTheme } = useTheme();
   const { aiEnabled, toggleAi } = useAI();
   const { language, setLanguage, t } = useLanguage();
+  const { accounts, activeAccountId } = useAuth();
+  const activeAccount = useMemo(() => accounts.find((a) => a.id === activeAccountId) || accounts[0] || null, [accounts, activeAccountId]);
+  const [mobileView, setMobileView] = useState<'main' | 'language'>('main');
+  const mobileIsDark = true;
+  const close = () => {
+    setIsOpen(false);
+    setLangMenuOpen(false);
+    setMobileView('main');
+  };
+
+  useEffect(() => {
+    const handler = () => {
+      setLangMenuOpen(false);
+      setMobileView('main');
+      setIsOpen(true);
+    };
+    window.addEventListener('arcmail:openSettings', handler as EventListener);
+    return () => window.removeEventListener('arcmail:openSettings', handler as EventListener);
+  }, []);
 
   return (
     <div className="relative">
       <button 
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          setMobileView('main');
+          setIsOpen((v) => !v);
+        }}
         className={cn(
           "p-3 rounded-full transition-colors relative border border-transparent",
           isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A] hover:border-[#282828]" : "text-[#5E5E5E] hover:text-black hover:bg-[#F0F0F0] hover:border-[#E5E5E5]"
@@ -3877,145 +3996,312 @@ const SettingsDropdown = () => {
       <AnimatePresence>
         {isOpen && (
           <>
-            <div className="fixed inset-0 z-40" onClick={() => { setIsOpen(false); setLangMenuOpen(false); }} />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              transition={{ type: "spring", duration: 0.3 }}
-              className={cn(
-                "absolute right-0 top-full mt-2 w-64 border rounded-2xl shadow-2xl z-50 overflow-hidden",
-                isDark ? "bg-[#181818] border-[#282828]" : "bg-white border-[#E5E5E5]"
-              )}
-            >
-              <div className="p-2 space-y-1">
-                {/* Language */}
-                <div className="relative">
-                  <button 
-                    onClick={() => setLangMenuOpen(!langMenuOpen)}
+            {isMobile ? (
+              <motion.div
+                initial={{ opacity: 0, x: 16 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 16 }}
+                transition={{ type: "spring", stiffness: 420, damping: 36 }}
+                className={cn("fixed inset-0 z-[80] flex flex-col", mobileIsDark ? "bg-[#0B0B0B]" : "bg-[#EEF2F6]")}
+              >
+                <div className="h-16 px-6 flex items-center justify-between" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+                  <button
+                    onClick={mobileView === 'main' ? close : () => setMobileView('main')}
                     className={cn(
-                      "w-full flex items-center justify-between px-3 py-2.5 text-sm rounded-xl transition-colors group",
-                      isDark ? "text-[#EAEAEA] hover:bg-[#282828]" : "text-[#121212] hover:bg-[#F5F5F5]"
+                      "w-11 h-11 rounded-full flex items-center justify-center border",
+                      mobileIsDark ? "bg-[#121212] border-white/10 shadow-[0_18px_50px_rgba(0,0,0,0.55)]" : "bg-white border-black/10 shadow-[0_10px_30px_rgba(0,0,0,0.10)]"
                     )}
+                    title="Back"
                   >
-                     <div className="flex items-center gap-3">
-                        <Globe size={18} className={cn("group-hover:text-white", isDark ? "text-[#787878]" : "text-[#949494] group-hover:text-black")} />
-                        <span>{t('language')}</span>
-                     </div>
-                     <div className="flex items-center gap-2">
-                       <span className={cn("text-xs font-medium", isDark ? "text-[#5E5E5E]" : "text-[#949494]")}>
-                         {LANGUAGES.find(l => l.code === language)?.name}
-                       </span>
-                       <ChevronRight size={14} className={cn("transition-transform", langMenuOpen && "rotate-90", isDark ? "text-[#5E5E5E]" : "text-[#949494]")} />
-                     </div>
+                    <ArrowLeft size={18} className={cn(mobileIsDark ? "text-white/80" : "text-black/70")} />
                   </button>
-                  
-                  <AnimatePresence>
-                    {langMenuOpen && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        className="overflow-hidden pl-4 pr-1"
-                      >
-                        <div className={cn("mt-1 p-1 rounded-xl border space-y-0.5", isDark ? "bg-[#121212] border-[#282828]" : "bg-[#F9F9F9] border-[#E5E5E5]")}>
-                          {LANGUAGES.map(lang => (
-                            <button
-                              key={lang.code}
-                              onClick={() => {
-                                setLanguage(lang.code);
-                                setLangMenuOpen(false);
-                              }}
-                              className={cn(
-                                "w-full flex items-center justify-between px-3 py-2 text-xs rounded-lg transition-colors",
-                                language === lang.code 
-                                  ? (isDark ? "bg-[#1DB954]/10 text-[#1DB954]" : "bg-[#1DB954]/10 text-[#1DB954]")
-                                  : (isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A]" : "text-[#5E5E5E] hover:text-black hover:bg-[#EAEAEA]")
-                              )}
-                            >
-                              <span>{lang.nativeName}</span>
-                              {language === lang.code && <div className="w-1.5 h-1.5 rounded-full bg-[#1DB954]" />}
-                            </button>
-                          ))}
-                        </div>
-                      </motion.div>
+                  <div className={cn("text-[16px] font-semibold", mobileIsDark ? "text-white/90" : "text-black/80")}>Settings</div>
+                  <button
+                    onClick={() => {
+                      close();
+                      onOpenProfile?.();
+                    }}
+                    className={cn(
+                      "w-11 h-11 rounded-full flex items-center justify-center border",
+                      mobileIsDark ? "bg-[#121212] border-white/10 shadow-[0_18px_50px_rgba(0,0,0,0.55)]" : "bg-white border-black/10 shadow-[0_10px_30px_rgba(0,0,0,0.10)]"
                     )}
-                  </AnimatePresence>
+                    title="Edit"
+                  >
+                    <Pencil size={18} className={cn(mobileIsDark ? "text-white/80" : "text-black/70")} />
+                  </button>
                 </div>
 
-                {/* Theme Toggle */}
-                <button 
-                  onClick={toggleTheme}
-                  className={cn(
-                    "w-full flex items-center justify-between px-3 py-2.5 text-sm rounded-xl transition-colors group",
-                    isDark ? "text-[#EAEAEA] hover:bg-[#282828]" : "text-[#121212] hover:bg-[#F5F5F5]"
-                  )}
-                >
-                   <div className="flex items-center gap-3">
-                      {isDark ? (
-                        <Moon size={18} className="text-[#787878] group-hover:text-white" />
-                      ) : (
-                        <Sun size={18} className="text-[#949494] group-hover:text-black" />
+                {mobileView === 'main' ? (
+                  <div className="flex-1 overflow-y-auto custom-scrollbar px-6" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 22px)' }}>
+                    <div className="pt-2 flex flex-col items-center text-center">
+                      <div
+                        className={cn(
+                          "w-24 h-24 rounded-full flex items-center justify-center overflow-hidden border",
+                          mobileIsDark ? "bg-[#121212] border-white/10 shadow-[0_18px_50px_rgba(0,0,0,0.55)]" : "bg-white border-black/10 shadow-[0_18px_40px_rgba(0,0,0,0.10)]"
+                        )}
+                      >
+                        {activeAccount?.avatarDataUrl ? (
+                          <img src={activeAccount.avatarDataUrl} alt={activeAccount.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className={cn("text-2xl font-bold", mobileIsDark ? "text-white/75" : "text-black/70")}>{(activeAccount?.email || '?')[0].toUpperCase()}</div>
+                        )}
+                      </div>
+                      <div className={cn("mt-3 text-[16px] font-semibold", mobileIsDark ? "text-white/90" : "text-black/80")}>
+                        {activeAccount?.name || activeAccount?.email || ''}
+                      </div>
+                      <div className={cn("mt-0.5 text-[12px]", mobileIsDark ? "text-white/45" : "text-black/45")}>{activeAccount?.email || ''}</div>
+                    </div>
+
+                    <div className={cn("mt-5 text-[12px] font-medium", mobileIsDark ? "text-white/50" : "text-black/55")}>Account Settings</div>
+                    <div
+                      className={cn(
+                        "mt-2 rounded-2xl overflow-hidden border",
+                        mobileIsDark ? "bg-[#121212] border-white/10 shadow-[0_18px_50px_rgba(0,0,0,0.55)]" : "bg-white border-black/10 shadow-[0_18px_40px_rgba(0,0,0,0.08)]"
                       )}
-                      <span>{t('dark_mode')}</span>
-                   </div>
-                   <div className={cn(
-                     "w-9 h-5 rounded-full relative transition-colors duration-300",
-                     isDark ? "bg-[#1DB954]" : "bg-[#E0E0E0]"
-                   )}>
-                     <div className={cn(
-                       "absolute top-1 w-3 h-3 rounded-full bg-white transition-transform duration-300 shadow-sm",
-                       isDark ? "left-5" : "left-1"
-                     )} />
-                   </div>
-                </button>
+                    >
+                      <button onClick={() => setMobileView('language')} className="w-full px-4 py-3.5 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={cn("w-9 h-9 rounded-full flex items-center justify-center border", mobileIsDark ? "bg-white/5 border-white/10" : "bg-black/5 border-black/10")}>
+                            <Globe size={18} className={cn(mobileIsDark ? "text-white/65" : "text-black/55")} />
+                          </div>
+                          <div className={cn("text-[13px]", mobileIsDark ? "text-white/85" : "text-black/75")}>Language</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className={cn("text-[12px]", mobileIsDark ? "text-white/40" : "text-black/40")}>{LANGUAGES.find((l) => l.code === language)?.name}</div>
+                          <ChevronRight size={18} className={cn(mobileIsDark ? "text-white/25" : "text-black/25")} />
+                        </div>
+                      </button>
+                      <div className={cn("h-px", mobileIsDark ? "bg-white/10" : "bg-black/5")} />
+                      <button onClick={toggleTheme} className="w-full px-4 py-3.5 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={cn("w-9 h-9 rounded-full flex items-center justify-center border", mobileIsDark ? "bg-white/5 border-white/10" : "bg-black/5 border-black/10")}>
+                            <Moon size={18} className={cn(mobileIsDark ? "text-white/65" : "text-black/55")} />
+                          </div>
+                          <div className={cn("text-[13px]", mobileIsDark ? "text-white/85" : "text-black/75")}>Dark Mode</div>
+                        </div>
+                        <div
+                          className={cn(
+                            "w-12 h-7 rounded-full border transition-colors flex items-center px-1",
+                            isDark ? "bg-[#1DB954] border-[#1DB954]" : (mobileIsDark ? "bg-white/10 border-white/10" : "bg-black/5 border-black/10")
+                          )}
+                        >
+                          <div className={cn("w-5 h-5 rounded-full transition-transform bg-white", isDark ? "translate-x-5" : "translate-x-0")} />
+                        </div>
+                      </button>
+                      <div className={cn("h-px", mobileIsDark ? "bg-white/10" : "bg-black/5")} />
+                      <button onClick={toggleAi} className="w-full px-4 py-3.5 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={cn("w-9 h-9 rounded-full flex items-center justify-center border", mobileIsDark ? "bg-white/5 border-white/10" : "bg-black/5 border-black/10")}>
+                            <Sparkles size={18} className={cn(aiEnabled ? "text-[#FACC15]" : mobileIsDark ? "text-white/65" : "text-black/55")} />
+                          </div>
+                          <div className={cn("text-[13px]", mobileIsDark ? "text-white/85" : "text-black/75")}>AI</div>
+                        </div>
+                        <div
+                          className={cn(
+                            "w-12 h-7 rounded-full border transition-colors flex items-center px-1",
+                            aiEnabled ? "bg-[#1DB954] border-[#1DB954]" : (mobileIsDark ? "bg-white/10 border-white/10" : "bg-black/5 border-black/10")
+                          )}
+                        >
+                          <div className={cn("w-5 h-5 rounded-full transition-transform", aiEnabled ? "bg-white translate-x-5" : "bg-white translate-x-0")} />
+                        </div>
+                      </button>
+                    </div>
 
-                <button
-                  onClick={toggleAi}
-                  className={cn(
-                    "w-full flex items-center justify-between px-3 py-2.5 text-sm rounded-xl transition-colors group",
-                    isDark ? "text-[#EAEAEA] hover:bg-[#282828]" : "text-[#121212] hover:bg-[#F5F5F5]"
-                  )}
-                >
-                  <div className="flex items-center gap-3">
-                    <Sparkles size={18} className={cn("group-hover:text-[#1DB954]", isDark ? "text-[#787878]" : "text-[#949494]")} />
-                    <span>AI</span>
+                    <div className={cn("mt-5 text-[12px] font-medium", mobileIsDark ? "text-white/50" : "text-black/55")}>Settings</div>
+                    <div
+                      className={cn(
+                        "mt-2 rounded-2xl overflow-hidden border",
+                        mobileIsDark ? "bg-[#121212] border-white/10 shadow-[0_18px_50px_rgba(0,0,0,0.55)]" : "bg-white border-black/10 shadow-[0_18px_40px_rgba(0,0,0,0.08)]"
+                      )}
+                    >
+                      <button
+                        onClick={() => {
+                          setTwoFAOpen(true);
+                          close();
+                        }}
+                        className="w-full px-4 py-3.5 flex items-center justify-between"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={cn("w-9 h-9 rounded-full flex items-center justify-center border", mobileIsDark ? "bg-white/5 border-white/10" : "bg-black/5 border-black/10")}>
+                            <Smartphone size={18} className={cn(mobileIsDark ? "text-white/65" : "text-black/55")} />
+                          </div>
+                          <div className={cn("text-[13px]", mobileIsDark ? "text-white/85" : "text-black/75")}>Two‑Factor Auth</div>
+                        </div>
+                        <ChevronRight size={18} className={cn(mobileIsDark ? "text-white/25" : "text-black/25")} />
+                      </button>
+                      <div className={cn("h-px", mobileIsDark ? "bg-white/10" : "bg-black/5")} />
+                      <a
+                        href="mailto:feedbacks@arcbyte.co?subject=ArcMail Feedback"
+                        onClick={close}
+                        className="w-full px-4 py-3.5 flex items-center justify-between"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={cn("w-9 h-9 rounded-full flex items-center justify-center border", mobileIsDark ? "bg-white/5 border-white/10" : "bg-black/5 border-black/10")}>
+                            <MessageSquare size={18} className={cn(mobileIsDark ? "text-white/65" : "text-black/55")} />
+                          </div>
+                          <div className={cn("text-[13px]", mobileIsDark ? "text-white/85" : "text-black/75")}>{t('send_feedback')}</div>
+                        </div>
+                        <ChevronRight size={18} className={cn(mobileIsDark ? "text-white/25" : "text-black/25")} />
+                      </a>
+                    </div>
                   </div>
-                  <div className={cn("w-9 h-5 rounded-full relative transition-colors duration-300", aiEnabled ? "bg-[#1DB954]" : (isDark ? "bg-[#282828]" : "bg-[#E0E0E0]"))}>
-                    <div className={cn("absolute top-1 w-3 h-3 rounded-full bg-white transition-transform duration-300 shadow-sm", aiEnabled ? "left-5" : "left-1")} />
+                ) : (
+                  <div className="flex-1 overflow-y-auto custom-scrollbar px-6" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 22px)' }}>
+                    <div
+                      className={cn(
+                        "mt-4 rounded-2xl overflow-hidden border",
+                        mobileIsDark ? "bg-[#121212] border-white/10 shadow-[0_18px_50px_rgba(0,0,0,0.55)]" : "bg-white border-black/10 shadow-[0_18px_40px_rgba(0,0,0,0.08)]"
+                      )}
+                    >
+                      {LANGUAGES.map((lang) => (
+                        <button
+                          key={lang.code}
+                          onClick={() => {
+                            setLanguage(lang.code);
+                            setMobileView('main');
+                          }}
+                          className="w-full px-4 py-3.5 flex items-center justify-between"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={cn("w-9 h-9 rounded-full flex items-center justify-center border", mobileIsDark ? "bg-white/5 border-white/10" : "bg-black/5 border-black/10")}>
+                              <Globe size={18} className={cn(language === lang.code ? (mobileIsDark ? "text-[#A78BFA]" : "text-[#6D46FF]") : mobileIsDark ? "text-white/65" : "text-black/55")} />
+                            </div>
+                            <div className={cn("text-[13px]", mobileIsDark ? "text-white/85" : "text-black/75")}>{lang.nativeName}</div>
+                          </div>
+                          {language === lang.code ? (
+                            <Check size={18} className={cn(mobileIsDark ? "text-[#A78BFA]" : "text-[#6D46FF]")} />
+                          ) : (
+                            <ChevronRight size={18} className={cn(mobileIsDark ? "text-white/25" : "text-black/25")} />
+                          )}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </button>
-
-                <div className={cn("h-[1px] my-1 mx-2", isDark ? "bg-[#282828]" : "bg-[#E5E5E5]")} />
-
-                <button
-                  onClick={() => {
-                    setTwoFAOpen(true);
-                    setIsOpen(false);
-                    setLangMenuOpen(false);
-                  }}
+                )}
+              </motion.div>
+            ) : (
+              <>
+                <div className="fixed inset-0 z-40" onClick={close} />
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                  transition={{ type: "spring", duration: 0.3 }}
                   className={cn(
-                    "w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-xl transition-colors group",
-                    isDark ? "text-[#EAEAEA] hover:bg-[#282828]" : "text-[#121212] hover:bg-[#F5F5F5]"
+                    "absolute right-0 top-full mt-2 w-64 border rounded-2xl shadow-2xl z-50 overflow-hidden",
+                    isDark ? "bg-[#181818] border-[#282828]" : "bg-white border-[#E5E5E5]"
                   )}
                 >
-                  <Smartphone size={18} className={cn("group-hover:text-[#1DB954]", isDark ? "text-[#787878]" : "text-[#949494]")} />
-                  <span>Two‑Factor Auth</span>
-                </button>
+                  <div className="p-2 space-y-1">
+                    <div className="relative">
+                      <button
+                        onClick={() => setLangMenuOpen(!langMenuOpen)}
+                        className={cn(
+                          "w-full flex items-center justify-between px-3 py-2.5 text-sm rounded-xl transition-colors group",
+                          isDark ? "text-[#EAEAEA] hover:bg-[#282828]" : "text-[#121212] hover:bg-[#F5F5F5]"
+                        )}
+                      >
+                        <div className="flex items-center gap-3">
+                          <Globe size={18} className={cn("group-hover:text-white", isDark ? "text-[#787878]" : "text-[#949494] group-hover:text-black")} />
+                          <span>{t('language')}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={cn("text-xs font-medium", isDark ? "text-[#5E5E5E]" : "text-[#949494]")}>{LANGUAGES.find((l) => l.code === language)?.name}</span>
+                          <ChevronRight size={14} className={cn("transition-transform", langMenuOpen && "rotate-90", isDark ? "text-[#5E5E5E]" : "text-[#949494]")} />
+                        </div>
+                      </button>
 
-                {/* Feedback */}
-                <a 
-                  href="mailto:feedbacks@arcbyte.co?subject=ArcMail Feedback"
-                  className={cn(
-                    "w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-xl transition-colors group",
-                    isDark ? "text-[#EAEAEA] hover:bg-[#282828]" : "text-[#121212] hover:bg-[#F5F5F5]"
-                  )}
-                >
-                   <MessageSquare size={18} className={cn("group-hover:text-[#1DB954]", isDark ? "text-[#787878]" : "text-[#949494]")} />
-                   <span>{t('send_feedback')}</span>
-                </a>
-              </div>
-            </motion.div>
+                      <AnimatePresence>
+                        {langMenuOpen && (
+                          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden pl-4 pr-1">
+                            <div className={cn("mt-1 p-1 rounded-xl border space-y-0.5", isDark ? "bg-[#121212] border-[#282828]" : "bg-[#F9F9F9] border-[#E5E5E5]")}>
+                              {LANGUAGES.map((lang) => (
+                                <button
+                                  key={lang.code}
+                                  onClick={() => {
+                                    setLanguage(lang.code);
+                                    setLangMenuOpen(false);
+                                  }}
+                                  className={cn(
+                                    "w-full flex items-center justify-between px-3 py-2 text-xs rounded-lg transition-colors",
+                                    language === lang.code
+                                      ? (isDark ? "bg-[#1DB954]/10 text-[#1DB954]" : "bg-[#1DB954]/10 text-[#1DB954]")
+                                      : (isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A]" : "text-[#5E5E5E] hover:text-black hover:bg-[#EAEAEA]")
+                                  )}
+                                >
+                                  <span>{lang.nativeName}</span>
+                                  {language === lang.code && <div className="w-1.5 h-1.5 rounded-full bg-[#1DB954]" />}
+                                </button>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    <button
+                      onClick={toggleTheme}
+                      className={cn(
+                        "w-full flex items-center justify-between px-3 py-2.5 text-sm rounded-xl transition-colors group",
+                        isDark ? "text-[#EAEAEA] hover:bg-[#282828]" : "text-[#121212] hover:bg-[#F5F5F5]"
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        {isDark ? <Moon size={18} className="text-[#787878] group-hover:text-white" /> : <Sun size={18} className="text-[#949494] group-hover:text-black" />}
+                        <span>{t('dark_mode')}</span>
+                      </div>
+                      <div className={cn("w-9 h-5 rounded-full relative transition-colors duration-300", isDark ? "bg-[#1DB954]" : "bg-[#E0E0E0]")}>
+                        <div className={cn("absolute top-1 w-3 h-3 rounded-full bg-white transition-transform duration-300 shadow-sm", isDark ? "left-5" : "left-1")} />
+                      </div>
+                    </button>
+
+                    <button
+                      onClick={toggleAi}
+                      className={cn(
+                        "w-full flex items-center justify-between px-3 py-2.5 text-sm rounded-xl transition-colors group",
+                        isDark ? "text-[#EAEAEA] hover:bg-[#282828]" : "text-[#121212] hover:bg-[#F5F5F5]"
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Sparkles size={18} className={cn("group-hover:text-[#1DB954]", isDark ? "text-[#787878]" : "text-[#949494]")} />
+                        <span>AI</span>
+                      </div>
+                      <div className={cn("w-9 h-5 rounded-full relative transition-colors duration-300", aiEnabled ? "bg-[#1DB954]" : (isDark ? "bg-[#282828]" : "bg-[#E0E0E0]"))}>
+                        <div className={cn("absolute top-1 w-3 h-3 rounded-full bg-white transition-transform duration-300 shadow-sm", aiEnabled ? "left-5" : "left-1")} />
+                      </div>
+                    </button>
+
+                    <div className={cn("h-[1px] my-1 mx-2", isDark ? "bg-[#282828]" : "bg-[#E5E5E5]")} />
+
+                    <button
+                      onClick={() => {
+                        setTwoFAOpen(true);
+                        close();
+                      }}
+                      className={cn(
+                        "w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-xl transition-colors group",
+                        isDark ? "text-[#EAEAEA] hover:bg-[#282828]" : "text-[#121212] hover:bg-[#F5F5F5]"
+                      )}
+                    >
+                      <Smartphone size={18} className={cn("group-hover:text-[#1DB954]", isDark ? "text-[#787878]" : "text-[#949494]")} />
+                      <span>Two‑Factor Auth</span>
+                    </button>
+
+                    <a
+                      href="mailto:feedbacks@arcbyte.co?subject=ArcMail Feedback"
+                      className={cn(
+                        "w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-xl transition-colors group",
+                        isDark ? "text-[#EAEAEA] hover:bg-[#282828]" : "text-[#121212] hover:bg-[#F5F5F5]"
+                      )}
+                      onClick={close}
+                    >
+                      <MessageSquare size={18} className={cn("group-hover:text-[#1DB954]", isDark ? "text-[#787878]" : "text-[#949494]")} />
+                      <span>{t('send_feedback')}</span>
+                    </a>
+                  </div>
+                </motion.div>
+              </>
+            )}
           </>
         )}
       </AnimatePresence>
@@ -5371,7 +5657,7 @@ const MailAppContent = () => {
                  <Search size={20} />
                </button>
              )}
-             <SettingsDropdown />
+             <SettingsDropdown onOpenProfile={() => setMobileProfileOpen(true)} />
 
              {aiEnabled && selectedId && (
                <>
