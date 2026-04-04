@@ -5872,46 +5872,73 @@ const MailAppContent = () => {
                 <AnimatePresence>
                   {filtersOpen && (
                     <motion.div
-                      initial={{ opacity: 0, y: -6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -6 }}
-                      className={cn("absolute left-0 right-0 top-14 rounded-2xl border p-4 grid grid-cols-2 md:grid-cols-3 gap-3 z-50", isDark ? "bg-[#0F0F0F] border-[#1A1A1A]" : "bg-white border-[#E5E5E5]")}
+                      initial={{ opacity: 0, y: -8, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -8, scale: 0.98 }}
+                      transition={{ type: "spring", stiffness: 420, damping: 32 }}
+                      className={cn(
+                        "absolute left-0 right-0 top-14 rounded-[24px] border p-5 z-50 shadow-2xl flex flex-col gap-5", 
+                        isDark ? "bg-[#121212]/95 backdrop-blur-xl border-white/10" : "bg-white/95 backdrop-blur-xl border-black/10"
+                      )}
                     >
-                      <div className="flex flex-col gap-1">
-                        <label className={cn("text-xs font-semibold", isDark ? "text-white/70" : "text-black/70")}>From</label>
-                        <input className={cn("h-9 rounded-lg px-3 border", isDark ? "bg-[#121212] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black")} value={searchFilters.from || ''} onChange={e => setSearchFilters(s => ({ ...s, from: e.target.value }))} />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="flex flex-col gap-1.5">
+                          <label className={cn("text-[13px] font-bold pl-1", isDark ? "text-white/80" : "text-black/80")}>From</label>
+                          <input placeholder="sender@example.com" className={cn("h-11 rounded-xl px-4 border text-[14px] transition-colors focus:outline-none focus:ring-1", isDark ? "bg-[#1A1A1A] border-[#333] focus:border-[#1DB954] focus:ring-[#1DB954] text-white placeholder:text-white/30" : "bg-[#F9F9F9] border-[#E5E5E5] focus:border-[#1DB954] focus:ring-[#1DB954] text-black placeholder:text-black/30")} value={searchFilters.from || ''} onChange={e => setSearchFilters(s => ({ ...s, from: e.target.value }))} />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <label className={cn("text-[13px] font-bold pl-1", isDark ? "text-white/80" : "text-black/80")}>To</label>
+                          <input placeholder="recipient@example.com" className={cn("h-11 rounded-xl px-4 border text-[14px] transition-colors focus:outline-none focus:ring-1", isDark ? "bg-[#1A1A1A] border-[#333] focus:border-[#1DB954] focus:ring-[#1DB954] text-white placeholder:text-white/30" : "bg-[#F9F9F9] border-[#E5E5E5] focus:border-[#1DB954] focus:ring-[#1DB954] text-black placeholder:text-black/30")} value={searchFilters.to || ''} onChange={e => setSearchFilters(s => ({ ...s, to: e.target.value }))} />
+                        </div>
                       </div>
-                      <div className="flex flex-col gap-1">
-                        <label className={cn("text-xs font-semibold", isDark ? "text-white/70" : "text-black/70")}>To</label>
-                        <input className={cn("h-9 rounded-lg px-3 border", isDark ? "bg-[#121212] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black")} value={searchFilters.to || ''} onChange={e => setSearchFilters(s => ({ ...s, to: e.target.value }))} />
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="flex flex-col gap-1.5">
+                          <label className={cn("text-[13px] font-bold pl-1", isDark ? "text-white/80" : "text-black/80")}>Since Date</label>
+                          <input type="date" className={cn("h-11 rounded-xl px-4 border text-[14px] transition-colors focus:outline-none focus:ring-1", isDark ? "bg-[#1A1A1A] border-[#333] focus:border-[#1DB954] focus:ring-[#1DB954] text-white cursor-pointer" : "bg-[#F9F9F9] border-[#E5E5E5] focus:border-[#1DB954] focus:ring-[#1DB954] text-black cursor-pointer")} value={searchFilters.since || ''} onChange={e => setSearchFilters(s => ({ ...s, since: e.target.value || undefined }))} />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <label className={cn("text-[13px] font-bold pl-1", isDark ? "text-white/80" : "text-black/80")}>Before Date</label>
+                          <input type="date" className={cn("h-11 rounded-xl px-4 border text-[14px] transition-colors focus:outline-none focus:ring-1", isDark ? "bg-[#1A1A1A] border-[#333] focus:border-[#1DB954] focus:ring-[#1DB954] text-white cursor-pointer" : "bg-[#F9F9F9] border-[#E5E5E5] focus:border-[#1DB954] focus:ring-[#1DB954] text-black cursor-pointer")} value={searchFilters.before || ''} onChange={e => setSearchFilters(s => ({ ...s, before: e.target.value || undefined }))} />
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs">Unread</label>
-                        <input type="checkbox" checked={!!searchFilters.unread} onChange={e => setSearchFilters(s => ({ ...s, unread: e.target.checked || undefined }))} />
+
+                      <div className={cn("pt-5 pb-2 border-t flex flex-wrap gap-3", isDark ? "border-[#282828]" : "border-[#E5E5E5]")}>
+                        {[
+                          { id: 'unread', label: 'Unread' },
+                          { id: 'flagged', label: 'Flagged' },
+                          { id: 'answered', label: 'Answered' },
+                          { id: 'attachment', label: 'Has Attachments' }
+                        ].map((item) => {
+                          const isChecked = !!searchFilters[item.id as keyof typeof searchFilters];
+                          return (
+                            <label key={item.id} className={cn(
+                              "flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl cursor-pointer select-none transition-all border",
+                              isChecked
+                                ? (isDark ? "bg-[#1DB954]/10 border-[#1DB954]/50 text-[#1DB954]" : "bg-[#1DB954]/15 border-[#1DB954]/60 text-black")
+                                : (isDark ? "bg-[#1A1A1A] border-[#333] hover:bg-[#282828] text-white/70" : "bg-white border-[#E5E5E5] hover:bg-[#F9F9F9] text-black/70")
+                            )}>
+                              <input 
+                                type="checkbox" 
+                                className="peer sr-only"
+                                checked={isChecked} 
+                                onChange={e => setSearchFilters(s => ({ ...s, [item.id]: e.target.checked || undefined }))} 
+                              />
+                              <div className={cn(
+                                "w-4 h-4 rounded-[4px] border flex items-center justify-center transition-all",
+                                isChecked ? "bg-[#1DB954] border-[#1DB954]" : (isDark ? "border-[#5E5E5E]" : "border-[#B3B3B3]")
+                              )}>
+                                {isChecked && <Check size={12} className={isDark ? "text-black" : "text-white"} strokeWidth={4} />}
+                              </div>
+                              <span className="text-[13px] font-bold">{item.label}</span>
+                            </label>
+                          );
+                        })}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs">Flagged</label>
-                        <input type="checkbox" checked={!!searchFilters.flagged} onChange={e => setSearchFilters(s => ({ ...s, flagged: e.target.checked || undefined }))} />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs">Answered</label>
-                        <input type="checkbox" checked={!!searchFilters.answered} onChange={e => setSearchFilters(s => ({ ...s, answered: e.target.checked || undefined }))} />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs">Attachments</label>
-                        <input type="checkbox" checked={!!searchFilters.attachment} onChange={e => setSearchFilters(s => ({ ...s, attachment: e.target.checked || undefined }))} />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className={cn("text-xs font-semibold", isDark ? "text-white/70" : "text-black/70")}>Since</label>
-                        <input type="date" className={cn("h-9 rounded-lg px-3 border", isDark ? "bg-[#121212] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black")} value={searchFilters.since || ''} onChange={e => setSearchFilters(s => ({ ...s, since: e.target.value || undefined }))} />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className={cn("text-xs font-semibold", isDark ? "text-white/70" : "text-black/70")}>Before</label>
-                        <input type="date" className={cn("h-9 rounded-lg px-3 border", isDark ? "bg-[#121212] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black")} value={searchFilters.before || ''} onChange={e => setSearchFilters(s => ({ ...s, before: e.target.value || undefined }))} />
-                      </div>
-                      <div className="col-span-full flex justify-end gap-2">
-                        <button onClick={() => { setSearchFilters({}); setFiltersOpen(false); setSearchQuery(''); loadThreads({ reset: true }); }} className={cn("px-4 h-9 rounded-full text-xs font-semibold border", isDark ? "bg-[#121212] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black")}>Clear</button>
-                        <button onClick={() => { threadsCursorRef.current = undefined; setThreadsCursor(undefined); searchThreads({ reset: true }); setFiltersOpen(false); }} className="px-4 h-9 rounded-full text-xs font-semibold bg-[#1DB954] text-black">Apply</button>
+
+                      <div className="flex justify-end gap-3 mt-1">
+                        <button onClick={() => { setSearchFilters({}); setFiltersOpen(false); setSearchQuery(''); loadThreads({ reset: true }); }} className={cn("px-5 h-11 rounded-xl text-[14px] font-bold border transition-colors", isDark ? "bg-[#1A1A1A] border-[#333] text-white hover:bg-[#282828]" : "bg-white border-[#E5E5E5] text-black hover:bg-[#F0F0F0]")}>Clear All</button>
+                        <button onClick={() => { threadsCursorRef.current = undefined; setThreadsCursor(undefined); searchThreads({ reset: true }); setFiltersOpen(false); }} className="px-7 h-11 rounded-xl text-[14px] font-bold bg-[#1DB954] text-black hover:bg-[#1ed760] transition-colors shadow-lg shadow-[#1DB954]/20 hover:shadow-[#1DB954]/30">Apply Filters</button>
                       </div>
                     </motion.div>
                   )}
