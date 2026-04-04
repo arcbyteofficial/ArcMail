@@ -213,6 +213,14 @@ const MailLogin = () => {
   })();
 
   useEffect(() => {
+    const prevBg = document.body.style.backgroundColor;
+    document.body.style.backgroundColor = isMobile ? (showLanding ? '#111111' : '#0A0A0A') : '#0B0C0A';
+    return () => {
+      document.body.style.backgroundColor = prevBg;
+    };
+  }, [isMobile, showLanding]);
+
+  useEffect(() => {
     if (!import.meta.env.DEV) return;
     const base = typeof api.defaults.baseURL === 'string' ? api.defaults.baseURL : '';
     setApiInfo(base);
@@ -526,6 +534,8 @@ const MailLogin = () => {
                 setOtp('');
                 setError('');
                 setUseBackup(false);
+              } else if (isMobile) {
+                setShowLanding(true);
               } else {
                 navigate(-1);
               }
@@ -649,7 +659,7 @@ const MailLogin = () => {
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="w-full bg-transparent text-[13px] font-bold text-black border-none outline-none placeholder:text-gray-400 placeholder:font-normal"
+                      className="w-full bg-transparent text-[13px] font-bold text-black border-none outline-none placeholder:text-gray-400 placeholder:font-normal autofill-light"
                       placeholder="name@company.com"
                       required
                     />
@@ -665,7 +675,7 @@ const MailLogin = () => {
                       type="password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="w-full bg-transparent text-[14px] font-bold text-black border-none outline-none placeholder:tracking-widest placeholder:text-gray-400"
+                      className="w-full bg-transparent text-[14px] font-bold text-black border-none outline-none placeholder:tracking-widest placeholder:text-gray-400 autofill-light"
                       placeholder="•••••••••"
                       required
                     />
@@ -706,8 +716,8 @@ const MailLogin = () => {
                       Google
                    </button>
                    <button type="button" className="h-[52px] rounded-full border border-gray-200 flex items-center justify-center gap-2 bg-white hover:bg-gray-50 active:scale-95 transition-all text-[13px] font-bold text-black">
-                      <img src="https://img.icons8.com/color/48/facebook-new.png" className="w-[18px] h-[18px]" alt="Facebook" />
-                      Facebook
+                      <img src="https://img.icons8.com/ios-filled/50/000000/github.png" className="w-[18px] h-[18px]" alt="GitHub" />
+                      GitHub
                    </button>
                 </div>
 
@@ -897,7 +907,7 @@ const MailLogin = () => {
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="w-full h-[54px] bg-[#171917]/80 rounded-[12px] px-4 text-[13px] text-white placeholder-white/20 focus:outline-none focus:bg-[#1C1F1C] border border-transparent focus:border-[#526351]/50 transition-all font-medium"
+                      className="w-full h-[54px] bg-[#171917]/80 rounded-[12px] px-4 text-[13px] text-white placeholder-white/20 focus:outline-none focus:bg-[#1C1F1C] border border-transparent focus:border-[#526351]/50 transition-all font-medium mail-login-autofill"
                       placeholder="Your email"
                       autoComplete="username"
                       required
@@ -935,7 +945,7 @@ const MailLogin = () => {
                       type="password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="w-full h-[54px] bg-[#171917]/80 rounded-[12px] px-4 text-[13px] text-white placeholder-white/20 focus:outline-none focus:bg-[#1C1F1C] border border-transparent focus:border-[#526351]/50 transition-all font-medium tracking-widest"
+                      className="w-full h-[54px] bg-[#171917]/80 rounded-[12px] px-4 text-[13px] text-white placeholder-white/20 focus:outline-none focus:bg-[#1C1F1C] border border-transparent focus:border-[#526351]/50 transition-all font-medium tracking-widest mail-login-autofill"
                       placeholder="••••••••••"
                       autoComplete="current-password"
                       required

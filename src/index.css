@@ -136,6 +136,14 @@
     box-shadow: 0 0 0 1000px #121212 inset;
   }
 
+  input.autofill-light:-webkit-autofill,
+  input.autofill-light:-webkit-autofill:hover,
+  input.autofill-light:-webkit-autofill:focus {
+    -webkit-text-fill-color: #000000;
+    caret-color: #000000;
+    transition: background-color 9999s ease-in-out 0s;
+  }
+
   h1, h2, h3, h4, h5, h6 {
     @apply font-display font-medium tracking-tight;
   }
