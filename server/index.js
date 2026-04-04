@@ -978,6 +978,26 @@ const setLoginBlock = async ({ blocked, message }) => {
   return writeAdminStore(updated);
 };
 
+const getMaintenanceMode = async () => {
+  if (db) {
+    const v = await dbGetAdminSetting('maintenanceMode');
+    const enabled = Boolean(v && typeof v === 'object' && v.enabled === true);
+    return { enabled };
+  }
+  const store = adminStore && typeof adminStore === 'object' && !Array.isArray(adminStore) ? adminStore : {};
+  const enabled = Boolean(store.maintenanceModeEnabled);
+  return { enabled };
+};
+
+const setMaintenanceMode = async ({ enabled }) => {
+  const next = { enabled: Boolean(enabled) };
+  if (db) return await dbSetAdminSetting('maintenanceMode', next);
+  const store = adminStore && typeof adminStore === 'object' && !Array.isArray(adminStore) ? adminStore : {};
+  const updated = { ...store, maintenanceModeEnabled: next.enabled };
+  adminStore = updated;
+  return writeAdminStore(updated);
+};
+
 const normalizeDomain = (value) => {
   const d = String(value || '')
     .trim()
@@ -1750,9 +1770,11 @@ const buildRfc822 = ({ from, to, cc, subject, html, text }) => {
   return parts.join('\r\n').replace(/\r?\n/g, '\r\n');
 };
 
-app.get('/api/health', (_req, res) =>
-  res.json({
+app.get('/api/health', async (_req, res) => {
+  const m = await getMaintenanceMode();
+  return res.json({
     ok: true,
+    maintenance: { enabled: m.enabled },
     routes: { forgotPassword: true },
     buildId: SERVER_BUILD_ID,
     ai: {
@@ -1765,8 +1787,8 @@ app.get('/api/health', (_req, res) =>
       storage: db ? 'db' : 'file',
       nodeEnv: process.env.NODE_ENV || 'development',
     },
-  })
-);
+  });
+});
 
 app.get('/api/dev/routes', (req, res) => {
   if (IS_PROD) return res.status(404).json({ error: 'not_found' });
@@ -1890,6 +1912,24 @@ app.post('/api/admin/login-block', requireAdmin, express.json({ limit: '50kb' })
     return res.json({ ok: true, blocked, message });
   } catch {
     return res.status(500).json({ error: 'save_failed', message: 'Failed to save login block settings.' });
+  }
+});
+
+app.get('/api/admin/maintenance', requireAdmin, async (_req, res) => {
+  if (!enforceAdminDesktopOnly(_req, res)) return;
+  const m = await getMaintenanceMode();
+  return res.json({ ok: true, enabled: m.enabled });
+});
+
+app.post('/api/admin/maintenance', requireAdmin, express.json({ limit: '50kb' }), async (req, res) => {
+  if (!enforceAdminDesktopOnly(req, res)) return;
+  try {
+    const enabled = Boolean(req.body?.enabled);
+    const ok = await setMaintenanceMode({ enabled });
+    if (!ok) return res.status(500).json({ error: 'save_failed', message: 'Failed to save maintenance mode settings.' });
+    return res.json({ ok: true, enabled });
+  } catch {
+    return res.status(500).json({ error: 'save_failed', message: 'Failed to save maintenance mode settings.' });
   }
 });
 

@@ -63,6 +63,9 @@ export default function AdminDashboard() {
   const [loginBlockMessage, setLoginBlockMessage] = useState('');
   const [savingBlock, setSavingBlock] = useState(false);
 
+  const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const [savingMaintenance, setSavingMaintenance] = useState(false);
+
   const [domainRules, setDomainRules] = useState<DomainRule[]>([]);
   const [domainInput, setDomainInput] = useState('');
   const [loadingDomains, setLoadingDomains] = useState(false);
@@ -169,6 +172,10 @@ export default function AdminDashboard() {
           : '';
       setLoginBlocked(blocked);
       setLoginBlockMessage(message);
+
+      const maintRes = await adminApi.get('/admin/maintenance');
+      const maintEnabled = maintRes.data && typeof maintRes.data === 'object' && 'enabled' in maintRes.data ? Boolean((maintRes.data as { enabled?: unknown }).enabled) : false;
+      setMaintenanceMode(maintEnabled);
     } catch {
       void 0;
     }
@@ -430,6 +437,21 @@ export default function AdminDashboard() {
     }
   };
 
+  const saveMaintenance = async () => {
+    setSavingMaintenance(true);
+    setError(null);
+    try {
+      const res = await adminApi.post('/admin/maintenance', { enabled: maintenanceMode });
+      const ok = res.data && typeof res.data === 'object' && 'ok' in res.data ? Boolean((res.data as { ok?: unknown }).ok) : false;
+      if (!ok) throw new Error('failed');
+      setResetResult(maintenanceMode ? 'Maintenance Mode Enabled' : 'Maintenance Mode Disabled');
+    } catch (err) {
+      setError(errorMessageFrom(err, 'Failed to update maintenance mode.'));
+    } finally {
+      setSavingMaintenance(false);
+    }
+  };
+
   const sendAccessEmail = async () => {
     const arcMailEmail = String(sendArcMailEmail || '').trim().toLowerCase();
     const toEmail = String(sendToEmail || '').trim().toLowerCase();
@@ -569,6 +591,13 @@ export default function AdminDashboard() {
               <button onClick={() => setLoginBlocked(v => !v)} className={cn("w-full h-12 rounded-full font-bold text-[14px] transition-colors", loginBlocked ? "bg-red-500 text-white" : (isDark ? "bg-[#0B0B0B] text-white hover:bg-[#1A1A1A]" : "bg-[#F1F5F9] text-[#0F172A] hover:bg-[#E2E8F0]"))}>{loginBlocked ? 'Login is Blocked' : 'Login Allowed'}</button>
               <input value={loginBlockMessage} onChange={(e) => setLoginBlockMessage(e.target.value)} className={cn("w-full h-11 rounded-full border px-5 outline-none text-[14px]", isDark ? "bg-[#0B0B0B] border-[#2A2A2A] text-white focus:border-[#404040]" : "bg-[#F8FAFC] border-[#E2E8F0] text-[#0F172A] focus:border-[#CBD5E1]")} placeholder="Block message..." />
               <button onClick={() => void saveBlock()} className="w-full h-12 rounded-full bg-[#1F7A55] text-white font-bold text-[14px] hover:bg-[#1C6949]">Save Security Status</button>
+            </div>
+
+            <div className={cn("max-w-xl space-y-4 mt-8 pt-8 border-t", isDark ? "border-[#2A2A2A]" : "border-[#E2E8F0]")}>
+              <h3 className={cn("text-[16px] font-bold", isDark ? "text-white" : "text-[#0F172A]")}>Maintenance Mode</h3>
+              <p className="text-sm text-[#64748B] mb-2 leading-relaxed">When enabled, users will see the "fastening screws" maintenance page instead of the app.</p>
+              <button onClick={() => setMaintenanceMode(v => !v)} className={cn("w-full h-12 rounded-full font-bold text-[14px] transition-colors", maintenanceMode ? "bg-[#3B82F6] text-white" : (isDark ? "bg-[#0B0B0B] text-white hover:bg-[#1A1A1A]" : "bg-[#F1F5F9] text-[#0F172A] hover:bg-[#E2E8F0]"))}>{maintenanceMode ? 'Maintenance Mode ON' : 'Maintenance Mode OFF'}</button>
+              <button disabled={savingMaintenance} onClick={() => void saveMaintenance()} className="w-full h-12 rounded-full bg-[#1e1b4b] text-white font-bold text-[14px] hover:bg-[#312e81] shadow-md transition-colors disabled:opacity-50">Save Maintenance Status</button>
             </div>
           </div>
         )}
