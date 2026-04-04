@@ -426,46 +426,55 @@ const MailLogin = () => {
 
   return (
     isMobile ? showLanding ? (
-      <div className="min-h-[100dvh] w-full bg-[#111111] flex flex-col font-sans overflow-hidden inset-0 fixed z-[100]">
+      <motion.div 
+        key="landing"
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, filter: 'blur(10px)', scale: 0.95 }}
+        transition={{ duration: 0.4 }}
+        className="min-h-[100dvh] w-full bg-[#111111] flex flex-col font-sans overflow-hidden inset-0 fixed z-[100]"
+      >
         
         {/* Top Illustration Area */}
-        <div className="relative w-full h-[60%] flex items-end justify-center px-4 pt-12">
+        <motion.div 
+           initial={{ y: -40, opacity: 0, scale: 0.9 }} animate={{ y: 0, opacity: 1, scale: 1 }} transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+           className="relative w-full h-[60%] flex items-end justify-center px-4 pt-12"
+        >
           {/* Abstract background elements mimicking the doodles */}
-          <div className="absolute top-[15%] right-[15%] w-8 h-8 rounded-full border border-[#F3D66A] border-dashed opacity-50 animate-spin-slow" />
-          <div className="absolute top-[30%] left-[10%] w-12 h-4 rounded-full bg-white/10 blur-sm" />
-          <div className="absolute top-[40%] right-[10%] w-16 h-6 rounded-full bg-white/10 blur-sm" />
-          <div className="absolute top-[50%] left-[20%] text-white/20 text-2xl rotate-12">✧</div>
+          <motion.div animate={{ rotate: 360 }} transition={{ duration: 20, repeat: Infinity, ease: "linear" }} className="absolute top-[15%] right-[15%] w-8 h-8 rounded-full border border-[#F3D66A] border-dashed opacity-50" />
+          <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: 0.5, duration: 1 }} className="absolute top-[30%] left-[10%] w-12 h-4 rounded-full bg-white/10 blur-sm" />
+          <motion.div initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: 0.7, duration: 1 }} className="absolute top-[40%] right-[10%] w-16 h-6 rounded-full bg-white/10 blur-sm" />
+          <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.4, 0.2] }} transition={{ duration: 4, repeat: Infinity }} className="absolute top-[50%] left-[20%] text-white text-2xl rotate-12">✧</motion.div>
           
-          <img
+          <motion.img
+            initial={{ y: 20 }} animate={{ y: [0, -10, 0] }} transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
             src={loginImg}
             alt="Hero Illustration"
             className="w-full h-full object-contain object-bottom scale-[1.05]"
           />
-        </div>
+        </motion.div>
 
         {/* Content Section */}
         <div className="flex-1 px-8 flex flex-col justify-end pb-12 z-20 relative">
           
           {/* Headline */}
-          {/* Headline */}
-          <div className="mb-[42px] w-full text-left">
+          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.2, ease: [0.16, 1, 0.3, 1] }} className="mb-[42px] w-full text-left">
              <h2 className="text-[38px] font-medium text-white leading-[1.1] tracking-tight">
                <span className="relative inline-block">
                   Organize Smarter.
                   {/* Yellow arc underline */}
-                  <svg className="absolute -bottom-2 left-0 w-[110%] h-[12px] transform -rotate-1" viewBox="0 0 100 20" preserveAspectRatio="none">
-                     <path d="M 0 15 Q 50 0 100 10" fill="transparent" stroke="#F3D66A" strokeWidth="4" strokeLinecap="round" />
-                  </svg>
+                  <motion.svg initial={{ pathLength: 0, opacity: 0 }} animate={{ pathLength: 1, opacity: 1 }} transition={{ duration: 0.8, delay: 0.8, ease: "easeInOut" }} className="absolute -bottom-2 left-0 w-[110%] h-[12px] transform -rotate-1" viewBox="0 0 100 20" preserveAspectRatio="none">
+                     <motion.path d="M 0 15 Q 50 0 100 10" fill="transparent" stroke="#F3D66A" strokeWidth="4" strokeLinecap="round" />
+                  </motion.svg>
                </span>
                <br />
                Work Faster
              </h2>
-          </div>
+          </motion.div>
 
           {/* Buttons */}
           <div className="flex flex-col gap-[18px] w-full relative z-30">
-            <button 
-               className="w-full h-[64px] rounded-[32px] bg-[#1DB954] hover:bg-[#1AA34A] active:scale-[0.98] transition-all flex items-center justify-center gap-3 text-black font-bold text-[17px] shadow-[0_8px_30px_rgba(29,185,84,0.3)]"
+            <motion.button 
+               whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.95 }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.4 }}
+               className="w-full h-[64px] rounded-[32px] bg-[#1DB954] active:scale-[0.98] transition-colors flex items-center justify-center gap-3 text-black font-bold text-[17px] shadow-[0_8px_30px_rgba(29,185,84,0.3)]"
                onClick={() => {
                    setShowComingSoon(true);
                    setTimeout(() => setShowComingSoon(false), 2000);
@@ -473,15 +482,16 @@ const MailLogin = () => {
             >
               <img src="https://img.icons8.com/color/48/google-logo.png" alt="Google" className="w-6 h-6 brightness-0" />
               Continue with Google
-            </button>
+            </motion.button>
 
-            <button 
-               className="w-full h-[64px] rounded-[32px] bg-[#000000] hover:bg-[#111111] active:scale-[0.98] transition-all flex items-center justify-center gap-3 text-white font-medium text-[17px] border border-white/5 shadow-lg"
+            <motion.button 
+               whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.95 }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.5 }}
+               className="w-full h-[64px] rounded-[32px] bg-[#000000] active:scale-[0.98] transition-colors flex items-center justify-center gap-3 text-white font-medium text-[17px] border border-white/5 shadow-lg"
                onClick={() => setShowLanding(false)}
             >
               <img src={logo} alt="ArcMail" className="w-5 h-5 object-contain brightness-0 invert" />
               Continue with ArcMail
-            </button>
+            </motion.button>
           </div>
           
           <AnimatePresence>
@@ -498,12 +508,16 @@ const MailLogin = () => {
           </AnimatePresence>
 
         </div>
-      </div>
+      </motion.div>
     ) : (
-      <div className="min-h-[100dvh] bg-[#0A0A0A] text-white flex flex-col font-sans relative">
+      <motion.div 
+        key="auth-form"
+        initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+        className="min-h-[100dvh] bg-[#0A0A0A] text-white flex flex-col font-sans relative"
+      >
         
         {/* Top Header Section */}
-        <div className="pt-14 px-6 pb-28 flex-shrink-0">
+        <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.3, duration: 0.5 }} className="pt-14 px-6 pb-28 flex-shrink-0">
           <button 
             type="button" 
             onClick={() => {
@@ -521,16 +535,16 @@ const MailLogin = () => {
              <ArrowRight size={18} className="rotate-180 text-white shadow-sm" />
           </button>
           
-          <h1 className="text-[28px] font-bold leading-tight tracking-tight text-white mb-2">
+          <motion.h1 initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: 0.4, duration: 0.5 }} className="text-[28px] font-bold leading-tight tracking-tight text-white mb-2">
             Go ahead and set up<br/>your account
-          </h1>
-          <p className="text-[13px] text-white/50">
+          </motion.h1>
+          <motion.p initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: 0.5, duration: 0.5 }} className="text-[13px] text-white/50">
             Sign in-up to enjoy the best managing experience
-          </p>
-        </div>
+          </motion.p>
+        </motion.div>
 
         {/* White Form Card Sheet */}
-        <div className="flex-1 bg-white rounded-t-[36px] w-full mt-[-60px] px-6 pt-8 pb-10 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] flex flex-col relative z-20">
+        <motion.div initial={{ y: "100%", opacity: 0.5 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.1, duration: 0.6, ease: [0.16, 1, 0.3, 1] }} className="flex-1 bg-white rounded-t-[36px] w-full mt-[-60px] px-6 pt-8 pb-10 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] flex flex-col relative z-20">
           
           {error && (
             <div className="mb-6 rounded-2xl border border-red-500/20 bg-red-50 text-[13px] text-red-600 px-4 py-3 text-center font-medium">
@@ -635,8 +649,8 @@ const MailLogin = () => {
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="w-full bg-transparent text-[13px] font-bold text-black border-none outline-none placeholder:text-black/80 placeholder:font-bold"
-                      placeholder="name@arcbyte.co"
+                      className="w-full bg-transparent text-[13px] font-bold text-black border-none outline-none placeholder:text-gray-400 placeholder:font-normal"
+                      placeholder="name@company.com"
                       required
                     />
                   </div>
@@ -651,7 +665,7 @@ const MailLogin = () => {
                       type="password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="w-full bg-transparent text-[14px] font-bold text-black border-none outline-none placeholder:tracking-widest placeholder:text-black/80"
+                      className="w-full bg-transparent text-[14px] font-bold text-black border-none outline-none placeholder:tracking-widest placeholder:text-gray-400"
                       placeholder="•••••••••"
                       required
                     />
@@ -761,8 +775,8 @@ const MailLogin = () => {
             )}
           </AnimatePresence>
 
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
     ) : (
     <div className="min-h-screen bg-[#0B0C0A] text-white font-sans flex relative overflow-hidden selection:bg-[#90AC8F]/30 selection:text-white">
       {/* Background Grid Pattern */}
