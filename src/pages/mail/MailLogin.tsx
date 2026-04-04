@@ -563,7 +563,7 @@ const MailLogin = () => {
             </div>
           )}
 
-          {step === 'otp' || step === 'setup' ? (
+          {step === 'otp' ? (
             <div className="flex flex-col items-center pt-4">
               <div className="w-16 h-16 rounded-full bg-[#ECF3ED] flex items-center justify-center mb-6">
                 <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center text-white">
@@ -575,10 +575,10 @@ const MailLogin = () => {
                 Verify your account
               </h2>
               <p className="text-[13px] text-center text-gray-500 mb-8 max-w-[280px]">
-                Enter the {useBackup ? 'backup' : '5 digits verification'} code we have sent you
+                Enter the {useBackup ? 'backup' : '6-digit verification'} code from your authenticator
               </p>
 
-              <form onSubmit={step === 'otp' ? handleVerify2fa : handleConfirmSetup} className="w-full">
+              <form onSubmit={handleVerify2fa} className="w-full">
                 {useBackup ? (
                   <input
                     type="text"
@@ -594,11 +594,9 @@ const MailLogin = () => {
                   </div>
                 )}
                 
-                {step === 'otp' && (
-                  <button type="button" onClick={() => { setUseBackup(!useBackup); setOtp(''); }} className="w-full text-center text-[12px] text-black font-bold mt-2 mb-6 hover:underline">
-                    {useBackup ? 'Use authenticator code' : 'Use backup code instead'}
-                  </button>
-                )}
+                <button type="button" onClick={() => { setUseBackup(!useBackup); setOtp(''); }} className="w-full text-center text-[12px] text-black font-bold mt-2 mb-6 hover:underline">
+                  {useBackup ? 'Use authenticator code' : 'Use backup code instead'}
+                </button>
 
                 <button
                   type="submit"
@@ -606,6 +604,51 @@ const MailLogin = () => {
                   className="w-full h-14 rounded-full bg-[#202020] hover:bg-[#111111] transition-all text-white font-bold text-[14px] mt-4 flex justify-center items-center shadow-[0_4px_14px_rgba(0,0,0,0.3)] shadow-black/30"
                 >
                   {isLoading ? <Loader2 size={18} className="animate-spin" /> : 'Verify Account'}
+                </button>
+              </form>
+            </div>
+          ) : step === 'setup' ? (
+            <div className="flex flex-col items-center pt-2">
+              <div className="w-16 h-16 rounded-full bg-[#ECF3ED] flex items-center justify-center mb-4">
+                <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center text-white">
+                  <QrCode size={16} strokeWidth={4} />
+                </div>
+              </div>
+              
+              <h2 className="text-[22px] font-bold text-black mb-2 text-center leading-tight">
+                Set up 2FA
+              </h2>
+              <p className="text-[13px] text-center text-gray-500 mb-6 max-w-[280px]">
+                Scan the QR code with your authenticator app, or use the manual key below.
+              </p>
+
+              <div className="mb-6 bg-white p-2 border border-gray-100 rounded-2xl shadow-sm">
+                {qrDataUrl ? <img src={qrDataUrl} alt="2FA QR" className="w-32 h-32" /> : null}
+              </div>
+              
+              <div className="w-full mb-8">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 text-center">Manual Key</p>
+                <button
+                  type="button"
+                  onClick={() => void navigator.clipboard?.writeText(manualKey)}
+                  className="w-full py-3 bg-[#F7F7F7] border border-gray-200 rounded-[12px] text-center font-mono text-[12px] font-bold tracking-widest text-black active:scale-95 transition-all"
+                >
+                  {manualKey}
+                </button>
+              </div>
+
+              <form onSubmit={handleConfirmSetup} className="w-full">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 text-center">Enter 6-digit code to verify</p>
+                <div className="flex justify-center mb-4 w-full text-black">
+                   <SixDigitCodeInput value={otp} onChange={setOtp} disabled={isLoading} autoFocus />
+                </div>
+                
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full h-14 rounded-full bg-[#202020] hover:bg-[#111111] transition-all text-white font-bold text-[14px] mt-4 flex justify-center items-center shadow-[0_4px_14px_rgba(0,0,0,0.3)] shadow-black/30"
+                >
+                  {isLoading ? <Loader2 size={18} className="animate-spin" /> : 'Confirm Setup'}
                 </button>
               </form>
             </div>
