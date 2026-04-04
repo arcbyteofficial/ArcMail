@@ -5985,13 +5985,6 @@ const MailAppContent = () => {
                </>
              )}
 
-             <button className={cn(
-              isMobile ? "p-2.5 rounded-full transition-colors relative border border-transparent" : "p-3 rounded-full transition-colors relative border border-transparent",
-               isDark ? "text-[#B3B3B3] hover:text-white hover:bg-[#1A1A1A] hover:border-[#282828]" : "text-[#5E5E5E] hover:text-black hover:bg-[#F0F0F0] hover:border-[#E5E5E5]"
-             )}>
-                <div className={cn("absolute top-3 right-3 w-2 h-2 bg-[#1DB954] rounded-full border-2", isDark ? "border-[#0B0B0B]" : "border-white")} />
-                <Inbox size={20} />
-             </button>
           </div>
         </header>
 

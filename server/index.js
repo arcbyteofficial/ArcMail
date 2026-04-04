@@ -31,7 +31,7 @@ const envFiles = [
 for (const p of envFiles) {
   try {
     if (fs.existsSync(p)) dotenv.config({ path: p, override: !envIsProd });
-  } catch {}
+  } catch { }
 }
 
 let arcbyteLogoDataUri = '';
@@ -47,7 +47,7 @@ const getArcbyteLogoDataUri = () => {
       const buf = fs.readFileSync(p);
       arcbyteLogoDataUri = `data:image/png;base64,${buf.toString('base64')}`;
       return arcbyteLogoDataUri;
-    } catch {}
+    } catch { }
   }
   arcbyteLogoDataUri = '';
   return arcbyteLogoDataUri;
@@ -181,9 +181,9 @@ const SMTP_HOST = process.env.SMTP_HOST || 'smtp.hostinger.com';
 const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
 const SMTP_PORTS = typeof process.env.SMTP_PORTS === 'string'
   ? process.env.SMTP_PORTS
-      .split(',')
-      .map((s) => Number(s.trim()))
-      .filter((n) => Number.isFinite(n) && n > 0)
+    .split(',')
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isFinite(n) && n > 0)
   : null;
 const SMTP_CONNECTION_TIMEOUT = Number(process.env.SMTP_CONNECTION_TIMEOUT || 15000);
 const SMTP_GREETING_TIMEOUT = Number(process.env.SMTP_GREETING_TIMEOUT || 15000);
@@ -217,11 +217,11 @@ const S3_FORCE_PATH_STYLE = process.env.S3_FORCE_PATH_STYLE === '1' || process.e
 const S3_ENABLED = Boolean(S3_BUCKET && S3_ACCESS_KEY_ID && S3_SECRET_ACCESS_KEY);
 const s3 = S3_ENABLED
   ? new S3Client({
-      region: S3_REGION || 'auto',
-      endpoint: S3_ENDPOINT || undefined,
-      forcePathStyle: S3_FORCE_PATH_STYLE,
-      credentials: { accessKeyId: S3_ACCESS_KEY_ID, secretAccessKey: S3_SECRET_ACCESS_KEY },
-    })
+    region: S3_REGION || 'auto',
+    endpoint: S3_ENDPOINT || undefined,
+    forcePathStyle: S3_FORCE_PATH_STYLE,
+    credentials: { accessKeyId: S3_ACCESS_KEY_ID, secretAccessKey: S3_SECRET_ACCESS_KEY },
+  })
   : null;
 
 const DATABASE_URL = typeof process.env.DATABASE_URL === 'string' ? process.env.DATABASE_URL.trim() : '';
@@ -283,7 +283,9 @@ const corsOptions = {
         u.hostname === 'localhost' ||
         u.hostname === '127.0.0.1' ||
         u.hostname === 'arcbyte.co' ||
-        u.hostname.endsWith('.arcbyte.co')
+        u.hostname.endsWith('.arcbyte.co') ||
+        u.hostname === 'arcbyte.space' ||
+        u.hostname.endsWith('.arcbyte.space')
       ) {
         return cb(null, origin);
       }
@@ -311,7 +313,14 @@ app.use((req, res, next) => {
     (() => {
       try {
         const u = new URL(origin);
-        return u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === 'arcbyte.co' || u.hostname.endsWith('.arcbyte.co');
+        return (
+          u.hostname === 'localhost' ||
+          u.hostname === '127.0.0.1' ||
+          u.hostname === 'arcbyte.co' ||
+          u.hostname.endsWith('.arcbyte.co') ||
+          u.hostname === 'arcbyte.space' ||
+          u.hostname.endsWith('.arcbyte.space')
+        );
       } catch {
         return false;
       }
@@ -988,13 +997,13 @@ const getDomainPolicy = async () => {
     const domains =
       v && typeof v === 'object' && Array.isArray(v.domains)
         ? v.domains
-            .map((row) => {
-              if (!row || typeof row !== 'object') return null;
-              const domain = normalizeDomain(row.domain);
-              if (!domain) return null;
-              return { domain, blocked: row.blocked === true };
-            })
-            .filter(Boolean)
+          .map((row) => {
+            if (!row || typeof row !== 'object') return null;
+            const domain = normalizeDomain(row.domain);
+            if (!domain) return null;
+            return { domain, blocked: row.blocked === true };
+          })
+          .filter(Boolean)
         : null;
     if (!domains || !domains.length) return fallback;
     const uniq = [];
@@ -1011,13 +1020,13 @@ const getDomainPolicy = async () => {
   const domains =
     raw && typeof raw === 'object' && Array.isArray(raw.domains)
       ? raw.domains
-          .map((row) => {
-            if (!row || typeof row !== 'object') return null;
-            const domain = normalizeDomain(row.domain);
-            if (!domain) return null;
-            return { domain, blocked: row.blocked === true };
-          })
-          .filter(Boolean)
+        .map((row) => {
+          if (!row || typeof row !== 'object') return null;
+          const domain = normalizeDomain(row.domain);
+          if (!domain) return null;
+          return { domain, blocked: row.blocked === true };
+        })
+        .filter(Boolean)
       : null;
   if (!domains || !domains.length) return fallback;
   const uniq = [];
@@ -1033,13 +1042,13 @@ const getDomainPolicy = async () => {
 const setDomainPolicy = async ({ domains }) => {
   const sanitized = Array.isArray(domains)
     ? domains
-        .map((row) => {
-          if (!row || typeof row !== 'object') return null;
-          const domain = normalizeDomain(row.domain);
-          if (!domain) return null;
-          return { domain, blocked: row.blocked === true };
-        })
-        .filter(Boolean)
+      .map((row) => {
+        if (!row || typeof row !== 'object') return null;
+        const domain = normalizeDomain(row.domain);
+        if (!domain) return null;
+        return { domain, blocked: row.blocked === true };
+      })
+      .filter(Boolean)
     : [];
   const uniq = [];
   const seen = new Set();
@@ -1075,13 +1084,13 @@ const getEmailPolicy = async () => {
     const emails =
       v && typeof v === 'object' && Array.isArray(v.emails)
         ? v.emails
-            .map((row) => {
-              if (!row || typeof row !== 'object') return null;
-              const email = normalizeEmailKey(row.email);
-              if (!email || !email.includes('@')) return null;
-              return { email, blocked: row.blocked === true };
-            })
-            .filter(Boolean)
+          .map((row) => {
+            if (!row || typeof row !== 'object') return null;
+            const email = normalizeEmailKey(row.email);
+            if (!email || !email.includes('@')) return null;
+            return { email, blocked: row.blocked === true };
+          })
+          .filter(Boolean)
         : null;
     if (!emails || !emails.length) return fallback;
     const uniq = [];
@@ -1098,13 +1107,13 @@ const getEmailPolicy = async () => {
   const emails =
     raw && typeof raw === 'object' && Array.isArray(raw.emails)
       ? raw.emails
-          .map((row) => {
-            if (!row || typeof row !== 'object') return null;
-            const email = normalizeEmailKey(row.email);
-            if (!email || !email.includes('@')) return null;
-            return { email, blocked: row.blocked === true };
-          })
-          .filter(Boolean)
+        .map((row) => {
+          if (!row || typeof row !== 'object') return null;
+          const email = normalizeEmailKey(row.email);
+          if (!email || !email.includes('@')) return null;
+          return { email, blocked: row.blocked === true };
+        })
+        .filter(Boolean)
       : null;
   if (!emails || !emails.length) return fallback;
   const uniq = [];
@@ -1120,13 +1129,13 @@ const getEmailPolicy = async () => {
 const setEmailPolicy = async ({ emails }) => {
   const sanitized = Array.isArray(emails)
     ? emails
-        .map((row) => {
-          if (!row || typeof row !== 'object') return null;
-          const email = normalizeEmailKey(row.email);
-          if (!email || !email.includes('@')) return null;
-          return { email, blocked: row.blocked === true };
-        })
-        .filter(Boolean)
+      .map((row) => {
+        if (!row || typeof row !== 'object') return null;
+        const email = normalizeEmailKey(row.email);
+        if (!email || !email.includes('@')) return null;
+        return { email, blocked: row.blocked === true };
+      })
+      .filter(Boolean)
     : [];
   const uniq = [];
   const seen = new Set();
@@ -1386,10 +1395,10 @@ const parseAuth = (req) => {
     const twoFactorVerified = decoded.tfa === 1;
     const encPassword =
       decoded.ep &&
-      typeof decoded.ep === 'object' &&
-      typeof decoded.ep.iv === 'string' &&
-      typeof decoded.ep.tag === 'string' &&
-      typeof decoded.ep.ciphertext === 'string'
+        typeof decoded.ep === 'object' &&
+        typeof decoded.ep.iv === 'string' &&
+        typeof decoded.ep.tag === 'string' &&
+        typeof decoded.ep.ciphertext === 'string'
         ? decoded.ep
         : null;
     const csrfToken = typeof decoded.csrf === 'string' ? decoded.csrf : null;
@@ -1641,11 +1650,11 @@ const ensureSeen = async (client, uid) => {
     try {
       const info = await client.fetchOne(uid, { flags: true }, { uid: true });
       if (info && info.flags instanceof Set && info.flags.has('\\Seen')) return true;
-    } catch {}
+    } catch { }
     try {
       const info = await client.fetchOne(String(uid), { flags: true }, { uid: true });
       if (info && info.flags instanceof Set && info.flags.has('\\Seen')) return true;
-    } catch {}
+    } catch { }
     return false;
   };
   try {
@@ -1653,7 +1662,7 @@ const ensureSeen = async (client, uid) => {
   } catch {
     try {
       await client.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true });
-    } catch {}
+    } catch { }
   }
   if (await verify()) return true;
   try {
@@ -1661,19 +1670,19 @@ const ensureSeen = async (client, uid) => {
     if (info && typeof info.seq === 'number') {
       try {
         await client.messageFlagsAdd(info.seq, ['\\Seen'], { uid: false });
-      } catch {}
+      } catch { }
       if (await verify()) return true;
       try {
         await client.messageFlagsSet(info.seq, ['\\Seen'], { uid: false });
-      } catch {}
+      } catch { }
     }
-  } catch {}
+  } catch { }
   try {
     await client.messageFlagsSet(uid, ['\\Seen'], { uid: true });
   } catch {
     try {
       await client.messageFlagsSet(String(uid), ['\\Seen'], { uid: true });
-    } catch {}
+    } catch { }
   }
   return await verify();
 };
@@ -1991,12 +2000,12 @@ app.post('/api/admin/send-access-email', requireAdmin, express.json({ limit: '50
     '',
     ...(includePassword
       ? [
-          'If you suspect exposure, change the password in your mailbox provider immediately.',
-        ]
+        'If you suspect exposure, change the password in your mailbox provider immediately.',
+      ]
       : [
-          'For security, passwords are not sent over email.',
-          'If you need a password reset, contact your administrator or IT support.',
-        ]),
+        'For security, passwords are not sent over email.',
+        'If you need a password reset, contact your administrator or IT support.',
+      ]),
     '',
     'Enable 2FA (Google Authenticator):',
     '- Install Google Authenticator',
@@ -2453,10 +2462,10 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
   const sessionId = typeof decoded.sub === 'string' ? decoded.sub : '';
   const encPassword =
     decoded.ep &&
-    typeof decoded.ep === 'object' &&
-    typeof decoded.ep.iv === 'string' &&
-    typeof decoded.ep.tag === 'string' &&
-    typeof decoded.ep.ciphertext === 'string'
+      typeof decoded.ep === 'object' &&
+      typeof decoded.ep.iv === 'string' &&
+      typeof decoded.ep.tag === 'string' &&
+      typeof decoded.ep.ciphertext === 'string'
       ? decoded.ep
       : null;
   const csrfToken = typeof decoded.csrf === 'string' ? decoded.csrf : null;
@@ -2563,10 +2572,10 @@ app.post('/api/auth/confirm-2fa-preauth', async (req, res) => {
   const sessionId = typeof decoded.sub === 'string' ? decoded.sub : '';
   const encPassword =
     decoded.ep &&
-    typeof decoded.ep === 'object' &&
-    typeof decoded.ep.iv === 'string' &&
-    typeof decoded.ep.tag === 'string' &&
-    typeof decoded.ep.ciphertext === 'string'
+      typeof decoded.ep === 'object' &&
+      typeof decoded.ep.iv === 'string' &&
+      typeof decoded.ep.tag === 'string' &&
+      typeof decoded.ep.ciphertext === 'string'
       ? decoded.ep
       : null;
   const csrfToken = typeof decoded.csrf === 'string' ? decoded.csrf : null;
@@ -2692,14 +2701,14 @@ app.post('/api/auth/confirm-2fa', requireAuth, requireCsrf, async (req, res) => 
 
   const token = logoutAllSessions
     ? signToken({
-        sessionId: req.session.id,
-        email: req.session.email,
-        ttlMs: req.session.ttlMs,
-        encPassword: req.session.encPassword,
-        csrfToken: req.session.csrfToken,
-        sessionVersion: nextSv,
-        twoFactorVerified: true,
-      })
+      sessionId: req.session.id,
+      email: req.session.email,
+      ttlMs: req.session.ttlMs,
+      encPassword: req.session.encPassword,
+      csrfToken: req.session.csrfToken,
+      sessionVersion: nextSv,
+      twoFactorVerified: true,
+    })
     : null;
 
   return res.json({ ok: true, backupCodes: rawCodes, token, sessionVersion: nextSv });
@@ -2912,10 +2921,10 @@ app.put('/api/account/profile', requireAuth, express.json({ limit: '600kb' }), a
       avatarRaw === null && !displayName
         ? await deleteStoredProfile(emailKey)
         : await putStoredProfile(emailKey, {
-            displayName: displayName || null,
-            avatarUrl: avatarRaw === null ? null : avatarDataUrlToStore,
-            updatedAt: nextEntry.updatedAt,
-          });
+          displayName: displayName || null,
+          avatarUrl: avatarRaw === null ? null : avatarDataUrlToStore,
+          updatedAt: nextEntry.updatedAt,
+        });
     persisted = ok;
     storage = 'object';
   } else {
@@ -3017,7 +3026,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   const port = Number(process.env.FORGOT_SMTP_PORT || SMTP_PORT || 465);
   const user = typeof process.env.FORGOT_SMTP_USER === 'string' ? process.env.FORGOT_SMTP_USER : '';
   const pass = typeof process.env.FORGOT_SMTP_PASS === 'string' ? process.env.FORGOT_SMTP_PASS : '';
-  const from = process.env.FORGOT_SMTP_FROM || user || 'no-reply@mail.arcbyte.co';
+  const from = process.env.FORGOT_SMTP_FROM || user || 'no-reply@';
 
   if (!user || !pass) return res.status(501).json({ error: 'forgot_password_unconfigured' });
 
@@ -3119,8 +3128,8 @@ app.post('/api/auth/forgot-password', async (req, res) => {
                       <div style="display:flex;gap:12px;align-items:flex-start;">
                         <div style="width:40px;height:40px;border-radius:14px;background:#0B0B0B;display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(0,0,0,0.10);">
                           ${logoDataUri
-                            ? `<img src="${logoDataUri}" alt="ArcByte" width="22" height="22" style="display:block;width:22px;height:22px;object-fit:contain;" />`
-                            : `<span style="font-weight:900;color:#FFFFFF;font-size:12px;letter-spacing:0.08em;">ARC</span>`}
+      ? `<img src="${logoDataUri}" alt="ArcByte" width="22" height="22" style="display:block;width:22px;height:22px;object-fit:contain;" />`
+      : `<span style="font-weight:900;color:#FFFFFF;font-size:12px;letter-spacing:0.08em;">ARC</span>`}
                         </div>
                         <div style="min-width:0;">
                           <div class="title" style="font-size:18px;font-weight:800;letter-spacing:-0.02em;color:#0B0B0B;">Password Reset Request</div>
@@ -3317,11 +3326,11 @@ app.get('/api/mail/threads', requireAuth, async (req, res) => {
           ...t,
           ai: ai
             ? {
-                summary: ai.summary || null,
-                label: ai.label || null,
-                priority: Number.isFinite(ai.priority) ? ai.priority : null,
-                extractedData: ai.extractedData || null,
-              }
+              summary: ai.summary || null,
+              label: ai.label || null,
+              priority: Number.isFinite(ai.priority) ? ai.priority : null,
+              extractedData: ai.extractedData || null,
+            }
             : null,
         };
       });
@@ -3430,11 +3439,11 @@ app.get('/api/emails/priority', requireAuth, async (req, res) => {
         ...t,
         ai: ai
           ? {
-              summary: ai.summary || null,
-              label: ai.label || null,
-              priority: Number.isFinite(ai.priority) ? ai.priority : null,
-              extractedData: ai.extractedData || null,
-            }
+            summary: ai.summary || null,
+            label: ai.label || null,
+            priority: Number.isFinite(ai.priority) ? ai.priority : null,
+            extractedData: ai.extractedData || null,
+          }
           : null,
         _priority: priority,
       };
@@ -3638,22 +3647,22 @@ app.post('/api/ai/ask', requireAuth, async (req, res) => {
     const emailFromBody =
       bodyEmail && typeof bodyEmail === 'object'
         ? {
-            subject: typeof bodyEmail.subject === 'string' ? bodyEmail.subject : '',
-            fromName: typeof bodyEmail.fromName === 'string' ? bodyEmail.fromName : '',
-            fromAddress: typeof bodyEmail.fromAddress === 'string' ? bodyEmail.fromAddress : '',
-            to: Array.isArray(bodyEmail.to)
-              ? bodyEmail.to
-                  .map((a) =>
-                    a && typeof a === 'object'
-                      ? { name: typeof a.name === 'string' ? a.name : undefined, address: typeof a.address === 'string' ? a.address : '' }
-                      : null,
-                  )
-                  .filter((a) => a && typeof a.address === 'string' && a.address)
-              : [],
-            date: typeof bodyEmail.date === 'string' ? bodyEmail.date : '',
-            text: typeof bodyEmail.text === 'string' ? bodyEmail.text : '',
-            html: typeof bodyEmail.html === 'string' ? bodyEmail.html : '',
-          }
+          subject: typeof bodyEmail.subject === 'string' ? bodyEmail.subject : '',
+          fromName: typeof bodyEmail.fromName === 'string' ? bodyEmail.fromName : '',
+          fromAddress: typeof bodyEmail.fromAddress === 'string' ? bodyEmail.fromAddress : '',
+          to: Array.isArray(bodyEmail.to)
+            ? bodyEmail.to
+              .map((a) =>
+                a && typeof a === 'object'
+                  ? { name: typeof a.name === 'string' ? a.name : undefined, address: typeof a.address === 'string' ? a.address : '' }
+                  : null,
+              )
+              .filter((a) => a && typeof a.address === 'string' && a.address)
+            : [],
+          date: typeof bodyEmail.date === 'string' ? bodyEmail.date : '',
+          text: typeof bodyEmail.text === 'string' ? bodyEmail.text : '',
+          html: typeof bodyEmail.html === 'string' ? bodyEmail.html : '',
+        }
         : null;
 
     const emailKey = String(req.session.email || '').trim();
@@ -3818,7 +3827,7 @@ app.get('/api/mail/search', requireAuth, async (req, res) => {
                 const parsed = await simpleParser(msg.source);
                 hasAttachment = Array.isArray(parsed.attachments) && parsed.attachments.length > 0;
               }
-            } catch {}
+            } catch { }
             if (!hasAttachment) continue;
           }
 
@@ -3881,7 +3890,7 @@ app.get('/api/mail/threads/:id', requireAuth, async (req, res) => {
         if (!seen) {
           await ensureSeen(client, uid);
         }
-      } catch {}
+      } catch { }
 
       const parsed = msg.source ? await simpleParser(msg.source) : null;
       const to = normalizeAddressList(parsed?.to);
@@ -3924,7 +3933,7 @@ app.get('/api/mail/threads/:id', requireAuth, async (req, res) => {
             { createdAt: nowMs(), attachments: cached }
           );
         }
-      } catch {}
+      } catch { }
 
       const date = (msg.envelope?.date || parsed?.date || new Date()).toISOString();
       const subject = msg.envelope?.subject || parsed?.subject || '(no subject)';
@@ -3963,11 +3972,11 @@ app.get('/api/mail/threads/:id', requireAuth, async (req, res) => {
     const cached = await getEmailAI({ db, emailKey, folder, uid });
     const ai = cached
       ? {
-          summary: cached.summary || null,
-          label: cached.label || null,
-          priority: Number.isFinite(cached.priority) ? cached.priority : null,
-          extractedData: cached.extractedData || null,
-        }
+        summary: cached.summary || null,
+        label: cached.label || null,
+        priority: Number.isFinite(cached.priority) ? cached.priority : null,
+        extractedData: cached.extractedData || null,
+      }
       : null;
 
     if (!ai || !Number.isFinite(ai.priority)) {
@@ -4049,7 +4058,7 @@ app.get('/api/mail/threads/:id/attachments/:attachmentId', requireAuth, async (r
         return res.status(200).send(att.content);
       }
     }
-  } catch {}
+  } catch { }
 
   try {
     const result = await withImap({ email: req.session.email, password, folder }, async (client) => {
@@ -4253,21 +4262,20 @@ app.post('/api/mail/send', requireAuth, requireCsrf, async (req, res) => {
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
     <tr>
       <td style="padding:0 10px 0 0;vertical-align:middle;">
-        ${
-          fromAvatarDataUrl
-            ? `<img src="${escapeHtml(fromAvatarDataUrl)}" width="36" height="36" alt="${escapeHtml(
-                baseSignatureName
-              )}" style="display:block;width:36px;height:36px;border-radius:999px;object-fit:cover;" />`
-            : `<div style="width:36px;height:36px;border-radius:999px;background:#1DB954;color:#000;font-weight:900;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${escapeHtml(
-                String(baseSignatureName || '?')[0]?.toUpperCase() || '?'
-              )}</div>`
-        }
+        ${fromAvatarDataUrl
+        ? `<img src="${escapeHtml(fromAvatarDataUrl)}" width="36" height="36" alt="${escapeHtml(
+          baseSignatureName
+        )}" style="display:block;width:36px;height:36px;border-radius:999px;object-fit:cover;" />`
+        : `<div style="width:36px;height:36px;border-radius:999px;background:#1DB954;color:#000;font-weight:900;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">${escapeHtml(
+          String(baseSignatureName || '?')[0]?.toUpperCase() || '?'
+        )}</div>`
+      }
       </td>
       <td style="vertical-align:middle;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
         <div style="font-weight:800;font-size:13px;line-height:1.2;color:inherit;">${escapeHtml(baseSignatureName)}</div>
         <div style="font-weight:600;font-size:12px;line-height:1.2;color:rgba(127,127,127,0.95);">${escapeHtml(
-          req.session.email
-        )}</div>
+        req.session.email
+      )}</div>
       </td>
     </tr>
   </table>
@@ -4437,7 +4445,7 @@ app.post('/api/mail/send', requireAuth, requireCsrf, async (req, res) => {
               if (r.ok) savedTo = r.path;
               return true;
             });
-          } catch {}
+          } catch { }
         }
         return res.json({ ok: true, messageId, savedTo, from: fromHeader });
       } catch (err) {
