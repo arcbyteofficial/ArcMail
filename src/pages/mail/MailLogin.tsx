@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api/client';
-import { Lock, ArrowRight, Loader2, ShieldCheck, X, User, Phone, BadgeCheck, Mail, Check, Copy, QrCode, KeyRound } from 'lucide-react';
+import { Lock, ArrowRight, Loader2, ShieldCheck, X, User, Phone, BadgeCheck, Mail, Check, Copy, QrCode, KeyRound, Eye, EyeOff } from 'lucide-react';
 import logo from '../../assets/arcbyte.co Logo_white_transparent.png';
 import orionGalaxy from '../../assets/orion_galaxy.png';
 import loginImg from '../../assets/login.png';
@@ -186,6 +186,7 @@ const MailLogin = () => {
   const [fpSending, setFpSending] = useState(false);
   const { login, verify2FA, confirm2FASetup } = useAuth();
   const navigate = useNavigate();
+  const [showPassword, setShowPassword] = useState(false);
   const [apiInfo, setApiInfo] = useState<string>('');
   const [healthInfo, setHealthInfo] = useState<string>('');
   const [showLanding, setShowLanding] = useState(true);
@@ -672,7 +673,7 @@ const MailLogin = () => {
                   <div className="ml-3 flex-1 h-full flex flex-col justify-center">
                     <label className="text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-0.5">Password</label>
                     <input 
-                      type="password"
+                      type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className="w-full bg-transparent text-[14px] font-bold text-black border-none outline-none placeholder:tracking-widest placeholder:text-gray-400 autofill-light"
@@ -680,6 +681,9 @@ const MailLogin = () => {
                       required
                     />
                   </div>
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="p-2 -mr-2 text-gray-400 hover:text-black transition-colors focus:outline-none" aria-label="Toggle password visibility">
+                    {showPassword ? <EyeOff size={18} strokeWidth={2.5} /> : <Eye size={18} strokeWidth={2.5} />}
+                  </button>
                 </div>
 
                 <div className="flex items-center justify-between px-1 mt-3 mb-4">
@@ -941,15 +945,25 @@ const MailLogin = () => {
                         Forgot password?
                       </button>
                     </div>
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full h-[54px] bg-[#171917]/80 rounded-[12px] px-4 text-[13px] text-white placeholder-white/20 focus:outline-none focus:bg-[#1C1F1C] border border-transparent focus:border-[#526351]/50 transition-all font-medium tracking-widest mail-login-autofill"
-                      placeholder="••••••••••"
-                      autoComplete="current-password"
-                      required
-                    />
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full h-[54px] bg-[#171917]/80 rounded-[12px] px-4 pr-12 text-[13px] text-white placeholder-white/20 focus:outline-none focus:bg-[#1C1F1C] border border-transparent focus:border-[#526351]/50 transition-all font-medium tracking-widest mail-login-autofill"
+                        placeholder="••••••••••"
+                        autoComplete="current-password"
+                        required
+                      />
+                      <button 
+                        type="button" 
+                        onClick={() => setShowPassword(!showPassword)} 
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70 transition-colors focus:outline-none"
+                        aria-label="Toggle password visibility"
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
                     </div>
 
                     <div className="flex items-center justify-start mt-[-2px]">
