@@ -2817,55 +2817,59 @@ const ComposeModal = ({
                   exit={{ opacity: 0, y: 14, scale: 0.98 }}
                   transition={{ type: 'spring', stiffness: 420, damping: 32 }}
                   className={cn(
-                    "absolute inset-x-4 top-[16vh] z-[35] mx-auto max-w-lg rounded-3xl border shadow-2xl overflow-hidden",
-                    isDark ? "bg-[#121212] border-[#282828] text-white" : "bg-white border-[#E5E5E5] text-black"
+                    "absolute inset-x-4 top-[16vh] z-[35] mx-auto max-w-[500px] rounded-3xl border shadow-[0_24px_80px_rgba(0,0,0,0.8)] overflow-hidden",
+                    isDark ? "bg-[#141414] border-[#2A2A2A] text-white" : "bg-white border-[#E5E5E5] text-black"
                   )}
                 >
-                  <div className="h-[2px] bg-gradient-to-r from-transparent via-[#1DB954]/85 to-transparent" />
-                  <div className="p-6">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <div className={cn("text-xs font-bold tracking-widest uppercase flex items-center gap-2", isDark ? "text-white/45" : "text-black/45")}>
-                          <img src={arcByteLogo} alt="ArcByte" className="h-3.5 w-auto object-contain opacity-80" />
-                          ArcByte AI
-                        </div>
-                        <div className={cn("text-lg font-bold tracking-tight mt-1", isDark ? "text-white" : "text-black")}>What should this email say?</div>
-                        <div className={cn("text-sm mt-1", isDark ? "text-white/55" : "text-black/55")}>
-                          Example: “Write a polite follow-up asking for an update and propose a call tomorrow afternoon.”
-                        </div>
+                  <div className="absolute top-0 inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-[#1DB954] to-transparent opacity-80" />
+                  
+                  <div className="px-7 pt-7 pb-6">
+                    <div className="flex items-start justify-between">
+                      <div className={cn("text-[11px] font-extrabold tracking-[0.15em] uppercase flex items-center gap-2.5", isDark ? "text-white/60" : "text-black/60")}>
+                        <img src={arcByteLogo} alt="ArcByte" className="h-[14px] w-auto object-contain opacity-90" />
+                        ARCBYTE AI
                       </div>
                       <button
                         onClick={() => {
                           if (aiComposeBusy) return;
                           setAiComposeOpen(false);
                         }}
-                        className={cn("p-2 rounded-full transition-colors", isDark ? "text-white/55 hover:text-white hover:bg-[#1A1A1A]" : "text-black/55 hover:text-black hover:bg-[#F0F0F0]")}
+                        className={cn("p-1.5 -mr-1.5 -mt-1.5 rounded-full transition-colors", isDark ? "text-white/40 hover:text-white hover:bg-[#2A2A2A]" : "text-black/40 hover:text-black hover:bg-[#F0F0F0]")}
                         title="Close"
                       >
-                        <X size={18} />
+                        <X size={16} strokeWidth={2.5} />
                       </button>
                     </div>
 
-                    <div className="mt-5">
+                    <div className="mt-4">
+                      <div className={cn("text-[20px] font-bold tracking-tight", isDark ? "text-white" : "text-black")}>
+                        What should this email say?
+                      </div>
+                      <div className={cn("text-[13px] mt-1.5 leading-relaxed", isDark ? "text-[#949494]" : "text-black/55")}>
+                        Example: “Write a polite follow-up asking for an update and propose a call tomorrow afternoon.”
+                      </div>
+                    </div>
+
+                    <div className="mt-6">
                       <textarea
                         value={aiComposePrompt}
                         onChange={(e) => setAiComposePrompt(e.target.value)}
-                        placeholder="Describe the email you want to write…"
-                        rows={5}
+                        placeholder="Describe the email you want to write..."
+                        rows={4}
                         className={cn(
-                          "w-full rounded-2xl border px-4 py-3 text-[14px] outline-none resize-none",
+                          "w-full rounded-2xl border px-5 py-4 text-[14px] leading-relaxed outline-none resize-none transition-colors",
                           isDark
-                            ? "bg-[#0F0F0F] border-[#282828] text-white placeholder:text-white/30 focus:border-[#1DB954]/50"
-                            : "bg-white border-[#E5E5E5] text-black placeholder:text-black/30 focus:border-[#1DB954]/50"
+                            ? "bg-[#1A1A1A] border-[#2A2A2A] text-white placeholder:text-[#5E5E5E] focus:border-[#1DB954]/50 focus:bg-[#1E1E1E]"
+                            : "bg-[#F9F9F9] border-[#E5E5E5] text-black placeholder:text-[#949494] focus:border-[#1DB954]/50"
                         )}
                       />
                       {aiComposeError && (
-                        <div className={cn("mt-3 text-sm font-medium", isDark ? "text-red-300" : "text-red-700")}>{aiComposeError}</div>
+                        <div className={cn("mt-3 text-sm font-medium", isDark ? "text-red-400" : "text-red-600")}>{aiComposeError}</div>
                       )}
                     </div>
                   </div>
 
-                  <div className={cn("px-6 pb-6 flex items-center gap-3", isDark ? "bg-[#121212]" : "bg-white")}>
+                  <div className={cn("px-7 pb-7 flex items-center gap-3", isDark ? "bg-[#141414]" : "bg-white")}>
                     <button
                       onClick={() => {
                         if (aiComposeBusy) return;
@@ -2873,8 +2877,8 @@ const ComposeModal = ({
                       }}
                       disabled={aiComposeBusy}
                       className={cn(
-                        "flex-1 h-11 rounded-2xl font-bold text-[12px] border transition-colors",
-                        isDark ? "bg-transparent border-[#282828] text-white/75 hover:bg-[#1A1A1A] hover:text-white" : "bg-transparent border-[#E5E5E5] text-black/70 hover:bg-[#F6F6F6] hover:text-black"
+                        "flex-1 h-12 rounded-[24px] font-bold text-[13px] border transition-colors",
+                        isDark ? "bg-transparent border-[#333333] text-white hover:bg-[#1A1A1A]" : "bg-transparent border-[#E5E5E5] text-black hover:bg-[#F6F6F6]"
                       )}
                     >
                       Cancel
@@ -2882,16 +2886,16 @@ const ComposeModal = ({
                     <button
                       onClick={() => void runAiCompose()}
                       disabled={aiComposeBusy}
-                      className="flex-1 h-11 rounded-2xl font-bold text-[12px] bg-[#1DB954] hover:bg-[#1ED760] text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex-1 h-12 rounded-[24px] font-bold text-[13px] bg-[#1DB954] hover:bg-[#1ED760] text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_16px_rgba(29,185,84,0.2)]"
                     >
                       {aiComposeBusy ? (
                         <div className="flex items-center justify-center gap-2">
-                          <span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-                          <span>Generating…</span>
+                          <span className="w-4 h-4 border-[2.5px] border-black/30 border-t-black rounded-full animate-spin" />
+                          <span>Generating...</span>
                         </div>
                       ) : (
                         <div className="flex items-center justify-center gap-2">
-                          <Sparkles size={16} className="text-black/80" />
+                          <Sparkles size={16} className="text-black" />
                           <span>Generate</span>
                         </div>
                       )}
