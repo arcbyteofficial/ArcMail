@@ -6,6 +6,7 @@ import { api } from '../../api/client';
 import { Lock, ArrowRight, Loader2, ShieldCheck, X, User, Phone, BadgeCheck, Mail, Check, Copy, QrCode, KeyRound } from 'lucide-react';
 import logo from '../../assets/arcbyte.co Logo_white_transparent.png';
 import orionGalaxy from '../../assets/orion_galaxy.png';
+import loginImg from '../../assets/login.png';
 const SixDigitCodeInput = ({
   value,
   onChange,
@@ -161,6 +162,7 @@ const MobileSixDigitBoxesInput = ({
 const MailLogin = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showComingSoon, setShowComingSoon] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [step, setStep] = useState<'login' | 'otp' | 'setup' | 'backupCodes'>('login');
   const [preAuthToken, setPreAuthToken] = useState('');
@@ -424,61 +426,77 @@ const MailLogin = () => {
 
   return (
     isMobile ? showLanding ? (
-      <div className="min-h-[100dvh] w-full bg-[#111111] flex flex-col items-center justify-between pb-8 pt-12 px-6 relative z-10 font-sans overflow-hidden inset-0 fixed">
-        <div className="absolute top-0 inset-x-0 w-full h-[50dvh] bg-gradient-to-b from-[#1C1E1C]/80 to-transparent pointer-events-none" />
-
-        {/* Top Logo */}
-        <div className="flex items-center gap-2 mt-2 z-10 self-end">
-           <img src={logo} alt="ArcByte" className="w-[18px] h-[18px] object-contain invert opacity-90" />
-           <span className="font-bold text-white text-[15px] tracking-wide">arcmail</span>
+      <div className="min-h-[100dvh] w-full bg-[#111111] flex flex-col font-sans overflow-hidden inset-0 fixed z-[100]">
+        
+        {/* Top Illustration Area */}
+        <div className="relative w-full h-[60%] flex items-end justify-center px-4 pt-12">
+          {/* Abstract background elements mimicking the doodles */}
+          <div className="absolute top-[15%] right-[15%] w-8 h-8 rounded-full border border-[#F3D66A] border-dashed opacity-50 animate-spin-slow" />
+          <div className="absolute top-[30%] left-[10%] w-12 h-4 rounded-full bg-white/10 blur-sm" />
+          <div className="absolute top-[40%] right-[10%] w-16 h-6 rounded-full bg-white/10 blur-sm" />
+          <div className="absolute top-[50%] left-[20%] text-white/20 text-2xl rotate-12">✧</div>
+          
+          <img
+            src={loginImg}
+            alt="Hero Illustration"
+            className="w-full h-full object-contain object-bottom scale-[1.05]"
+          />
         </div>
 
-        {/* Center Mockup Graphic */}
-        <div className="relative mt-12 mb-6 w-[270px] h-[340px] rounded-[36px] bg-[#161616] border border-white/5 shadow-2xl flex flex-col items-center pt-8 px-5 overflow-hidden transform rotate-[-8deg] translate-x-4">
+        {/* Content Section */}
+        <div className="flex-1 px-8 flex flex-col justify-end pb-12 z-20 relative">
           
-           <div className="flex items-center gap-3 mb-8 w-full opacity-80">
-              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#6E8B74] to-[#405445] flex items-center justify-center text-white font-bold text-[12px] flex-shrink-0">JS</div>
-              <div className="flex flex-col">
-                 <div className="text-[10px] text-white/50 tracking-wider">Good Morning</div>
-                 <div className="text-[12px] font-bold text-white">Administrator</div>
-              </div>
-           </div>
+          {/* Headline */}
+          {/* Headline */}
+          <div className="mb-[42px] w-full text-left">
+             <h2 className="text-[38px] font-medium text-white leading-[1.1] tracking-tight">
+               <span className="relative inline-block">
+                  Organize Smarter.
+                  {/* Yellow arc underline */}
+                  <svg className="absolute -bottom-2 left-0 w-[110%] h-[12px] transform -rotate-1" viewBox="0 0 100 20" preserveAspectRatio="none">
+                     <path d="M 0 15 Q 50 0 100 10" fill="transparent" stroke="#F3D66A" strokeWidth="4" strokeLinecap="round" />
+                  </svg>
+               </span>
+               <br />
+               Work Faster
+             </h2>
+          </div>
 
-           <div className="text-[18px] font-bold text-white leading-[1.1] mb-6 w-full tracking-tight">
-             Empower Your Productivity with Seamless Tools
-           </div>
+          {/* Buttons */}
+          <div className="flex flex-col gap-[18px] w-full relative z-30">
+            <button 
+               className="w-full h-[64px] rounded-[32px] bg-[#1DB954] hover:bg-[#1AA34A] active:scale-[0.98] transition-all flex items-center justify-center gap-3 text-black font-bold text-[17px] shadow-[0_8px_30px_rgba(29,185,84,0.3)]"
+               onClick={() => {
+                   setShowComingSoon(true);
+                   setTimeout(() => setShowComingSoon(false), 2000);
+               }}
+            >
+              <img src="https://img.icons8.com/color/48/google-logo.png" alt="Google" className="w-6 h-6 brightness-0" />
+              Continue with Google
+            </button>
 
-           <div className="w-full rounded-[20px] bg-gradient-to-br from-[#2D2D2D]/60 to-[#252525]/40 backdrop-blur-md border border-white/10 p-5 flex flex-col gap-4">
-              <div className="text-[10px] font-bold text-[#A5C3AB] tracking-widest uppercase">High Priority Tasks</div>
-              <div className="flex items-center gap-3">
-                 <div className="w-[18px] h-[18px] rounded-[5px] bg-[#6E8B74] flex items-center justify-center shadow-lg">
-                   <Check size={12} className="text-white" strokeWidth={4} />
-                 </div>
-                 <div className="text-[12px] font-bold text-white/90">Audit security logs</div>
-              </div>
-              <div className="flex items-center gap-3 opacity-40">
-                 <div className="w-[18px] h-[18px] rounded-[5px] border-2 border-white/20" />
-                 <div className="text-[12px] text-white line-through font-semibold">Deploy ArcMail v2</div>
-              </div>
-              <div className="flex items-center gap-3 opacity-20">
-                 <div className="w-[18px] h-[18px] rounded-[5px] border-2 border-white/20" />
-                 <div className="text-[12px] text-white font-semibold">Review spam policies</div>
-              </div>
-           </div>
-        </div>
-
-        {/* Bottom Text and Button */}
-        <div className="flex flex-col items-start w-full z-10 max-w-sm mt-auto pb-4 pt-10">
-          <h2 className="text-[28px] font-bold text-white leading-[1.15] tracking-tight mb-4 pr-4">
-            Effortlessly Manage Your Tasks and Boost Productivity
-          </h2>
-          <p className="text-[14px] text-white/50 mb-10 max-w-[300px] leading-relaxed">
-            The ultimate secure communications app designed to streamline your workflow and supercharge observability.
-          </p>
+            <button 
+               className="w-full h-[64px] rounded-[32px] bg-[#000000] hover:bg-[#111111] active:scale-[0.98] transition-all flex items-center justify-center gap-3 text-white font-medium text-[17px] border border-white/5 shadow-lg"
+               onClick={() => setShowLanding(false)}
+            >
+              <img src={logo} alt="ArcMail" className="w-5 h-5 object-contain brightness-0 invert" />
+              Continue with ArcMail
+            </button>
+          </div>
           
-          <button onClick={() => setShowLanding(false)} className="w-full h-[58px] rounded-full bg-[#6E8B74] hover:bg-[#5C7561] active:scale-[0.98] transition-all text-white font-bold text-[16px] shadow-[0_8px_20px_-6px_rgba(110,139,116,0.6)]">
-            Get Started
-          </button>
+          <AnimatePresence>
+            {showComingSoon && (
+              <motion.div
+                initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                animate={{ opacity: 1, y: -45, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="absolute left-1/2 -translate-x-1/2 bottom-[170px] bg-white text-black px-4 py-1.5 rounded-full font-bold text-[12px] shadow-[0_8px_25px_rgba(255,255,255,0.2)] z-[40] whitespace-nowrap"
+              >
+                Coming soon!
+              </motion.div>
+            )}
+          </AnimatePresence>
+
         </div>
       </div>
     ) : (
@@ -523,7 +541,7 @@ const MailLogin = () => {
           {step === 'otp' || step === 'setup' ? (
             <div className="flex flex-col items-center pt-4">
               <div className="w-16 h-16 rounded-full bg-[#ECF3ED] flex items-center justify-center mb-6">
-                <div className="w-8 h-8 rounded-full bg-[#6E8B74] flex items-center justify-center text-white">
+                <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center text-white">
                   <Check size={16} strokeWidth={4} />
                 </div>
               </div>
@@ -541,7 +559,7 @@ const MailLogin = () => {
                     type="text"
                     value={otp}
                     onChange={(e) => setOtp(e.target.value)}
-                    className="w-full h-14 bg-[#F7F7F7] border border-gray-200 rounded-[16px] px-4 text-center tracking-widest text-[#6E8B74] font-bold outline-none focus:border-[#6E8B74]"
+                    className="w-full h-14 bg-[#F7F7F7] border border-gray-200 rounded-[16px] px-4 text-center tracking-widest text-black font-bold outline-none focus:border-black"
                     placeholder="XXXX-XXXX-XXXX"
                     autoFocus
                   />
@@ -552,7 +570,7 @@ const MailLogin = () => {
                 )}
                 
                 {step === 'otp' && (
-                  <button type="button" onClick={() => { setUseBackup(!useBackup); setOtp(''); }} className="w-full text-center text-[12px] text-[#6E8B74] font-bold mt-2 mb-6 hover:underline">
+                  <button type="button" onClick={() => { setUseBackup(!useBackup); setOtp(''); }} className="w-full text-center text-[12px] text-black font-bold mt-2 mb-6 hover:underline">
                     {useBackup ? 'Use authenticator code' : 'Use backup code instead'}
                   </button>
                 )}
@@ -560,7 +578,7 @@ const MailLogin = () => {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full h-14 rounded-full bg-[#6E8B74] hover:bg-[#5C7561] transition-all text-white font-bold text-[14px] mt-4 flex justify-center items-center shadow-[0_4px_14px_rgba(110,139,116,0.3)] shadow-[#6E8B74]/30"
+                  className="w-full h-14 rounded-full bg-[#202020] hover:bg-[#111111] transition-all text-white font-bold text-[14px] mt-4 flex justify-center items-center shadow-[0_4px_14px_rgba(0,0,0,0.3)] shadow-black/30"
                 >
                   {isLoading ? <Loader2 size={18} className="animate-spin" /> : 'Verify Account'}
                 </button>
@@ -569,7 +587,7 @@ const MailLogin = () => {
           ) : step === 'backupCodes' ? (
              <div className="flex flex-col pt-4 w-full text-black">
                 <div className="w-16 h-16 rounded-full bg-[#ECF3ED] flex items-center justify-center mb-6 self-center">
-                  <div className="w-8 h-8 rounded-full bg-[#6E8B74] flex items-center justify-center text-white">
+                  <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center text-white">
                     <Check size={16} strokeWidth={4} />
                   </div>
                 </div>
@@ -588,7 +606,7 @@ const MailLogin = () => {
                 <button
                   type="button"
                   onClick={() => navigate('/')}
-                  className="w-full h-14 rounded-full bg-[#6E8B74] hover:bg-[#5C7561] text-white font-bold text-[14px] transition-all"
+                  className="w-full h-14 rounded-full bg-[#202020] hover:bg-[#111111] text-white font-bold text-[14px] transition-all"
                 >
                   Complete Setup
                 </button>
@@ -609,8 +627,8 @@ const MailLogin = () => {
                 </div>
 
                 {/* Email Field */}
-                <div className="w-full h-[64px] rounded-[16px] border border-gray-200 focus-within:border-[#6E8B74] transition-colors flex items-center px-4 bg-white relative">
-                  <Mail size={18} className="text-[#6E8B74] shrink-0" />
+                <div className="w-full h-[64px] rounded-[16px] border border-gray-200 focus-within:border-black transition-colors flex items-center px-4 bg-white relative">
+                  <Mail size={18} className="text-black shrink-0" />
                   <div className="ml-3 flex-1 h-full flex flex-col justify-center">
                     <label className="text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-0.5">Email Address</label>
                     <input 
@@ -625,8 +643,8 @@ const MailLogin = () => {
                 </div>
 
                 {/* Password Field */}
-                <div className="w-full h-[64px] rounded-[16px] border border-gray-200 focus-within:border-[#6E8B74] transition-colors flex items-center px-4 bg-white relative">
-                  <Lock size={18} className="text-[#6E8B74] shrink-0" />
+                <div className="w-full h-[64px] rounded-[16px] border border-gray-200 focus-within:border-black transition-colors flex items-center px-4 bg-white relative">
+                  <Lock size={18} className="text-black shrink-0" />
                   <div className="ml-3 flex-1 h-full flex flex-col justify-center">
                     <label className="text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-0.5">Password</label>
                     <input 
@@ -644,12 +662,12 @@ const MailLogin = () => {
                   <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-black">
                      <span className="relative">
                         <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="peer sr-only" />
-                        <span className="block w-4 h-4 rounded-[4px] border border-gray-300 bg-white peer-checked:bg-[#6E8B74] peer-checked:border-[#6E8B74] transition-all" />
+                        <span className="block w-4 h-4 rounded-[4px] border border-gray-300 bg-white peer-checked:bg-black peer-checked:border-black transition-all" />
                         <Check size={12} strokeWidth={3} className="absolute inset-0 m-auto text-white opacity-0 peer-checked:opacity-100 transition-opacity pointer-events-none" />
                       </span>
                       Remember me
                   </label>
-                  <button type="button" onClick={() => setForgotOpen(true)} className="text-[12px] font-bold text-[#6E8B74] hover:text-[#5C7561] transition-colors">
+                  <button type="button" onClick={() => setForgotOpen(true)} className="text-[12px] font-bold text-black hover:text-[#333333] transition-colors">
                      Forgot Password?
                   </button>
                 </div>
@@ -657,7 +675,7 @@ const MailLogin = () => {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full h-[52px] rounded-full bg-[#6E8B74] hover:bg-[#5C7561] transition-colors text-white font-bold text-[14px] flex justify-center items-center shadow-[0_4px_14px_rgba(110,139,116,0.3)] shadow-[#6E8B74]/30"
+                  className="w-full h-[52px] rounded-full bg-[#202020] hover:bg-[#111111] transition-colors text-white font-bold text-[14px] flex justify-center items-center shadow-[0_4px_14px_rgba(0,0,0,0.3)] shadow-black/30"
                 >
                   {isLoading ? <Loader2 size={18} className="animate-spin" /> : 'Login'}
                 </button>
@@ -694,7 +712,7 @@ const MailLogin = () => {
               >
                  <div className="flex justify-between items-center mb-6 text-black">
                    <h2 className="text-[22px] font-bold">Resync Access</h2>
-                   <button onClick={() => setForgotOpen(false)} className="text-[#6E8B74] font-bold text-xs p-2 uppercase tracking-widest"><ArrowRight size={18} className="rotate-180"/></button>
+                   <button onClick={() => setForgotOpen(false)} className="text-black font-bold text-xs p-2 uppercase tracking-widest"><ArrowRight size={18} className="rotate-180"/></button>
                  </div>
                  
                  {fpError && (
@@ -706,35 +724,35 @@ const MailLogin = () => {
                  {fpSubmitted ? (
                    <div className="text-center pt-10 text-black">
                      <div className="w-16 h-16 mx-auto rounded-full bg-[#ECF3ED] flex items-center justify-center mb-4">
-                        <Check size={24} strokeWidth={3} className="text-[#6E8B74]" />
+                        <Check size={24} strokeWidth={3} className="text-black" />
                      </div>
                      <p className="font-bold text-[18px] mb-2">Request Made</p>
                      <p className="text-sm text-gray-500">Our team will be in touch shortly via alternative channels.</p>
                    </div>
                  ) : (
                     <form onSubmit={submitForgot} className="space-y-4 text-black pb-10">
-                       <div className="w-full h-[60px] rounded-[16px] border border-gray-200 focus-within:border-[#6E8B74] transition-colors flex flex-col justify-center px-4 bg-white">
+                       <div className="w-full h-[60px] rounded-[16px] border border-gray-200 focus-within:border-black transition-colors flex flex-col justify-center px-4 bg-white">
                          <label className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">Full Name</label>
                          <input value={fpFullName} onChange={(e) => setFpFullName(e.target.value)} required placeholder="John Doe" className="w-full bg-transparent text-[13px] font-bold text-black border-none outline-none" />
                        </div>
-                       <div className="w-full h-[60px] rounded-[16px] border border-gray-200 focus-within:border-[#6E8B74] transition-colors flex flex-col justify-center px-4 bg-white">
+                       <div className="w-full h-[60px] rounded-[16px] border border-gray-200 focus-within:border-black transition-colors flex flex-col justify-center px-4 bg-white">
                          <label className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">Employee ID</label>
                          <input value={fpEmployeeIdSuffix} onChange={(e) => setFpEmployeeIdSuffix(e.target.value)} required placeholder="Eg. 00871" className="w-full bg-transparent text-[13px] font-bold text-black border-none outline-none" />
                        </div>
-                       <div className="w-full h-[60px] rounded-[16px] border border-gray-200 focus-within:border-[#6E8B74] transition-colors flex flex-col justify-center px-4 bg-white">
+                       <div className="w-full h-[60px] rounded-[16px] border border-gray-200 focus-within:border-black transition-colors flex flex-col justify-center px-4 bg-white">
                          <label className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">Primary Phone</label>
                          <input value={fpPhone} onChange={(e) => setFpPhone(e.target.value)} required placeholder="9876543210" className="w-full bg-transparent text-[13px] font-bold text-black border-none outline-none" />
                        </div>
-                       <div className="w-full h-[60px] rounded-[16px] border border-gray-200 focus-within:border-[#6E8B74] transition-colors flex flex-col justify-center px-4 bg-white">
+                       <div className="w-full h-[60px] rounded-[16px] border border-gray-200 focus-within:border-black transition-colors flex flex-col justify-center px-4 bg-white">
                          <label className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">ArcMail Domain</label>
                          <input value={fpCompanyUser} onChange={(e) => setFpCompanyUser(e.target.value)} required placeholder="john.doe" className="w-full bg-transparent text-[13px] font-bold text-black border-none outline-none" />
                        </div>
-                       <div className="w-full h-[60px] rounded-[16px] border border-gray-200 focus-within:border-[#6E8B74] transition-colors flex flex-col justify-center px-4 bg-white">
+                       <div className="w-full h-[60px] rounded-[16px] border border-gray-200 focus-within:border-black transition-colors flex flex-col justify-center px-4 bg-white">
                          <label className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">Alternate Phone</label>
                          <input value={fpAltPhone} onChange={(e) => setFpAltPhone(e.target.value)} required placeholder="9876543210" className="w-full bg-transparent text-[13px] font-bold text-black border-none outline-none" />
                        </div>
                        
-                       <button type="submit" disabled={fpSending} className="w-full h-[52px] rounded-full bg-[#6E8B74] text-white font-bold text-[14px] mt-6 flex justify-center items-center shadow-[0_4px_14px_rgba(110,139,116,0.3)] shadow-[#6E8B74]/30">
+                       <button type="submit" disabled={fpSending} className="w-full h-[52px] rounded-full bg-[#202020] text-white font-bold text-[14px] mt-6 flex justify-center items-center shadow-[0_4px_14px_rgba(0,0,0,0.3)] shadow-black/30">
                          {fpSending ? <Loader2 size={18} className="animate-spin" /> : 'Request Reset'}
                        </button>
                     </form>
