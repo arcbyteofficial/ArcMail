@@ -71,7 +71,7 @@ const LanguageContext = React.createContext<{
 }>({
   language: 'en',
   setLanguage: () => {},
-  t: (key) => key,
+  t: (key: string) => key,
 });
 const useLanguage = () => React.useContext(LanguageContext);
 
@@ -4267,7 +4267,7 @@ const SettingsDropdown = ({ onOpenProfile }: { onOpenProfile?: () => void }) => 
                 transition={{ type: "spring", stiffness: 420, damping: 36 }}
                 className={cn("fixed inset-0 z-[80] flex flex-col", mobileIsDark ? "bg-[#0B0B0B]" : "bg-[#EEF2F6]")}
               >
-                <div className="h-16 px-6 flex items-center justify-between" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+                <div className="h-16 px-6 flex items-center justify-between box-content" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
                   <button
                     onClick={mobileView === 'main' ? close : () => setMobileView('main')}
                     className={cn(
@@ -5817,6 +5817,7 @@ const MailAppContent = () => {
         {/* Global Header */}
         <header className={cn(
           "h-16 md:h-20 flex items-center justify-between px-4 md:px-8 border-b z-50 shrink-0 sticky top-0 transition-all duration-300",
+          "pt-[env(safe-area-inset-top,0px)] box-content",
           isDark ? "bg-[#0B0B0B] border-[#1A1A1A]" : "bg-[#F6F6F6] border-[#E5E5E5]"
         )}>
           
@@ -6027,7 +6028,7 @@ const MailAppContent = () => {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.18 }}
               className={cn(
-                "fixed inset-x-0 top-16 z-[70] px-4 py-3 border-b",
+                "fixed inset-x-0 top-[calc(4rem+env(safe-area-inset-top,0px))] z-[70] px-4 py-3 border-b",
                 isDark ? "bg-[#0B0B0B] border-[#1A1A1A]" : "bg-[#F6F6F6] border-[#E5E5E5]"
               )}
             >

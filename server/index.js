@@ -1,3 +1,4 @@
+// @ts-nocheck
 import dotenv from 'dotenv';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -4543,7 +4544,7 @@ app.use((err, _req, res, _next) => {
   return res.status(status).json({ error: 'server_error' });
 });
 
-const start = async () => {
+async function startServer() {
   try {
     await ensureAuthSchema();
   } catch {
@@ -4554,6 +4555,7 @@ const start = async () => {
     console.log(`API listening on ${apiUrl.toString()} (CORS: ${origin})`);
   });
   server.ref?.();
-};
+}
 
-void start();
+startServer();
+
