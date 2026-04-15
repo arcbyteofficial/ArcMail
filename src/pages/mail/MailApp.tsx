@@ -5818,7 +5818,7 @@ const MailAppContent = () => {
         <header className={cn(
           "h-16 md:h-20 flex items-center justify-between px-4 md:px-8 border-b z-50 shrink-0 sticky top-0 transition-all duration-300",
           "pt-[env(safe-area-inset-top,0px)] box-content",
-          isDark ? "bg-[#0B0B0B] border-[#1A1A1A]" : "bg-[#F6F6F6] border-[#E5E5E5]"
+          isDark ? "bg-[#0B0B0B]/95 border-[#1A1A1A] backdrop-blur-md" : "bg-white/95 border-[#E5E5E5] backdrop-blur-md"
         )}>
           
           {/* Typing Greeting (Left) */}
@@ -6105,7 +6105,8 @@ const MailAppContent = () => {
             )}>
               {/* List Header */}
               <div className={cn(
-                "h-16 flex items-center justify-between px-6 pb-2 pt-2 sticky top-0 z-20 backdrop-blur-md border-b",
+                "h-16 flex items-center justify-between px-6 pb-2 pt-2 sticky z-20 backdrop-blur-md border-b",
+                isMobile ? "top-[calc(4rem+env(safe-area-inset-top,0px))]" : "top-0",
                 isDark ? "bg-[#121212]/95 border-[#1A1A1A]" : "bg-white/95 border-[#E5E5E5]"
               )}>
                  <div className="flex items-baseline gap-3">
