@@ -13,6 +13,9 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
+# Prune dev dependencies in-place so the runner stage gets a lean node_modules
+RUN npm prune --omit=dev
+
 # ---- Runtime stage ----
 FROM node:24-slim AS runner
 
@@ -20,9 +23,9 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Only copy what the server needs at runtime
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+# Copy pruned node_modules from builder (already compiled, no native rebuild needed)
+COPY --from=builder /app/node_modules ./node_modules
+COPY package.json ./
 
 # Copy built frontend assets and server code
 COPY --from=builder /app/dist ./dist
