@@ -5815,7 +5815,7 @@ const MailAppContent = () => {
       <main className={cn("flex-1 flex flex-col min-w-0 z-10", isDark ? "bg-[#121212]" : "bg-white")}>
         
         {/* Global Header */}
-        <header className={cn(
+        <div className={cn(
           "h-16 md:h-20 flex items-center justify-between px-4 md:px-8 border-b z-50 shrink-0 sticky top-0 transition-all duration-300",
           "pt-[env(safe-area-inset-top,0px)] box-content",
           isDark ? "bg-[#0B0B0B]/95 border-[#1A1A1A] backdrop-blur-md" : "bg-white/95 border-[#E5E5E5] backdrop-blur-md"
@@ -6018,7 +6018,7 @@ const MailAppContent = () => {
              )}
 
           </div>
-        </header>
+        </div>
 
         <AnimatePresence>
           {isMobile && mobileSearchOpen && (

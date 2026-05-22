@@ -5,7 +5,7 @@
   <p>
     <a href="https://mail.arcbyte.co">Frontend</a>
     ·
-    <a href="https://api.arcbyte.co/api/health">API Health</a>
+    <a href="https://api.arcmail.arcbyte.co/api/health">API Health</a>
   </p>
 </div>
 
@@ -89,7 +89,7 @@ npx tsc -b
 ### Frontend (Vite)
 
 - `VITE_API_URL`
-  - Example (production): `https://api.arcbyte.co`
+  - Example (production): `https://api.arcmail.arcbyte.co`
   - Example (local): `http://localhost:5050`
   - The client normalizes this to `.../api`.
 
@@ -159,7 +159,7 @@ Password delivery (not recommended):
 
 ## Production Deployment
 
-### Backend on Railway (api.arcbyte.co)
+### Backend on Railway (api.arcmail.arcbyte.co)
 
 - Start command: `npm start` (runs `node server/index.js`)
 - Health check: `GET /api/health`
@@ -170,14 +170,14 @@ Password delivery (not recommended):
 Two common approaches:
 
 1) Static upload (recommended)
-- Build locally with `VITE_API_URL=https://api.arcbyte.co`
+- Build locally with `VITE_API_URL=https://api.arcmail.arcbyte.co`
 - Upload `dist/` contents into `public_html/`
 - Copy `public/.htaccess` to `public_html/.htaccess` for SPA routing
 
 2) Hostinger Git Deploy + Node build
 - Configure the app to run `npm ci && npm run build`
 - Serve the built output (for example with `npm run preview -- --host 0.0.0.0 --port $PORT`)
-- Ensure `VITE_API_URL=https://api.arcbyte.co` is set in Hostinger’s environment variables
+- Ensure `VITE_API_URL=https://api.arcmail.arcbyte.co` is set in Hostinger’s environment variables
 
 ## Troubleshooting
 

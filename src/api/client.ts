@@ -20,7 +20,7 @@ const inferApiBase = () => {
       const backendHost = host;
       return `http://${backendHost}:5050/api`;
     }
-    return 'https://api.arcbyte.co/api';
+    return 'https://api.arcmail.arcbyte.co/api';
   } catch {
     return null;
   }
@@ -39,8 +39,8 @@ const API_URL = (() => {
       }
     })();
 
-  if (import.meta.env.DEV && isLocalHost() && allowRemote) return 'https://api.arcbyte.co/api';
-  return inferApiBase() || 'https://api.arcbyte.co/api';
+  if (import.meta.env.DEV && isLocalHost() && allowRemote) return 'https://api.arcmail.arcbyte.co/api';
+  return inferApiBase() || 'https://api.arcmail.arcbyte.co/api';
 })();
 
 export const api = axios.create({

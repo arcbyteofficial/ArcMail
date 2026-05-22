@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  arcmail:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: arcbyte/arcmail:latest
+    container_name: arcmail-app
+    restart: unless-stopped
+    ports:
+      - "5050:5050"
+    env_file:
+      - .env

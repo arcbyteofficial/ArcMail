@@ -28,14 +28,14 @@ export const getAdminBaseUrl = () => {
       const allowRemote = v === '1';
       if (!allowRemote) return inferLocalApi() || 'http://localhost:5050/api';
       const current = typeof api.defaults.baseURL === 'string' ? api.defaults.baseURL : '';
-      return current ? current : 'https://api.arcbyte.co/api';
+      return current ? current : 'https://api.arcmail.arcbyte.co/api';
     }
   } catch {
     void 0;
   }
 
   const current = typeof api.defaults.baseURL === 'string' ? api.defaults.baseURL : '';
-  return current || 'https://api.arcbyte.co/api';
+  return current || 'https://api.arcmail.arcbyte.co/api';
 };
 
 export const adminApi = axios.create({

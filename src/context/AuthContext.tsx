@@ -557,7 +557,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return {
           ok: false,
           error:
-            'API is misconfigured. Rebuild the frontend with VITE_API_URL=https://api.arcbyte.co (or https://api.arcbyte.co/api).',
+            'API is misconfigured. Rebuild the frontend with VITE_API_URL=https://api.arcmail.arcbyte.co (or https://api.arcmail.arcbyte.co/api).',
         };
       }
       if (res.data && typeof res.data === 'object' && 'require2FA' in res.data && (res.data as { require2FA?: unknown }).require2FA) {
